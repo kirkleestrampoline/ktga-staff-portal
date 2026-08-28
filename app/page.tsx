@@ -29,7 +29,7 @@ export default function LoginPage() {
       return;
     }
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/set-password`,
+      redirectTo: `${window.location.origin}/set-password?mode=recovery&email=${encodeURIComponent(email.toLowerCase())}`,
     });
     setMessage(error ? error.message : "Password reset email sent.");
   }
@@ -39,10 +39,10 @@ export default function LoginPage() {
       <div className="loginPanel">
         <form className="loginCard" onSubmit={signIn}>
           <div className="loginBrand">
-            <div className="brandMark">KT</div>
+            <div className="brandMark">AV</div>
             <div>
-              <div style={{ fontWeight: 850 }}>KTGA Staff Portal</div>
-              <div className="muted" style={{ fontSize: 12 }}>Hours, invoices and staff management</div>
+              <div style={{ fontWeight: 850 }}>AV Gymnastics Solutions</div>
+              <div className="muted" style={{ fontSize: 12 }}>Multi-venue staff & coaching portal</div>
             </div>
           </div>
           <h1>Welcome back</h1>
@@ -64,9 +64,9 @@ export default function LoginPage() {
           </button>
         </form>
       </div>
-      <aside className="loginAside">
-        <h2>One place for the people who run the programme.</h2>
-        <p>Simple monthly hours, self-employed invoicing and staff administration — designed around how a gymnastics club actually works.</p>
+      <aside className="loginAside"><div className="brandGlow brandGlowPurple"/><div className="brandGlow brandGlowGreen"/>
+        <h2>One place for your gymnastics teams.</h2>
+        <p>Track coaching hours across Kirklees, Greenhead and other venues, manage staff and submit monthly invoices from one secure portal.</p>
       </aside>
     </div>
   );
