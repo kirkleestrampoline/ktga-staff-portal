@@ -334,3 +334,35 @@ input:focus,select:focus,textarea:focus{border-color:var(--purple);box-shadow:0 
 .templateList{display:flex;flex-direction:column;gap:10px;margin:14px 0}.templateRow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;border:1px solid var(--border,#e6e8ec);border-radius:12px}.templateRow>div{display:flex;flex-direction:column;gap:3px}.templateRow span{font-size:12px;color:#667085}
 .checkCard small{display:flex;align-items:center;gap:6px;margin-top:6px;color:#6d3a91;font-weight:700}.checkCard small input{width:auto;min-height:auto}
 @media(max-width:720px){.orgSummaryRow{align-items:flex-start}.orgSummaryRow strong{text-align:right}.templateRow{align-items:flex-start}.templateRow .btn{min-width:76px}}
+
+
+/* V1.1.1 launch polish: mobile cards instead of horizontal admin tables */
+.mobileDataList{display:none}
+@media(max-width:820px){
+  .desktopDataTable{display:none!important}
+  .mobileDataList{display:grid;gap:10px;padding:0 12px 12px}
+  .mobileDataCard,.mobileAdminCard{width:100%;border:1px solid var(--line);border-radius:13px;background:#fff;padding:13px;color:var(--ink);text-align:left}
+  button.mobileDataCard{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .mobileDataCard>div{display:grid;gap:4px;min-width:0}.mobileDataCard>div>span{font-size:12px;color:var(--muted)}
+  .mobileAdminCard{display:grid;gap:12px}
+  .mobileAdminHead{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;min-width:0}
+  .mobileAdminHead>div{display:grid;gap:3px;min-width:0}.mobileAdminHead>div>span,.mobileAdminHead .row>div>span{font-size:11px;color:var(--muted);overflow-wrap:anywhere}
+  .mobileAdminStats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .mobileAdminStats>span{display:grid;gap:3px;padding:9px 10px;background:#f8f7fa;border-radius:9px;min-width:0}
+  .mobileAdminStats small{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}.mobileAdminStats strong{font-size:13px;overflow-wrap:anywhere}
+  .mobileAdminActions{display:grid;grid-template-columns:1fr;gap:8px}.mobileAdminActions .btn{width:100%}
+  .mobileReportRow{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center;border-bottom:1px solid var(--line);padding:12px 2px}
+  .mobileReportRow:last-child{border-bottom:0}.mobileReportRow span{font-size:12px;color:var(--muted)}.mobileReportRow b{font-size:13px}
+  .orgSummaryRow{display:grid;grid-template-columns:1fr;gap:6px;padding:12px 0}
+  .orgSummaryRow strong{text-align:left!important;font-size:13px}
+  .venueSummary{min-width:0}
+  .sectionHeader .btn{width:100%}
+  .staffFilters{min-width:0}
+  .venueBadges{flex-wrap:wrap}
+  .topbar,.main,.card,.section,.pageHead{max-width:100%;min-width:0}
+  .row{min-width:0}
+  .timesheetCard{overflow:hidden}
+}
+
+.versionBadge{font-size:10px;font-weight:800;letter-spacing:.04em;color:#6d3a91;background:#f3edf8;border:1px solid #e4d7ee;border-radius:999px;padding:4px 7px;white-space:nowrap}
+@media(max-width:820px){.versionBadge{display:none}}
