@@ -5,7 +5,7 @@ import { ChartIcon, ClockIcon, HomeIcon, InvoiceIcon, SettingsIcon, UserIcon, Us
 type Tab = "dashboard"|"timesheets"|"invoices"|"staff"|"reports"|"settings"|"profile";
 
 export default function Sidebar({tab,setTab,name,role,onSignOut,mobileOpen,onClose}:{tab:Tab;setTab:(t:Tab)=>void;name:string;role:string;onSignOut:()=>void;mobileOpen:boolean;onClose:()=>void}) {
-  const admin = role === "admin";
+  const admin = role === "admin" || role === "org_admin";
   const userInitials = name.split(" ").filter(Boolean).slice(0,2).map(x=>x[0]).join("").toUpperCase() || "AV";
   const items:{id:Tab;label:string;icon:any;admin?:boolean}[] = [
     {id:"dashboard",label:"Dashboard",icon:HomeIcon},

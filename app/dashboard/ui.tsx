@@ -10,16 +10,17 @@ import { CalendarIcon, CheckIcon, ClockIcon, InvoiceIcon, MenuIcon, PlusIcon, Po
 
 type Tab="dashboard"|"timesheets"|"invoices"|"staff"|"reports"|"settings"|"profile";
 type Profile={
-  id:string;full_name:string;email:string|null;phone:string|null;address:string|null;role:"coach"|"admin";
+  id:string;full_name:string;email:string|null;phone:string|null;address:string|null;role:"coach"|"org_admin"|"admin";
   hourly_rate:number;account_name:string|null;sort_code:string|null;account_number:string|null;utr:string|null;
   invoice_prefix:string|null;is_active:boolean;
   emergency_contact_name?:string|null;emergency_contact_phone?:string|null;
   dbs_expiry?:string|null;first_aid_expiry?:string|null;safeguarding_expiry?:string|null;qualifications?:string|null;
 };
-type Venue={id:string;name:string;slug:string;active:boolean;brand_color:string|null};
+type Venue={id:string;name:string;slug:string;active:boolean;brand_color:string|null;legal_name?:string|null;invoice_address?:string|null;invoice_prefix?:string|null;payment_note?:string|null};
+type ShiftTemplate={id:string;profile_id:string;venue_id:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;session_location:string|null;notes:string|null;active:boolean};
 type Shift={id?:string;coach_id:string;shift_date:string;start_time:string;finish_time:string;break_minutes:number;venue_id?:string|null;session_location:string|null;notes:string|null};
-type Timesheet={id:string;coach_id:string;month_start:string;status:"draft"|"submitted"|"paid";submitted_at:string|null;paid_at:string|null};
-type Invoice={id:string;coach_id:string;timesheet_id:string;invoice_number:string;invoice_date:string;hours:number;hourly_rate:number;total_amount:number;status:"awaiting_payment"|"paid"|"cancelled";created_at?:string};
+type Timesheet={id:string;coach_id:string;month_start:string;status:"draft"|"submitted"|"paid";submitted_at:string|null;paid_at:string|null;submitted_by?:string|null};
+type Invoice={id:string;coach_id:string;timesheet_id:string;venue_id?:string|null;invoice_number:string;invoice_date:string;hours:number;hourly_rate:number;total_amount:number;status:"awaiting_payment"|"paid"|"cancelled";created_at?:string};
 type Business={id:number;business_name:string;business_address:string|null;payment_note:string|null;cutoff_day:number};
 type AdminRow={coach:Profile;hours:number;value:number;timesheet:Timesheet|null;invoice:Invoice|null};
 type Audit={id:string;actor_id:string|null;subject_id:string|null;action:string;entity_type:string;entity_id:string|null;details:any;created_at:string};
@@ -36,7 +37,8 @@ const cutoffDate=(month:string,day=1)=>{const[y,m]=month.split("-").map(Number);
 const fmtStamp=(s:string)=>new Date(s).toLocaleString("en-GB",{dateStyle:"medium",timeStyle:"short"});
 
 export default function Dashboard({initialProfile}:{initialProfile:Profile}){
-  const isAdmin=initialProfile.role==="admin";
+  const isGlobalAdmin=initialProfile.role==="admin";
+  const isAdmin=initialProfile.role==="admin"||initialProfile.role==="org_admin";
   const [tab,setTab]=useState<Tab>("dashboard");
   const [month,setMonth]=useState(monthKey());
   const [ownProfile,setOwnProfile]=useState<Profile>(initialProfile);
@@ -65,6 +67,13 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const [staffEditVenueIds,setStaffEditVenueIds]=useState<string[]>([]);
   const [inviteVenueIds,setInviteVenueIds]=useState<string[]>([]);
   const [adminMonthShifts,setAdminMonthShifts]=useState<Shift[]>([]);
+  const [templates,setTemplates]=useState<ShiftTemplate[]>([]);
+  const [templateOpen,setTemplateOpen]=useState(false);
+  const [auditOpen,setAuditOpen]=useState(false);
+  const [staffEditAdminVenueIds,setStaffEditAdminVenueIds]=useState<string[]>([]);
+  const [inviteRole,setInviteRole]=useState<"coach"|"org_admin">("coach");
+  const [venueDrafts,setVenueDrafts]=useState<Record<string,Venue>>({});
+  const [managedVenueIds,setManagedVenueIds]=useState<string[]>([]);
 
   const totalHours=useMemo(()=>shifts.reduce((a,s)=>a+shiftHours(s),0),[shifts]);
   const totalValue=totalHours*Number(activeCoach.hourly_rate||0);
@@ -74,7 +83,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const viewingOther=isAdmin&&activeCoach.id!==initialProfile.id;
 
   useEffect(()=>{void loadBusiness();void loadVenues();void loadStaff();void loadInvoices();if(isAdmin)void loadAudits();},[]);
-  useEffect(()=>{void loadCoachMonth(activeCoach.id);if(isAdmin)void loadAdmin();},[month,activeCoach.id]);
+  useEffect(()=>{void loadCoachMonth(activeCoach.id);void loadTemplates(activeCoach.id);if(isAdmin)void loadAdmin();},[month,activeCoach.id]);
   useEffect(()=>{if(tab==="invoices")void loadInvoices();if(tab==="staff"&&isAdmin)void loadStaff();if(tab==="reports"&&isAdmin)void loadAudits();},[tab]);
 
   async function loadCoachMonth(coachId:string){
@@ -87,7 +96,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     const t=(ts||null) as Timesheet|null;
     setTimesheet(t);
     if(t){
-      const {data:inv}=await supabase.from("invoices").select("*").eq("timesheet_id",t.id).maybeSingle();
+      const {data:inv}=await supabase.from("invoices").select("*").eq("timesheet_id",t.id).limit(1).maybeSingle();
       setInvoice((inv||null) as Invoice|null);
     } else setInvoice(null);
   }
@@ -95,32 +104,42 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   async function loadVenues(){
     const{data}=await supabase.from("venues").select("*").eq("active",true).order("name");
     setVenues((data||[]) as Venue[]);
-    const{data:links}=await supabase.from("staff_venues").select("profile_id,venue_id");
+    setVenueDrafts(Object.fromEntries(((data||[]) as Venue[]).map(v=>[v.id,{...v}])));
+    const{data:links}=await supabase.from("staff_venues").select("profile_id,venue_id,is_admin");
     const map:Record<string,string[]>={};
     for(const l of links||[]){if(!map[l.profile_id])map[l.profile_id]=[];map[l.profile_id].push(l.venue_id)}
     setStaffVenueMap(map);
     setOwnVenueIds(map[initialProfile.id]||[]);
+    setManagedVenueIds(initialProfile.role==="admin"?((data||[]) as Venue[]).map(v=>v.id):(links||[]).filter((x:any)=>x.profile_id===initialProfile.id&&x.is_admin).map((x:any)=>x.venue_id));
   }
 
   async function refreshVenueMemberships(){
-    const{data:links}=await supabase.from("staff_venues").select("profile_id,venue_id");
+    const{data:links}=await supabase.from("staff_venues").select("profile_id,venue_id,is_admin");
     const map:Record<string,string[]>={};
     for(const l of links||[]){if(!map[l.profile_id])map[l.profile_id]=[];map[l.profile_id].push(l.venue_id)}
     setStaffVenueMap(map);setOwnVenueIds(map[initialProfile.id]||[]);
   }
 
-  async function saveVenueMemberships(profileId:string,ids:string[]){
+  async function saveVenueMemberships(profileId:string,ids:string[],adminIds:string[]|null=null){
+    let keepAdminIds=adminIds;
+    if(keepAdminIds===null){const{data:existing}=await supabase.from("staff_venues").select("venue_id,is_admin").eq("profile_id",profileId);keepAdminIds=(existing||[]).filter((x:any)=>x.is_admin).map((x:any)=>x.venue_id)}
     const del=await supabase.from("staff_venues").delete().eq("profile_id",profileId);
     if(del.error)return del.error;
-    if(ids.length){const ins=await supabase.from("staff_venues").insert(ids.map(venue_id=>({profile_id:profileId,venue_id})));if(ins.error)return ins.error}
+    if(ids.length){const ins=await supabase.from("staff_venues").insert(ids.map(venue_id=>({profile_id:profileId,venue_id,is_admin:(keepAdminIds||[]).includes(venue_id)})));if(ins.error)return ins.error}
     await refreshVenueMemberships();return null;
   }
 
   function venueName(id?:string|null){return venues.find(v=>v.id===id)?.name||"Unassigned"}
   function profileVenues(id:string){return (staffVenueMap[id]||[]).map(v=>venues.find(x=>x.id===v)).filter(Boolean) as Venue[]}
+  function adminVenues(){return isGlobalAdmin?venues:venues.filter(v=>managedVenueIds.includes(v.id))}
+
+  async function loadTemplates(profileId:string){
+    const{data}=await supabase.from("shift_templates").select("*").eq("profile_id",profileId).eq("active",true).order("weekday").order("start_time");
+    setTemplates((data||[]) as ShiftTemplate[]);
+  }
 
   async function loadStaff(){
-    const{data}=await supabase.from("profiles").select("*").eq("role","coach").order("full_name");
+    const{data}=await supabase.from("profiles").select("*").neq("role","admin").order("full_name");
     setStaff((data||[]) as Profile[]);
   }
 
@@ -137,10 +156,10 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
 
   async function loadInvoices(){
     if(isAdmin){
-      const{data}=await supabase.from("invoices").select("*,profiles(full_name,email,account_name,sort_code,account_number,address)").order("invoice_date",{ascending:false}).limit(300);
+      const{data}=await supabase.from("invoices").select("*,profiles(full_name,email,account_name,sort_code,account_number,address),venues(name,legal_name,invoice_address,invoice_prefix,payment_note)").order("invoice_date",{ascending:false}).limit(300);
       setAllInvoices(data||[]);
     }else{
-      const{data}=await supabase.from("invoices").select("*").eq("coach_id",initialProfile.id).order("invoice_date",{ascending:false}).limit(120);
+      const{data}=await supabase.from("invoices").select("*,venues(name,legal_name,invoice_address,invoice_prefix,payment_note)").eq("coach_id",initialProfile.id).order("invoice_date",{ascending:false}).limit(120);
       setAllInvoices(data||[]);
     }
   }
@@ -172,6 +191,11 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   function flash(t:string){setMessage(t);window.setTimeout(()=>setMessage(""),4500)}
   async function signOut(){await supabase.auth.signOut();window.location.href="/"}
   function selectCoach(c:Profile){setActiveCoach(c);setTab("timesheets")}
+  async function openStaffEdit(s:Profile){
+    setStaffEdit({...s});setStaffEditVenueIds(staffVenueMap[s.id]||[]);
+    const{data}=await supabase.from("staff_venues").select("venue_id,is_admin").eq("profile_id",s.id);
+    setStaffEditAdminVenueIds((data||[]).filter((x:any)=>x.is_admin).map((x:any)=>x.venue_id));
+  }
   function backToAdmin(){setActiveCoach(initialProfile)}
 
   async function saveOwnProfile(){
@@ -185,7 +209,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     const{error}=await supabase.from("profiles").update(editable).eq("id",initialProfile.id);
     setSaving(false);
     flash(error?error.message:"Profile saved.");
-    if(!error){const ve=await saveVenueMemberships(initialProfile.id,ownVenueIds);if(ve){flash(ve.message);return}setOwnProfile({...p,...editable} as Profile);if(!isAdmin)setActiveCoach({...activeCoach,...editable} as Profile);void loadStaff()}
+    if(!error){if(initialProfile.role==="coach"){const ve=await saveVenueMemberships(initialProfile.id,ownVenueIds);if(ve){flash(ve.message);return}}setOwnProfile({...p,...editable} as Profile);if(!isAdmin)setActiveCoach({...activeCoach,...editable} as Profile);void loadStaff()}
   }
 
   async function saveStaff(){
@@ -193,6 +217,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     setSaving(true);
     const payload={
       full_name:staffEdit.full_name,phone:staffEdit.phone,address:staffEdit.address,hourly_rate:Number(staffEdit.hourly_rate||0),is_active:staffEdit.is_active,
+      ...(isGlobalAdmin?{role:staffEdit.role}:{}),
       account_name:staffEdit.account_name,sort_code:staffEdit.sort_code,account_number:staffEdit.account_number,utr:staffEdit.utr,invoice_prefix:staffEdit.invoice_prefix,
       emergency_contact_name:staffEdit.emergency_contact_name||null,emergency_contact_phone:staffEdit.emergency_contact_phone||null,
       dbs_expiry:staffEdit.dbs_expiry||null,first_aid_expiry:staffEdit.first_aid_expiry||null,safeguarding_expiry:staffEdit.safeguarding_expiry||null,qualifications:staffEdit.qualifications||null
@@ -200,7 +225,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     const{error}=await supabase.from("profiles").update(payload).eq("id",staffEdit.id);
     setSaving(false);
     flash(error?error.message:"Staff profile saved.");
-    if(!error){const ve=await saveVenueMemberships(staffEdit.id,staffEditVenueIds);if(ve){flash(ve.message);return}setStaffEdit(null);void loadStaff();void loadAdmin();void loadAudits()}
+    if(!error){const ve=await saveVenueMemberships(staffEdit.id,staffEditVenueIds,staffEdit.role==="org_admin"?staffEditAdminVenueIds:[]);if(ve){flash(ve.message);return}setStaffEdit(null);void loadStaff();void loadAdmin();void loadAudits()}
   }
 
   async function saveBusiness(){
@@ -214,10 +239,10 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
 
   async function sendInvite(e:FormEvent){
     e.preventDefault();setSaving(true);
-    const res=await fetch("/api/invite",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({full_name:invite.name,email:invite.email,hourly_rate:Number(invite.rate),venue_ids:inviteVenueIds})});
+    const res=await fetch("/api/invite",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({full_name:invite.name,email:invite.email,hourly_rate:Number(invite.rate),venue_ids:inviteVenueIds,role:inviteRole,admin_venue_ids:inviteRole==="org_admin"?inviteVenueIds:[]})});
     const j=await res.json();setSaving(false);
     if(!res.ok){flash(j.error||"Could not send invitation.");return}
-    flash("Invitation sent.");setInviteOpen(false);setInvite({name:"",email:"",rate:""});setInviteVenueIds([]);void loadStaff();void loadAdmin();
+    flash("Invitation sent.");setInviteOpen(false);setInvite({name:"",email:"",rate:""});setInviteVenueIds([]);setInviteRole("coach");void loadStaff();void loadAdmin();
   }
 
   async function saveShift(){
@@ -265,7 +290,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     const dow=Number(prompt("Day of week: 1 Monday, 2 Tuesday, 3 Wednesday, 4 Thursday, 5 Friday, 6 Saturday, 0 Sunday","1"));
     if(Number.isNaN(dow))return;
     const start=prompt("Start time","16:30"),finish=prompt("Finish time","20:30");if(!start||!finish)return;
-    const available=(isAdmin?venues:profileVenues(activeCoach.id));
+    const available=(isAdmin?adminVenues():profileVenues(activeCoach.id));
     if(!available.length){flash("Select at least one venue on the staff profile first.");return}
     const venueText=available.map((v,i)=>`${i+1}. ${v.name}`).join("\n");
     const venueChoice=Number(prompt(`Choose venue:\n${venueText}`,"1")||1)-1;
@@ -281,6 +306,42 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     const{error}=await supabase.rpc("submit_own_timesheet",{p_month_start:`${month}-01`});
     flash(error?error.message:"Month submitted and invoice created.");
     if(!error){await loadCoachMonth(initialProfile.id);void loadInvoices();if(isAdmin)void loadAdmin()}
+  }
+
+  async function adminSubmitMonth(coachId=activeCoach.id){
+    const{error}=await supabase.rpc("admin_submit_timesheet",{p_coach_id:coachId,p_month_start:`${month}-01`});
+    flash(error?error.message:"Submitted on behalf of coach. Separate organisation invoices created.");
+    if(!error){await loadCoachMonth(coachId);void loadAdmin();void loadInvoices();void loadAudits()}
+  }
+
+  async function saveOrganisation(v:Venue){
+    const{error}=await supabase.from("venues").update({legal_name:v.legal_name||v.name,invoice_address:v.invoice_address||null,invoice_prefix:(v.invoice_prefix||"").toUpperCase(),payment_note:v.payment_note||null}).eq("id",v.id);
+    flash(error?error.message:`${v.name} invoice settings saved.`);
+    if(!error)void loadVenues();
+  }
+
+  async function addTemplate(){
+    const available=isAdmin?adminVenues():profileVenues(activeCoach.id);if(!available.length){flash("Assign an organisation first.");return}
+    const day=Number(prompt("Regular day: 1 Monday, 2 Tuesday, 3 Wednesday, 4 Thursday, 5 Friday, 6 Saturday, 0 Sunday","1"));
+    if(Number.isNaN(day)||day<0||day>6)return;
+    const choice=Number(prompt(`Organisation:\n${available.map((v,i)=>`${i+1}. ${v.name}`).join("\n")}`,"1")||1)-1;
+    const venue=available[choice]||available[0];
+    const start=prompt("Start time","16:30"),finish=prompt("Finish time","20:30");if(!start||!finish)return;
+    const session=prompt("Session / group","Coaching")||"";const brk=Number(prompt("Break minutes","0")||0);
+    const{error}=await supabase.from("shift_templates").insert({profile_id:activeCoach.id,venue_id:venue.id,weekday:day,start_time:start,finish_time:finish,break_minutes:brk,session_location:session,notes:""});
+    flash(error?error.message:"Regular shift saved.");if(!error)void loadTemplates(activeCoach.id);
+  }
+
+  async function deleteTemplate(t:ShiftTemplate){
+    if(!confirm("Delete this regular shift?"))return;const{error}=await supabase.from("shift_templates").delete().eq("id",t.id);flash(error?error.message:"Regular shift deleted.");if(!error)void loadTemplates(activeCoach.id);
+  }
+
+  async function fillMonthFromTemplates(){
+    if(!templates.length){flash("Add at least one regular shift first.");return}
+    if(shifts.length&&!confirm("This month already has shifts. Add regular shifts as well?"))return;
+    const[y,m]=month.split("-").map(Number),last=new Date(y,m,0).getDate(),rows:any[]=[];
+    for(const t of templates)for(let d=1;d<=last;d++)if(new Date(y,m-1,d).getDay()===t.weekday)rows.push({coach_id:activeCoach.id,shift_date:`${month}-${String(d).padStart(2,"0")}`,start_time:t.start_time,finish_time:t.finish_time,break_minutes:t.break_minutes,venue_id:t.venue_id,session_location:t.session_location,notes:t.notes});
+    const{error}=await supabase.from("shifts").insert(rows);flash(error?error.message:`Added ${rows.length} regular shifts.`);if(!error){void loadCoachMonth(activeCoach.id);if(isAdmin)void loadAdmin()}
   }
 
   async function unsubmitMonth(){
@@ -318,6 +379,12 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     setStaffEdit(null);flash("Staff account deleted.");void loadStaff();void loadAdmin();void refreshVenueMemberships();
   }
 
+  async function markInvoicePaid(inv:Invoice){
+    const{error}=await supabase.rpc("admin_mark_invoice_paid",{p_invoice_id:inv.id});
+    flash(error?error.message:`${(inv as any).venues?.name||venueName(inv.venue_id)} invoice marked paid.`);
+    if(!error){void loadInvoices();void loadAdmin()}
+  }
+
   function pdfEscape(t:any){
     return String(t??"").replace(/\\/g,"\\\\").replace(/\(/g,"\\(").replace(/\)/g,"\\)").replace(/£/g,"\\243").replace(/[^\x20-\x7E\\]/g,"-");
   }
@@ -325,16 +392,18 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   function downloadPDF(inv:Invoice,coach:Profile){
     const amount=money(inv.total_amount),rate=money(inv.hourly_rate);
     const address=(coach.address||"").split("\n").slice(0,4);
-    const bill=(business.business_address||"").split("\n").slice(0,4);
+    const org=(inv as any).venues||venues.find(v=>v.id===inv.venue_id)||null;
+    const bill=String(org?.invoice_address||"").split("\n").slice(0,4);
+    const billName=org?.legal_name||org?.name||business.business_name;
     const lines:any[]=[
       [50,800,20,"INVOICE"],[50,775,11,coach.full_name],[50,759,9,coach.email||""],
       [410,800,11,inv.invoice_number],[410,784,9,new Date(inv.invoice_date).toLocaleDateString("en-GB")],
-      [50,700,9,"Bill to:"],[50,684,11,business.business_name],
+      [50,700,9,"Bill to:"],[50,684,11,billName],
       [50,610,10,"Description"],[310,610,10,"Hours"],[385,610,10,"Rate"],[470,610,10,"Amount"],
       [50,584,10,`Coaching services - ${monthLabel(inv.invoice_date.slice(0,7))}`],[310,584,10,Number(inv.hours).toFixed(2)],[385,584,10,rate],[470,584,10,amount],
       [390,530,13,"TOTAL"],[470,530,13,amount],
       [50,465,9,"Payment details:"],[50,449,9,`${coach.account_name||""}  ${coach.sort_code||""}  ${coach.account_number||""}`],
-      [50,425,8,business.payment_note||""]
+      [50,425,8,org?.payment_note||business.payment_note||""]
     ];
     let ay=744;for(const a of address){if(a)lines.push([50,ay,9,a]);ay-=13}
     let by=668;for(const b of bill){if(b)lines.push([50,by,9,b]);by-=13}
@@ -357,7 +426,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   }
 
   const submittedCount=adminRows.filter(r=>r.timesheet?.status==="submitted"||r.timesheet?.status==="paid").length;
-  const unpaidTotal=adminRows.filter(r=>r.invoice&&r.invoice.status!=="paid").reduce((a,r)=>a+Number(r.invoice?.total_amount||0),0);
+  const unpaidTotal=allInvoices.filter((i:any)=>i.status==="awaiting_payment").reduce((a:number,i:any)=>a+Number(i.total_amount||0),0);
   const adminHours=adminRows.reduce((a,r)=>a+r.hours,0);
   const filteredStaff=staff.filter(s=>`${s.full_name} ${s.email||""}`.toLowerCase().includes(search.toLowerCase()) && (!venueFilter||(staffVenueMap[s.id]||[]).includes(venueFilter)));
 
@@ -379,6 +448,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     {shiftModal&&ShiftModal()}
     {inviteOpen&&InviteModal()}
     {staffEdit&&StaffModal()}
+    {templateOpen&&TemplateModal()}
     <MobileNav tab={tab} setTab={(t:any)=>{setTab(t);if(t!=="timesheets")backToAdmin()}} role={initialProfile.role} name={initialProfile.full_name} open={mobileMoreOpen} setOpen={setMobileMoreOpen} onSignOut={signOut}/>
   </div>;
 
@@ -389,7 +459,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     if(isAdmin)return <><PageHead title={`Good ${new Date().getHours()<12?"morning":new Date().getHours()<18?"afternoon":"evening"}, ${initialProfile.full_name.split(" ")[0]}`} sub="Your current staffing, timesheet and invoice position."><MonthSelect/></PageHead>
       <div className="grid grid4"><StatCard label="Active coaches" value={String(adminRows.length)} foot="Self-employed staff" icon={<UsersIcon/>}/><StatCard label="Hours this month" value={adminHours.toFixed(2)} foot={monthLabel(month)} icon={<ClockIcon/>}/><StatCard label="Submitted" value={`${submittedCount}/${adminRows.length}`} foot={`${Math.max(0,adminRows.length-submittedCount)} outstanding`} icon={<CheckIcon/>}/><StatCard label="Unpaid invoices" value={money(unpaidTotal)} foot="Awaiting payment" icon={<PoundIcon/>}/></div>
       <div className="grid grid2 section"><div className="card"><div className="sectionHeader"><div><h2>Monthly status</h2><p>Open a coach to review or edit their shifts.</p></div><button className="btn btnSecondary" onClick={()=>setTab("timesheets")}>View all</button></div><div className="tableWrap"><table><thead><tr><th>Coach</th><th className="num">Hours</th><th>Status</th><th></th></tr></thead><tbody>{adminRows.slice(0,8).map(r=><tr key={r.coach.id}><td><strong>{r.coach.full_name}</strong></td><td className="num">{r.hours.toFixed(2)}</td><td><StatusPill status={r.timesheet?.status}/></td><td><button className="btn btnSecondary" onClick={()=>selectCoach(r.coach)}>Open</button></td></tr>)}</tbody></table></div></div>
-      <div className="card"><div className="sectionHeader"><div><h2>Recent activity</h2><p>Changes recorded by the portal.</p></div></div><div className="activityList">{audits.slice(0,8).map(a=><div className="activityItem" key={a.id}><div className="activityIcon"><ClockIcon/></div><div><div className="activityText">{a.action.replaceAll("_"," ")}</div><div className="activityTime">{fmtStamp(a.created_at)}</div></div></div>)}{!audits.length&&<div className="empty">Activity will appear here as staff use the portal.</div>}</div></div></div></>;
+      <div className="card"><div className="sectionHeader"><div><h2>By organisation</h2><p>Hours and estimated staffing cost this month.</p></div></div><div className="orgSummary">{venues.map(v=>{const vs=adminMonthShifts.filter(s=>s.venue_id===v.id);const h=vs.reduce((a,s)=>a+shiftHours(s),0);const cost=vs.reduce((a,s)=>a+shiftHours(s)*Number(staff.find(p=>p.id===s.coach_id)?.hourly_rate||0),0);return <div className="orgSummaryRow" key={v.id}><span><span className="venueDot" style={{background:v.brand_color||"#667085"}}/>{v.name}</span><strong>{h.toFixed(2)}h · {money(cost)}</strong></div>})}</div></div></div></>;
 
     return <><PageHead title={`Good ${new Date().getHours()<12?"morning":new Date().getHours()<18?"afternoon":"evening"}, ${ownProfile.full_name.split(" ")[0]}`} sub="Your hours and invoice for this month."><MonthSelect/></PageHead>
       {overdue&&<div className="notice danger">The normal submission deadline for {monthLabel(month)} has passed. Please submit your hours as soon as possible.</div>}
@@ -398,7 +468,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   }
 
   function TimesheetView(){
-    if(isAdmin&&!viewingOther)return <><PageHead title="Timesheets" sub="Open a coach to review, add, edit or delete their shifts."><MonthSelect/></PageHead><div className="card"><div className="sectionHeader"><div><h2>{monthLabel(month)}</h2><p>{submittedCount} of {adminRows.length} coaches submitted.</p></div></div><div className="tableWrap"><table><thead><tr><th>Coach</th><th className="num">Hours</th><th className="num">Value</th><th>Status</th><th>Actions</th></tr></thead><tbody>{adminRows.map(r=><tr key={r.coach.id}><td><strong>{r.coach.full_name}</strong><div className="muted" style={{fontSize:11}}>{r.coach.email}</div></td><td className="num">{r.hours.toFixed(2)}</td><td className="num">{money(r.value)}</td><td><StatusPill status={r.timesheet?.status}/></td><td><div className="row"><button className="btn btnSecondary" onClick={()=>selectCoach(r.coach)}>Open / edit</button>{r.timesheet?.status==="submitted"&&<><button className="btn btnSecondary" onClick={()=>reopen(r)}>Reopen</button><button className="btn btnPrimary" onClick={()=>markPaid(r)}>Mark paid</button></>}</div></td></tr>)}</tbody></table></div></div></>;
+    if(isAdmin&&!viewingOther)return <><PageHead title="Timesheets" sub="Open a coach to review, add, edit or delete their shifts."><MonthSelect/></PageHead><div className="card"><div className="sectionHeader"><div><h2>{monthLabel(month)}</h2><p>{submittedCount} of {adminRows.length} coaches submitted.</p></div></div><div className="tableWrap"><table><thead><tr><th>Coach</th><th className="num">Hours</th><th className="num">Value</th><th>Status</th><th>Actions</th></tr></thead><tbody>{adminRows.map(r=><tr key={r.coach.id}><td><strong>{r.coach.full_name}</strong><div className="muted" style={{fontSize:11}}>{r.coach.email}</div></td><td className="num">{r.hours.toFixed(2)}</td><td className="num">{money(r.value)}</td><td><StatusPill status={r.timesheet?.status}/></td><td><div className="row"><button className="btn btnSecondary" onClick={()=>selectCoach(r.coach)}>Open / edit</button>{(!r.timesheet||r.timesheet.status==="draft")&&r.hours>0&&<button className="btn btnPrimary" onClick={()=>adminSubmitMonth(r.coach.id)}>Submit on behalf</button>}{r.timesheet?.status==="submitted"&&<><button className="btn btnSecondary" onClick={()=>reopen(r)}>Reopen</button><button className="btn btnPrimary" onClick={()=>markPaid(r)}>Mark paid</button></>}</div></td></tr>)}</tbody></table></div></div></>;
 
     return <><PageHead title={viewingOther?`${activeCoach.full_name}'s timesheet`:"My timesheet"} sub={viewingOther?"Admin view — reopen submitted months before changing them.":"Add, check and submit your monthly hours."}><div className="row">{viewingOther&&<button className="btn btnSecondary" onClick={backToAdmin}>← All coaches</button>}<MonthSelect/></div></PageHead>{TimesheetCalendar({})}</>
   }
@@ -406,17 +476,17 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   function TimesheetCalendar({compact=false}:{compact?:boolean}){
     const[y,m]=month.split("-").map(Number),last=new Date(y,m,0).getDate(),start=(new Date(y,m-1,1).getDay()+6)%7;
     const canEdit=isAdmin ? timesheet?.status!=="submitted"&&timesheet?.status!=="paid" : !locked;
-    const defaultVenue=(isAdmin?venues[0]:profileVenues(activeCoach.id)[0])?.id||null;
+    const defaultVenue=(isAdmin?adminVenues()[0]:profileVenues(activeCoach.id)[0])?.id||null;
     const newShift=(date=`${month}-${String(Math.min(new Date().getDate(),last)).padStart(2,"0")}`)=>setShiftModal({coach_id:activeCoach.id,shift_date:date,start_time:"16:30",finish_time:"20:30",break_minutes:0,venue_id:defaultVenue,session_location:"",notes:""});
     const sorted=[...shifts].sort((a,b)=>`${a.shift_date}${a.start_time}`.localeCompare(`${b.shift_date}${b.start_time}`));
-    return <div className="card timesheetCard"><div className="calendarToolbar"><div><strong>{monthLabel(month)}</strong><div className="muted" style={{fontSize:11,marginTop:3}}>{viewingOther?`Viewing ${activeCoach.full_name}`:locked?"Submitted months are locked until unsubmitted.":"Add shifts, then submit the month when complete."}</div></div><div className="row">{canEdit&&<><button className="btn btnAccent mobilePrimaryAdd" onClick={()=>newShift()}><PlusIcon/>Add shift</button><button className="btn btnSecondary" onClick={copyPrevious}>Copy previous month</button><button className="btn btnSecondary" onClick={repeatWeekly}>Repeat weekly</button></>}</div></div>
+    return <div className="card timesheetCard"><div className="calendarToolbar"><div><strong>{monthLabel(month)}</strong><div className="muted" style={{fontSize:11,marginTop:3}}>{viewingOther?`Viewing ${activeCoach.full_name}`:locked?"Submitted months are locked until unsubmitted.":"Add shifts, then submit the month when complete."}{timesheet?.submitted_by&&timesheet.submitted_by!==activeCoach.id?" · Submitted by an administrator":""}</div></div><div className="row">{canEdit&&<><button className="btn btnAccent mobilePrimaryAdd" onClick={()=>newShift()}><PlusIcon/>Add shift</button><button className="btn btnSecondary" onClick={()=>setTemplateOpen(true)}>Regular shifts</button>{templates.length>0&&<button className="btn btnSecondary" onClick={fillMonthFromTemplates}>Fill month</button>}<button className="btn btnSecondary" onClick={copyPrevious}>Copy previous month</button></>}</div></div>
       <div className="mobileShiftList">
         {sorted.length===0?<div className="mobileEmpty"><ClockIcon/><strong>No shifts added yet</strong><span>Add your first shift for {monthLabel(month)}.</span>{canEdit&&<button className="btn btnAccent" onClick={()=>newShift()}><PlusIcon/>Add shift</button>}</div>:sorted.map(s=><button className="mobileShiftCard" key={s.id} onClick={()=>canEdit&&setShiftModal(s)}><div className="mobileShiftDate"><strong>{new Date(`${s.shift_date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric"})}</strong><span>{venueName(s.venue_id)}</span></div><div className="mobileShiftMain"><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</strong><span>{s.session_location||"Coaching"}</span></div><div className="mobileShiftHours">{shiftHours(s).toFixed(2)}h</div></button>)}
       </div>
       <div className="calendarScroll desktopCalendar"><div className="calendar">{["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d=><div className="dow" key={d}>{d}</div>)}{Array.from({length:start},(_,i)=><div className="day dayBlank" key={`b${i}`}/>) }
         {Array.from({length:last},(_,i)=>{const d=i+1,date=`${month}-${String(d).padStart(2,"0")}`,items=shifts.filter(s=>s.shift_date===date);return <div className="day" key={date}><div className="dayNum">{d}</div>{canEdit&&<button className="dayAdd" onClick={()=>newShift(date)}>+</button>}{items.map(s=><div className="shiftChip" key={s.id} onClick={()=>canEdit&&setShiftModal(s)}><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</strong><br/><span className="venueDot"/>{venueName(s.venue_id)}<br/>{s.session_location||"Coaching"}<br/><span className="muted">{shiftHours(s).toFixed(2)}h</span></div>)}</div>})}</div></div>
       <div className="calendarFooter"><div><strong>{totalHours.toFixed(2)} hours</strong><div className="muted" style={{fontSize:11}}>{money(totalValue)} at {money(activeCoach.hourly_rate)}/hr</div></div><div className="row">
-        {viewingOther?<>{timesheet?.status==="submitted"&&<button className="btn btnDanger" onClick={()=>{const r=adminRows.find(x=>x.coach.id===activeCoach.id);if(r)void reopen(r)}}>Reopen to edit</button>}{timesheet?.status==="paid"&&<span className="pill pillPaid"><span className="dot"/>Paid</span>}</>:<>
+        {viewingOther?<>{(!timesheet||timesheet.status==="draft")&&shifts.length>0&&<button className="btn btnPrimary" onClick={()=>adminSubmitMonth(activeCoach.id)}>Submit on behalf</button>}{timesheet?.status==="submitted"&&<button className="btn btnDanger" onClick={()=>{const r=adminRows.find(x=>x.coach.id===activeCoach.id);if(r)void reopen(r)}}>Reopen to edit</button>}{timesheet?.status==="paid"&&<span className="pill pillPaid"><span className="dot"/>Paid</span>}</>:<>
           {timesheet?.status==="submitted"&&<button className="btn btnDanger" onClick={unsubmitMonth}>Unsubmit & correct</button>}
           {timesheet?.status==="paid"?<span className="pill pillPaid"><span className="dot"/>Paid</span>:timesheet?.status!=="submitted"&&<button className="btn btnPrimary submitMonthButton" onClick={submitMonth}>Submit month & create invoice</button>}
         </>}
@@ -426,13 +496,13 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
 
   function InvoicesView(){
     return <><PageHead title="Invoices" sub={isAdmin?"All generated coach invoices and payment history.":"Your generated invoice archive."}/>
-      <div className="card"><div className="tableWrap"><table><thead><tr><th>Invoice</th>{isAdmin&&<th>Coach</th>}<th>Date</th><th className="num">Hours</th><th className="num">Amount</th><th>Status</th><th></th></tr></thead><tbody>{allInvoices.map((inv:any)=>{const coach=isAdmin?({...staff.find(s=>s.id===inv.coach_id),...(inv.profiles||{})} as Profile):ownProfile;return <tr key={inv.id}><td><strong>{inv.invoice_number}</strong></td>{isAdmin&&<td>{inv.profiles?.full_name||coach.full_name}</td>}<td>{dateText(inv.invoice_date)}</td><td className="num">{Number(inv.hours).toFixed(2)}</td><td className="num"><strong>{money(inv.total_amount)}</strong></td><td><StatusPill status={inv.status==="awaiting_payment"?"submitted":inv.status}/></td><td><button className="btn btnSecondary" onClick={()=>downloadPDF(inv,coach)}>Download PDF</button></td></tr>})}{!allInvoices.length&&<tr><td colSpan={isAdmin?7:6} className="empty">No invoices yet.</td></tr>}</tbody></table></div></div>
+      <div className="card"><div className="tableWrap"><table><thead><tr><th>Invoice</th>{isAdmin&&<th>Coach</th>}<th>Organisation</th><th>Date</th><th className="num">Hours</th><th className="num">Amount</th><th>Status</th><th></th></tr></thead><tbody>{allInvoices.map((inv:any)=>{const coach=isAdmin?({...staff.find(s=>s.id===inv.coach_id),...(inv.profiles||{})} as Profile):ownProfile;return <tr key={inv.id}><td><strong>{inv.invoice_number}</strong></td>{isAdmin&&<td>{inv.profiles?.full_name||coach.full_name}</td>}<td>{inv.venues?.name||venueName(inv.venue_id)}</td><td>{dateText(inv.invoice_date)}</td><td className="num">{Number(inv.hours).toFixed(2)}</td><td className="num"><strong>{money(inv.total_amount)}</strong></td><td><StatusPill status={inv.status==="awaiting_payment"?"submitted":inv.status}/></td><td><div className="row"><button className="btn btnSecondary" onClick={()=>downloadPDF(inv,coach)}>Download PDF</button>{isAdmin&&inv.status==="awaiting_payment"&&<button className="btn btnPrimary" onClick={()=>markInvoicePaid(inv)}>Mark paid</button>}</div></td></tr>})}{!allInvoices.length&&<tr><td colSpan={isAdmin?8:7} className="empty">No invoices yet.</td></tr>}</tbody></table></div></div>
     </>
   }
 
   function StaffView(){
     return <><PageHead title="Staff" sub="Manage coach accounts, rates, payment details and compliance."><button className="btn btnPrimary" onClick={()=>setInviteOpen(true)}><PlusIcon/>Invite coach</button></PageHead>
-      <div className="card"><div className="sectionHeader"><div className="staffFilters"><div className="searchBar"><SearchIcon/><input placeholder="Search staff…" value={search} onChange={e=>setSearch(e.target.value)}/></div><select value={venueFilter} onChange={e=>setVenueFilter(e.target.value)}><option value="">All venues</option>{venues.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select></div><div className="muted" style={{fontSize:12}}>{filteredStaff.length} staff</div></div><div className="tableWrap"><table><thead><tr><th>Coach & venues</th><th className="num">Rate</th><th>Bank</th><th>DBS</th><th>First aid</th><th>Status</th><th></th></tr></thead><tbody>{filteredStaff.map(s=><tr key={s.id}><td><div className="row"><div className="avatar" style={{background:"#eef1f4",color:"#344054"}}>{initials(s.full_name)}</div><div><strong>{s.full_name||"Unnamed coach"}</strong><div className="muted" style={{fontSize:11}}>{s.email}</div><div className="venueBadges">{profileVenues(s.id).map(v=><span className="venueBadge" key={v.id}>{v.name}</span>)}{!profileVenues(s.id).length&&<span className="venueBadge mutedBadge">No venue</span>}</div></div></div></td><td className="num">{money(s.hourly_rate)}</td><td>{s.account_number?"Supplied":"Missing"}</td><td>{dateText(s.dbs_expiry)}</td><td>{dateText(s.first_aid_expiry)}</td><td><span className={`pill ${s.is_active?"pillSubmitted":"pillDraft"}`}><span className="dot"/>{s.is_active?"Active":"Inactive"}</span></td><td><div className="row"><button className="btn btnSecondary" onClick={()=>{setStaffEdit({...s});setStaffEditVenueIds(staffVenueMap[s.id]||[])}}>Edit profile</button><button className="btn btnSecondary" onClick={()=>selectCoach(s)}>Timesheet</button></div></td></tr>)}</tbody></table></div></div>
+      <div className="card"><div className="sectionHeader"><div className="staffFilters"><div className="searchBar"><SearchIcon/><input placeholder="Search staff…" value={search} onChange={e=>setSearch(e.target.value)}/></div><select value={venueFilter} onChange={e=>setVenueFilter(e.target.value)}><option value="">All venues</option>{venues.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select></div><div className="muted" style={{fontSize:12}}>{filteredStaff.length} staff</div></div><div className="tableWrap"><table><thead><tr><th>Coach & venues</th><th className="num">Rate</th><th>Bank</th><th>DBS</th><th>First aid</th><th>Status</th><th></th></tr></thead><tbody>{filteredStaff.map(s=><tr key={s.id}><td><div className="row"><div className="avatar" style={{background:"#eef1f4",color:"#344054"}}>{initials(s.full_name)}</div><div><strong>{s.full_name||"Unnamed coach"}</strong><div className="muted" style={{fontSize:11}}>{s.email}</div><div className="venueBadges">{profileVenues(s.id).map(v=><span className="venueBadge" key={v.id}>{v.name}</span>)}{!profileVenues(s.id).length&&<span className="venueBadge mutedBadge">No venue</span>}</div></div></div></td><td className="num">{money(s.hourly_rate)}</td><td>{s.account_number?"Supplied":"Missing"}</td><td>{dateText(s.dbs_expiry)}</td><td>{dateText(s.first_aid_expiry)}</td><td><span className={`pill ${s.is_active?"pillSubmitted":"pillDraft"}`}><span className="dot"/>{s.is_active?"Active":"Inactive"}</span></td><td><div className="row"><button className="btn btnSecondary" onClick={()=>openStaffEdit(s)}>Edit profile</button><button className="btn btnSecondary" onClick={()=>selectCoach(s)}>Timesheet</button></div></td></tr>)}</tbody></table></div></div>
     </>
   }
 
@@ -441,16 +511,17 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     return <><PageHead title="Reports & audit" sub="Monthly staffing cost plus a trace of changes made in the portal."><MonthSelect/></PageHead>
       <div className="grid grid4"><StatCard label="Total hours" value={adminHours.toFixed(2)} foot={monthLabel(month)} icon={<ClockIcon/>}/><StatCard label="Estimated coach cost" value={money(adminRows.reduce((a,r)=>a+r.value,0))} foot="Hours × agreed rates" icon={<PoundIcon/>}/><StatCard label="Average hours" value={avg.toFixed(2)} foot="Per active coach" icon={<UsersIcon/>}/><StatCard label="Submission rate" value={adminRows.length?`${Math.round(submittedCount/adminRows.length*100)}%`:"0%"} foot={`${submittedCount} submitted`} icon={<CheckIcon/>}/></div>
       <div className="card section"><div className="sectionHeader"><div><h2>Hours & cost by venue</h2><p>Based on the venue selected on each shift.</p></div></div><div className="venueSummaryGrid">{venues.map(v=>{const vs=adminMonthShifts.filter(s=>s.venue_id===v.id);const hrs=vs.reduce((a,s)=>a+shiftHours(s),0);const cost=vs.reduce((a,s)=>a+shiftHours(s)*Number(staff.find(p=>p.id===s.coach_id)?.hourly_rate||0),0);const people=new Set(vs.map(s=>s.coach_id)).size;return <div className="venueSummary" key={v.id}><div className="venueSummaryName"><span className="venueSwatch" style={{background:v.brand_color||undefined}}/>{v.name}</div><strong>{hrs.toFixed(2)}h</strong><span>{money(cost)} · {people} staff</span></div>})}</div></div>
-      <div className="grid grid2 section"><div className="card"><div className="sectionHeader"><div><h2>Cost by coach</h2><p>Current selected month.</p></div></div><div className="tableWrap"><table><thead><tr><th>Coach</th><th className="num">Hours</th><th className="num">Cost</th></tr></thead><tbody>{[...adminRows].sort((a,b)=>b.value-a.value).map(r=><tr key={r.coach.id}><td>{r.coach.full_name}</td><td className="num">{r.hours.toFixed(2)}</td><td className="num">{money(r.value)}</td></tr>)}</tbody></table></div></div>
-      <div className="card"><div className="sectionHeader"><div><h2>Audit history</h2><p>Latest recorded changes.</p></div></div><div className="activityList">{audits.slice(0,30).map(a=><div className="activityItem" key={a.id}><div className="activityIcon"><ClockIcon/></div><div><div className="activityText"><strong>{a.action.replaceAll("_"," ")}</strong> · {a.entity_type}</div><div className="activityTime">{fmtStamp(a.created_at)}</div></div></div>)}{!audits.length&&<div className="empty">No recorded activity yet.</div>}</div></div></div>
+      <div className="section"><div className="card"><div className="sectionHeader"><div><h2>Cost by coach</h2><p>Current selected month.</p></div></div><div className="tableWrap"><table><thead><tr><th>Coach</th><th className="num">Hours</th><th className="num">Cost</th></tr></thead><tbody>{[...adminRows].sort((a,b)=>b.value-a.value).map(r=><tr key={r.coach.id}><td>{r.coach.full_name}</td><td className="num">{r.hours.toFixed(2)}</td><td className="num">{money(r.value)}</td></tr>)}</tbody></table></div></div></div>
+      {isGlobalAdmin&&<div className="section"><button className="btn btnSecondary" onClick={()=>setAuditOpen(!auditOpen)}>{auditOpen?"Hide activity history":"View activity history"}</button>{auditOpen&&<div className="card" style={{marginTop:12}}><div className="activityList">{audits.slice(0,30).map(a=><div className="activityItem" key={a.id}><div className="activityIcon"><ClockIcon/></div><div><div className="activityText"><strong>{a.action.replaceAll("_"," ")}</strong> · {a.entity_type}</div><div className="activityTime">{fmtStamp(a.created_at)}</div></div></div>)}{!audits.length&&<div className="empty">No recorded activity yet.</div>}</div></div>}</div>}
     </>
   }
 
   function SettingsView(){
-    return <><PageHead title="Business settings" sub="Details used on invoices and monthly submission."/><div className="card" style={{maxWidth:780}}>
+    const editableOrgs=isGlobalAdmin?venues:venues.filter(v=>managedVenueIds.includes(v.id));
+    return <>{isGlobalAdmin&&<><PageHead title="Portal settings" sub="Default submission settings for AV Gymnastics Solutions."/><div className="card" style={{maxWidth:780}}>
       <div className="formSection"><div className="formSectionTitle"><h3>Organisation</h3><p>Shown on generated invoices.</p></div><div className="field"><label>Business name</label><input value={business.business_name} onChange={e=>setBusiness({...business,business_name:e.target.value})}/></div><div className="field"><label>Business address</label><textarea value={business.business_address||""} onChange={e=>setBusiness({...business,business_address:e.target.value})}/></div></div>
       <div className="formSection"><div className="formSectionTitle"><h3>Timesheets & payment</h3><p>Submission is due on this day of the following month.</p></div><div className="grid grid2"><div className="field"><label>Cut-off day</label><select value={business.cutoff_day} onChange={e=>setBusiness({...business,cutoff_day:Number(e.target.value)})}>{Array.from({length:7},(_,i)=>i+1).map(d=><option value={d} key={d}>{d}{d===1?"st":d===2?"nd":d===3?"rd":"th"} of following month</option>)}</select></div><div className="field"><label>Payment note</label><input value={business.payment_note||""} onChange={e=>setBusiness({...business,payment_note:e.target.value})}/></div></div><button className="btn btnPrimary" onClick={saveBusiness} disabled={saving}>{saving?"Saving…":"Save settings"}</button></div>
-    </div></>
+    </div></>}<div className="section"><PageHead title="Organisation invoice settings" sub="Each organisation gets its own legal name and invoice address. A coach working at both gets separate invoices automatically."/><div className="grid grid2">{editableOrgs.map(v=>{const d=venueDrafts[v.id]||v;return <div className="card" key={v.id}><div className="formSection"><div className="formSectionTitle"><h3>{v.name}</h3><p>Used only for shifts/invoices belonging to this organisation.</p></div><div className="field"><label>Legal / invoice name</label><input value={d.legal_name||""} onChange={e=>setVenueDrafts({...venueDrafts,[v.id]:{...d,legal_name:e.target.value}})}/></div><div className="field"><label>Invoice address</label><textarea value={d.invoice_address||""} onChange={e=>setVenueDrafts({...venueDrafts,[v.id]:{...d,invoice_address:e.target.value}})}/></div><div className="grid grid2"><div className="field"><label>Invoice prefix</label><input value={d.invoice_prefix||""} onChange={e=>setVenueDrafts({...venueDrafts,[v.id]:{...d,invoice_prefix:e.target.value.toUpperCase()}})}/></div><div className="field"><label>Payment note</label><input value={d.payment_note||""} onChange={e=>setVenueDrafts({...venueDrafts,[v.id]:{...d,payment_note:e.target.value}})}/></div></div><button className="btn btnPrimary" onClick={()=>saveOrganisation(d)}>Save {v.name}</button></div></div>})}</div></div></>
   }
 
   function ProfileView(){
@@ -458,27 +529,33 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     return <><PageHead title="My profile" sub="Personal, payment, emergency and compliance information."/><div className="card profileHero"><div className="profileAvatar">{initials(p.full_name)}</div><div><div className="profileName">{p.full_name}</div><div className="profileMeta">{p.email} · {p.role}</div></div><div className="completion"><strong>{complete}% complete</strong><div className="progress"><span style={{width:`${complete}%`}}/></div></div></div>
       <div className="grid grid2 section"><div className="card"><div className="formSection"><div className="formSectionTitle"><h3>Personal details</h3></div><div className="field"><label>Name / trading name</label><input value={p.full_name} onChange={e=>setOwnProfile({...p,full_name:e.target.value})}/></div><div className="field"><label>Email</label><input value={p.email||""} disabled/></div><div className="field"><label>Mobile</label><input value={p.phone||""} onChange={e=>setOwnProfile({...p,phone:e.target.value})}/></div><div className="field"><label>Address</label><textarea value={p.address||""} onChange={e=>setOwnProfile({...p,address:e.target.value})}/></div><div className="grid grid2"><div className="field"><label>Emergency contact</label><input value={p.emergency_contact_name||""} onChange={e=>setOwnProfile({...p,emergency_contact_name:e.target.value})}/></div><div className="field"><label>Emergency phone</label><input value={p.emergency_contact_phone||""} onChange={e=>setOwnProfile({...p,emergency_contact_phone:e.target.value})}/></div></div></div></div>
       <div className="card"><div className="formSection"><div className="formSectionTitle"><h3>Payment details</h3><p>Used on self-employed invoices.</p></div><div className="field"><label>Account name</label><input value={p.account_name||""} onChange={e=>setOwnProfile({...p,account_name:e.target.value})}/></div><div className="grid grid2"><div className="field"><label>Sort code</label><input value={p.sort_code||""} onChange={e=>setOwnProfile({...p,sort_code:e.target.value})}/></div><div className="field"><label>Account number</label><input value={p.account_number||""} onChange={e=>setOwnProfile({...p,account_number:e.target.value})}/></div></div><div className="grid grid2"><div className="field"><label>UTR</label><input value={p.utr||""} onChange={e=>setOwnProfile({...p,utr:e.target.value})}/></div><div className="field"><label>Invoice prefix</label><input value={p.invoice_prefix||""} onChange={e=>setOwnProfile({...p,invoice_prefix:e.target.value.toUpperCase()})}/></div></div></div></div>
-      <div className="card"><div className="formSection"><div className="formSectionTitle"><h3>Where I work</h3><p>Select every venue/organisation you coach for.</p></div><div className="checkGrid">{venues.map(v=><label className="checkCard" key={v.id}><input type="checkbox" checked={ownVenueIds.includes(v.id)} onChange={e=>setOwnVenueIds(e.target.checked?[...ownVenueIds,v.id]:ownVenueIds.filter(x=>x!==v.id))}/><span><strong>{v.name}</strong><small>Available for shift entry</small></span></label>)}</div></div></div>
+      <div className="card"><div className="formSection"><div className="formSectionTitle"><h3>Where I work</h3><p>{initialProfile.role==="coach"?"Select every venue/organisation you coach for.":"Your organisation access is controlled by the Super Admin."}</p></div><div className="checkGrid">{venues.map(v=><label className="checkCard" key={v.id}><input type="checkbox" checked={ownVenueIds.includes(v.id)} disabled={initialProfile.role!=="coach"} onChange={e=>setOwnVenueIds(e.target.checked?[...ownVenueIds,v.id]:ownVenueIds.filter(x=>x!==v.id))}/><span><strong>{v.name}</strong><small>{initialProfile.role==="coach"?"Available for shift entry":managedVenueIds.includes(v.id)?"Admin access":"Staff access"}</small></span></label>)}</div></div></div>
       <div className="card"><div className="formSection"><div className="formSectionTitle"><h3>Compliance</h3></div><div className="grid grid2"><div className="field"><label>DBS expiry</label><input type="date" value={p.dbs_expiry||""} onChange={e=>setOwnProfile({...p,dbs_expiry:e.target.value})}/></div><div className="field"><label>First Aid expiry</label><input type="date" value={p.first_aid_expiry||""} onChange={e=>setOwnProfile({...p,first_aid_expiry:e.target.value})}/></div></div><div className="field"><label>Safeguarding expiry</label><input type="date" value={p.safeguarding_expiry||""} onChange={e=>setOwnProfile({...p,safeguarding_expiry:e.target.value})}/></div><div className="field"><label>Qualifications</label><textarea placeholder="e.g. Level 2 Trampoline, DMT Module..." value={p.qualifications||""} onChange={e=>setOwnProfile({...p,qualifications:e.target.value})}/></div></div></div>
       <div className="card"><div className="formSection"><div className="formSectionTitle"><h3>Rate</h3><p>Your agreed hourly rate is controlled by admin.</p></div><div className="statValue">{money(p.hourly_rate)}</div></div></div></div>
       <div className="section"><button className="btn btnPrimary" onClick={saveOwnProfile} disabled={saving}>{saving?"Saving…":"Save profile"}</button></div>
     </>
   }
 
+  function TemplateModal(){
+    const dayNames=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+    return <div className="modalBackdrop"><div className="modal"><div className="modalHead"><h2>Regular shifts</h2><button className="iconButton" onClick={()=>setTemplateOpen(false)}>×</button></div><div className="modalBody"><p className="muted">Save your normal weekly sessions once, then use <strong>Fill month</strong> to add the whole month in one tap.</p><div className="templateList">{templates.map(t=><div className="templateRow" key={t.id}><div><strong>{dayNames[t.weekday]} · {t.start_time.slice(0,5)}–{t.finish_time.slice(0,5)}</strong><span>{venueName(t.venue_id)} · {t.session_location||"Coaching"}</span></div><button className="btn btnDanger" onClick={()=>deleteTemplate(t)}>Delete</button></div>)}{!templates.length&&<div className="empty">No regular shifts saved yet.</div>}</div><button className="btn btnSecondary" onClick={addTemplate}><PlusIcon/>Add regular shift</button></div><div className="modalFoot"><span/><div className="row">{templates.length>0&&<button className="btn btnAccent" onClick={()=>{void fillMonthFromTemplates();setTemplateOpen(false)}}>Fill {monthLabel(month)}</button>}<button className="btn btnPrimary" onClick={()=>setTemplateOpen(false)}>Done</button></div></div></div></div>
+  }
+
   function ShiftModal(){
-    return <div className="modalBackdrop"><div className="modal"><div className="modalHead"><h2>{shiftModal?.id?"Edit shift":"Add shift"}</h2><button className="iconButton" onClick={()=>setShiftModal(null)}>×</button></div><div className="modalBody"><div className="field"><label>Date</label><input type="date" value={shiftModal!.shift_date} onChange={e=>setShiftModal({...shiftModal!,shift_date:e.target.value})}/></div><div className="grid grid2"><div className="field"><label>Start</label><input type="time" value={shiftModal!.start_time.slice(0,5)} onChange={e=>setShiftModal({...shiftModal!,start_time:e.target.value})}/></div><div className="field"><label>Finish</label><input type="time" value={shiftModal!.finish_time.slice(0,5)} onChange={e=>setShiftModal({...shiftModal!,finish_time:e.target.value})}/></div></div><div className="field"><label>Break (minutes)</label><input type="number" min={0} value={shiftModal!.break_minutes} onChange={e=>setShiftModal({...shiftModal!,break_minutes:Number(e.target.value)})}/></div><div className="field"><label>Venue</label><select value={shiftModal!.venue_id||""} onChange={e=>setShiftModal({...shiftModal!,venue_id:e.target.value||null})}><option value="">Select venue…</option>{(isAdmin?venues:profileVenues(activeCoach.id)).map(v=><option value={v.id} key={v.id}>{v.name}</option>)}</select></div><div className="field"><label>Session / group</label><input value={shiftModal!.session_location||""} onChange={e=>setShiftModal({...shiftModal!,session_location:e.target.value})} placeholder="e.g. Squad, Champ Tots, competition"/></div><div className="field"><label>Notes</label><textarea value={shiftModal!.notes||""} onChange={e=>setShiftModal({...shiftModal!,notes:e.target.value})}/></div></div><div className="modalFoot"><div>{shiftModal?.id&&<button className="btn btnDanger" onClick={deleteShift}>Delete shift</button>}</div><div className="row"><button className="btn btnSecondary" onClick={()=>setShiftModal(null)}>Cancel</button><button className="btn btnPrimary" onClick={saveShift}>Save shift</button></div></div></div></div>
+    return <div className="modalBackdrop"><div className="modal"><div className="modalHead"><h2>{shiftModal?.id?"Edit shift":"Add shift"}</h2><button className="iconButton" onClick={()=>setShiftModal(null)}>×</button></div><div className="modalBody"><div className="field"><label>Date</label><input type="date" value={shiftModal!.shift_date} onChange={e=>setShiftModal({...shiftModal!,shift_date:e.target.value})}/></div><div className="grid grid2"><div className="field"><label>Start</label><input type="time" value={shiftModal!.start_time.slice(0,5)} onChange={e=>setShiftModal({...shiftModal!,start_time:e.target.value})}/></div><div className="field"><label>Finish</label><input type="time" value={shiftModal!.finish_time.slice(0,5)} onChange={e=>setShiftModal({...shiftModal!,finish_time:e.target.value})}/></div></div><div className="field"><label>Break (minutes)</label><input type="number" min={0} value={shiftModal!.break_minutes} onChange={e=>setShiftModal({...shiftModal!,break_minutes:Number(e.target.value)})}/></div><div className="field"><label>Venue</label><select value={shiftModal!.venue_id||""} onChange={e=>setShiftModal({...shiftModal!,venue_id:e.target.value||null})}><option value="">Select venue…</option>{(isAdmin?adminVenues():profileVenues(activeCoach.id)).map(v=><option value={v.id} key={v.id}>{v.name}</option>)}</select></div><div className="field"><label>Session / group</label><input value={shiftModal!.session_location||""} onChange={e=>setShiftModal({...shiftModal!,session_location:e.target.value})} placeholder="e.g. Squad, Champ Tots, competition"/></div><div className="field"><label>Notes</label><textarea value={shiftModal!.notes||""} onChange={e=>setShiftModal({...shiftModal!,notes:e.target.value})}/></div></div><div className="modalFoot"><div>{shiftModal?.id&&<button className="btn btnDanger" onClick={deleteShift}>Delete shift</button>}</div><div className="row"><button className="btn btnSecondary" onClick={()=>setShiftModal(null)}>Cancel</button><button className="btn btnPrimary" onClick={saveShift}>Save shift</button></div></div></div></div>
   }
 
   function InviteModal(){
-    return <div className="modalBackdrop"><form className="modal" onSubmit={sendInvite}><div className="modalHead"><h2>Invite coach</h2><button type="button" className="iconButton" onClick={()=>setInviteOpen(false)}>×</button></div><div className="modalBody"><div className="field"><label>Full name</label><input value={invite.name} onChange={e=>setInvite({...invite,name:e.target.value})} required/></div><div className="field"><label>Email</label><input type="email" value={invite.email} onChange={e=>setInvite({...invite,email:e.target.value})} required/></div><div className="field"><label>Hourly rate</label><input type="number" min={0} step="0.01" value={invite.rate} onChange={e=>setInvite({...invite,rate:e.target.value})} required/></div><div className="field"><label>Works at</label><div className="checkGrid">{venues.map(v=><label className="checkCard" key={v.id}><input type="checkbox" checked={inviteVenueIds.includes(v.id)} onChange={e=>setInviteVenueIds(e.target.checked?[...inviteVenueIds,v.id]:inviteVenueIds.filter(x=>x!==v.id))}/><span><strong>{v.name}</strong></span></label>)}</div></div><div className="notice">Real invite emails require the server-only <strong>SUPABASE_SECRET_KEY</strong> in your <code>.env.local</code>.</div></div><div className="modalFoot"><span/><button className="btn btnPrimary" disabled={saving}>{saving?"Sending…":"Send invitation"}</button></div></form></div>
+    return <div className="modalBackdrop"><form className="modal" onSubmit={sendInvite}><div className="modalHead"><h2>Invite coach</h2><button type="button" className="iconButton" onClick={()=>setInviteOpen(false)}>×</button></div><div className="modalBody"><div className="field"><label>Full name</label><input value={invite.name} onChange={e=>setInvite({...invite,name:e.target.value})} required/></div><div className="field"><label>Email</label><input type="email" value={invite.email} onChange={e=>setInvite({...invite,email:e.target.value})} required/></div><div className="field"><label>Account type</label><select value={inviteRole} onChange={e=>setInviteRole(e.target.value as any)} disabled={!isGlobalAdmin}><option value="coach">Coach</option>{isGlobalAdmin&&<option value="org_admin">Organisation admin</option>}</select></div><div className="field"><label>Hourly rate</label><input type="number" min={0} step="0.01" value={invite.rate} onChange={e=>setInvite({...invite,rate:e.target.value})} required/></div><div className="field"><label>Works at</label><div className="checkGrid">{venues.map(v=><label className="checkCard" key={v.id}><input type="checkbox" checked={inviteVenueIds.includes(v.id)} onChange={e=>setInviteVenueIds(e.target.checked?[...inviteVenueIds,v.id]:inviteVenueIds.filter(x=>x!==v.id))}/><span><strong>{v.name}</strong></span></label>)}</div></div><div className="notice">Real invite emails require the server-only <strong>SUPABASE_SECRET_KEY</strong> in your <code>.env.local</code>.</div></div><div className="modalFoot"><span/><button className="btn btnPrimary" disabled={saving}>{saving?"Sending…":"Send invitation"}</button></div></form></div>
   }
 
   function StaffModal(){
     const s=staffEdit!;
     return <div className="modalBackdrop"><div className="modal modalWide"><div className="modalHead"><h2>Edit {s.full_name}</h2><button className="iconButton" onClick={()=>setStaffEdit(null)}>×</button></div><div className="modalBody">
       <div className="grid grid2"><div className="field"><label>Name</label><input value={s.full_name} onChange={e=>setStaffEdit({...s,full_name:e.target.value})}/></div><div className="field"><label>Hourly rate</label><input type="number" step="0.01" value={s.hourly_rate} onChange={e=>setStaffEdit({...s,hourly_rate:Number(e.target.value)})}/></div></div>
+      {isGlobalAdmin&&<div className="field"><label>Account type</label><select value={s.role} onChange={e=>setStaffEdit({...s,role:e.target.value as any})}><option value="coach">Coach</option><option value="org_admin">Organisation admin</option><option value="admin">Super admin</option></select></div>}
       <div className="grid grid2"><div className="field"><label>Phone</label><input value={s.phone||""} onChange={e=>setStaffEdit({...s,phone:e.target.value})}/></div><div className="field"><label>Status</label><select value={s.is_active?"active":"inactive"} onChange={e=>setStaffEdit({...s,is_active:e.target.value==="active"})}><option value="active">Active</option><option value="inactive">Inactive</option></select></div></div>
-      <div className="field"><label>Works at</label><div className="checkGrid">{venues.map(v=><label className="checkCard" key={v.id}><input type="checkbox" checked={staffEditVenueIds.includes(v.id)} onChange={e=>setStaffEditVenueIds(e.target.checked?[...staffEditVenueIds,v.id]:staffEditVenueIds.filter(x=>x!==v.id))}/><span><strong>{v.name}</strong></span></label>)}</div></div>
+      <div className="field"><label>Works at</label><div className="checkGrid">{venues.map(v=><label className="checkCard" key={v.id}><input type="checkbox" checked={staffEditVenueIds.includes(v.id)} onChange={e=>{const ids=e.target.checked?[...staffEditVenueIds,v.id]:staffEditVenueIds.filter(x=>x!==v.id);setStaffEditVenueIds(ids);if(!ids.includes(v.id))setStaffEditAdminVenueIds(staffEditAdminVenueIds.filter(x=>x!==v.id))}}/><span><strong>{v.name}</strong>{s.role==="org_admin"&&isGlobalAdmin&&<small><input type="checkbox" checked={staffEditAdminVenueIds.includes(v.id)} onChange={e=>setStaffEditAdminVenueIds(e.target.checked?[...new Set([...staffEditAdminVenueIds,v.id])]:staffEditAdminVenueIds.filter(x=>x!==v.id))}/> Admin for this organisation</small>}</span></label>)}</div></div>
       <div className="field"><label>Address</label><textarea value={s.address||""} onChange={e=>setStaffEdit({...s,address:e.target.value})}/></div>
       <div className="grid grid2"><div className="field"><label>Emergency contact</label><input value={s.emergency_contact_name||""} onChange={e=>setStaffEdit({...s,emergency_contact_name:e.target.value})}/></div><div className="field"><label>Emergency phone</label><input value={s.emergency_contact_phone||""} onChange={e=>setStaffEdit({...s,emergency_contact_phone:e.target.value})}/></div></div>
       <div className="grid grid2"><div className="field"><label>Account name</label><input value={s.account_name||""} onChange={e=>setStaffEdit({...s,account_name:e.target.value})}/></div><div className="field"><label>UTR</label><input value={s.utr||""} onChange={e=>setStaffEdit({...s,utr:e.target.value})}/></div></div>

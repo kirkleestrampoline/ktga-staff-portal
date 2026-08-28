@@ -15,7 +15,7 @@ type Props = {
 };
 
 export default function MobileNav({tab,setTab,role,name,open,setOpen,onSignOut}:Props){
-  const admin=role==="admin";
+  const admin=role==="admin"||role==="org_admin";
   const choose=(t:Tab)=>{setTab(t);setOpen(false)};
   return <>
     <nav className="mobileBottomNav" aria-label="Mobile navigation">
