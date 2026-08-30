@@ -83,6 +83,9 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const [scheduledShifts,setScheduledShifts]=useState<ScheduledShift[]>([]);
   const [classModal,setClassModal]=useState<ClassDraft|null>(null);
   const [scheduleFilter,setScheduleFilter]=useState("");
+  const [resetConfirm,setResetConfirm]=useState("");
+  const [resetRemoveStaff,setResetRemoveStaff]=useState(false);
+  const [resetBusy,setResetBusy]=useState(false);
 
   const totalHours=useMemo(()=>shifts.reduce((a,s)=>a+shiftHours(s),0),[shifts]);
   const totalValue=totalHours*Number(activeCoach.hourly_rate||0);
@@ -480,13 +483,75 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   }
 
   async function confirmScheduled(sch:ScheduledShift){
-    const{error}=await supabase.rpc("confirm_scheduled_shift",{p_scheduled_id:sch.id});
-    flash(error?error.message:"Shift confirmed into timesheet.");if(!error){await loadSchedule();if(sch.profile_id===activeCoach.id)await loadCoachMonth(activeCoach.id);if(isAdmin)await loadAdmin()}
+    if(!sch.profile_id){flash("Assign a coach before confirming this shift.");return}
+    flash("Confirming shift…");
+
+    const monthStart=`${sch.shift_date.slice(0,7)}-01`;
+    const{data:lockedTs,error:tsError}=await supabase
+      .from("timesheets")
+      .select("status")
+      .eq("coach_id",sch.profile_id)
+      .eq("month_start",monthStart)
+      .maybeSingle();
+    if(tsError){flash(tsError.message);return}
+    if(lockedTs?.status==="submitted"||lockedTs?.status==="paid"){
+      flash("That month is locked. Reopen it before confirming this shift.");
+      return;
+    }
+
+    const shiftPayload={
+      coach_id:sch.profile_id,
+      shift_date:sch.shift_date,
+      start_time:sch.start_time,
+      finish_time:sch.finish_time,
+      break_minutes:Number(sch.break_minutes||0),
+      venue_id:sch.venue_id,
+      session_location:sch.class_name,
+      notes:sch.notes||"Scheduled class"
+    };
+
+    let actualShiftId=sch.actual_shift_id||null;
+    if(actualShiftId){
+      const{data,error}=await supabase.from("shifts").update(shiftPayload).eq("id",actualShiftId).select("id").single();
+      if(error){flash(error.message);return}
+      actualShiftId=data.id;
+    }else{
+      const{data,error}=await supabase.from("shifts").insert(shiftPayload).select("id").single();
+      if(error){flash(error.message);return}
+      actualShiftId=data.id;
+    }
+
+    const{error:updateError}=await supabase.from("scheduled_shifts").update({
+      status:"confirmed",
+      actual_shift_id:actualShiftId,
+      updated_at:new Date().toISOString()
+    }).eq("id",sch.id);
+    if(updateError){
+      if(!sch.actual_shift_id&&actualShiftId)await supabase.from("shifts").delete().eq("id",actualShiftId);
+      flash(updateError.message);
+      return;
+    }
+
+    flash("Shift confirmed into timesheet.");
+    await loadSchedule();
+    if(sch.profile_id===initialProfile.id||sch.profile_id===activeCoach.id)await loadCoachMonth(sch.profile_id);
+    if(isAdmin)await loadAdmin();
   }
 
   async function reassignScheduled(sch:ScheduledShift,profileId:string){
     const{error}=await supabase.rpc("reassign_scheduled_shift",{p_scheduled_id:sch.id,p_profile_id:profileId||null});
     flash(error?error.message:"Scheduled coach changed.");if(!error)await loadSchedule();
+  }
+
+  async function unconfirmScheduled(sch:ScheduledShift){
+    if(!isAdmin){flash("Admin only.");return}
+    if(!confirm(`Unconfirm ${sch.class_name} on ${new Date(`${sch.shift_date}T12:00:00`).toLocaleDateString("en-GB")}? This removes the linked timesheet shift and returns the session to Scheduled.`))return;
+    const{error}=await supabase.rpc("unconfirm_scheduled_shift",{p_scheduled_id:sch.id});
+    if(error){flash(error.message);return}
+    flash("Shift unconfirmed and returned to Scheduled.");
+    await loadSchedule();
+    if(sch.profile_id&&(sch.profile_id===initialProfile.id||sch.profile_id===activeCoach.id))await loadCoachMonth(sch.profile_id);
+    if(isAdmin)await loadAdmin();
   }
 
   async function toggleScheduledCancelled(sch:ScheduledShift){
@@ -519,7 +584,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   return <div className="portal">
     <Sidebar tab={tab} setTab={(t:any)=>{setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="topBrandMark">AV</div><div className="topTitle">AV Gymnastics Solutions</div></div><div className="topActions"><span className="versionBadge">v1.2.1</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="topBrandMark">AV</div><div className="topTitle">AV Gymnastics Solutions</div></div><div className="topActions"><span className="versionBadge">v1.2.6</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
         {message&&<div className={`notice ${/(saved|sent|submitted|added|copied|reopened|created|paid)/i.test(message)?"success":""}`}>{message}</div>}
         {tab==="dashboard"&&DashboardView()}
@@ -562,13 +627,13 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     const grouped=visibleScheduled.reduce((m:Record<string,ScheduledShift[]>,s)=>{(m[s.shift_date]||=[]).push(s);return m},{});
     if(!isAdmin)return <><PageHead title="My schedule" sub="Your planned coaching. Confirm each session after you work it so it flows into your timesheet."><MonthSelect/></PageHead>
       <div className="grid grid3 scheduleSummary"><StatCard label="Scheduled hours" value={plannedSchedule.filter(s=>s.profile_id===initialProfile.id).reduce((a,s)=>a+scheduleHours(s),0).toFixed(2)} foot={monthLabel(month)} icon={<CalendarIcon/>}/><StatCard label="Confirmed" value={scheduledShifts.filter(s=>s.profile_id===initialProfile.id&&s.status==="confirmed").reduce((a,s)=>a+scheduleHours(s),0).toFixed(2)} foot="Already in your timesheet" icon={<CheckIcon/>}/><StatCard label="Remaining" value={String(scheduledShifts.filter(s=>s.profile_id===initialProfile.id&&s.status==="scheduled").length)} foot="Sessions to confirm" icon={<ClockIcon/>}/></div>
-      <div className="scheduleAgenda section">{Object.entries(grouped).map(([date,items]:[string,ScheduledShift[]])=><div className="scheduleDay" key={date}><div className="scheduleDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</strong></div>{items.map(s=><div className={`scheduleShift ${s.status}`} key={s.id}><div className="scheduleShiftMain"><div className="scheduleTime">{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</div><div><strong>{s.class_name}</strong><span>{venueName(s.venue_id)} · {scheduleHours(s).toFixed(2)}h</span></div></div><div className="scheduleActions"><span className={`scheduleStatus ${s.status}`}>{s.status}</span>{s.status==="scheduled"&&<button className="btn btnPrimary" onClick={()=>confirmScheduled(s)}>Confirm worked</button>}</div></div>)}</div>)}{!visibleScheduled.length&&<div className="card empty">No scheduled coaching for {monthLabel(month)} yet.</div>}</div></>;
+      <div className="scheduleAgenda section">{Object.entries(grouped).map(([date,items]:[string,ScheduledShift[]])=><div className="scheduleDay" key={date}><div className="scheduleDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</strong></div>{items.map(s=><div className={`scheduleShift ${s.status}`} key={s.id}><div className="scheduleShiftMain"><div className="scheduleTime">{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</div><div><strong>{s.class_name}</strong><span>{venueName(s.venue_id)} · {scheduleHours(s).toFixed(2)}h</span></div></div><div className="scheduleActions"><span className={`scheduleStatus ${s.status}`}>{s.status}</span>{s.status==="scheduled"&&<button className="btn btnPrimary" type="button" onClick={(e)=>{e.preventDefault();void confirmScheduled(s)}}>Confirm worked</button>}</div></div>)}</div>)}{!visibleScheduled.length&&<div className="card empty">No scheduled coaching for {monthLabel(month)} yet.</div>}</div></>;
 
     return <><PageHead title="Schedule & Staffing" sub="Build the regular timetable, assign coaches and compare planned staffing cost with the month as it actually happens."><div className="row"><MonthSelect/><button className="btn btnPrimary" onClick={generateSchedule}>Generate {monthLabel(month)}</button></div></PageHead>
       <div className="scheduleToolbar"><select value={scheduleFilter} onChange={e=>setScheduleFilter(e.target.value)}><option value="">All organisations</option>{adminVenues().map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select><button className="btn btnAccent" onClick={openNewClass}><PlusIcon/>Add class</button></div>
       <div className="grid grid4 scheduleSummary"><StatCard label="Normal monthly cost" value={money(normalCost)} foot="Regular timetable" icon={<PoundIcon/>}/><StatCard label="Current forecast" value={money(forecastCost)} foot={`${plannedSchedule.length} scheduled staffing shifts`} icon={<CalendarIcon/>}/><StatCard label="Actual cost so far" value={money(actualScheduleCost)} foot={`${money(actualScheduleCost-forecastCost)} vs forecast`} icon={<CheckIcon/>}/><StatCard label="Unassigned shifts" value={String(unassignedScheduleCount)} foot={unassignedScheduleCount?"Needs a coach":"Fully staffed"} icon={<UsersIcon/>}/></div>
       <div className="grid scheduleAdminGrid section"><div className="card"><div className="sectionHeader"><div><h2>Regular classes</h2><p>Enter the weekly timetable once. These become the normal staffing plan every month.</p></div><button className="btn btnSecondary" onClick={openNewClass}>Add class</button></div><div className="classList">{classes.filter(c=>!scheduleFilter||c.venue_id===scheduleFilter).map(c=>{const slots=classSlots.filter(x=>x.class_id===c.id);return <div className="classCard" key={c.id}><div className="classCardMain"><span className="classDay">{dayNames[c.weekday].slice(0,3)}</span><div><strong>{c.name}</strong><span>{venueName(c.venue_id)} · {c.start_time.slice(0,5)}–{c.finish_time.slice(0,5)}</span><small>{slots.map(x=>profileById(x.default_profile_id)?.full_name||"Unassigned").join(" · ")}</small></div></div><div className="row"><button className="btn btnSecondary" onClick={()=>openEditClass(c)}>Edit</button><button className="btn btnDanger" onClick={()=>archiveClass(c)}>Archive</button></div></div>})}{!classes.length&&<div className="empty">Add your first class to build the regular staffing plan.</div>}</div></div>
-      <div className="card"><div className="sectionHeader"><div><h2>{monthLabel(month)} staffing</h2><p>Change covers here. Confirmed sessions flow into the coach's timesheet.</p></div><div className="scheduleLegend"><span>Forecast {money(forecastCost)}</span><span>Confirmed {money(confirmedScheduleCost)}</span></div></div><div className="scheduleAgenda">{Object.entries(grouped).map(([date,items]:[string,ScheduledShift[]])=><div className="scheduleDay" key={date}><div className="scheduleDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}</strong></div>{items.map(s=>{const allowed=staffOptionsForVenue(s.venue_id);return <div className={`scheduleShift ${s.status}`} key={s.id}><div className="scheduleShiftMain"><div className="scheduleTime">{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</div><div><strong>{s.class_name}</strong><span>{venueName(s.venue_id)} · {scheduleHours(s).toFixed(2)}h</span></div></div><div className="scheduleAssignment"><select value={s.profile_id||""} disabled={s.status==="confirmed"} onChange={e=>reassignScheduled(s,e.target.value)}><option value="">Unassigned</option>{allowed.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select><div className="row">{s.status==="scheduled"&&s.profile_id&&<button className="btn btnPrimary" onClick={()=>confirmScheduled(s)}>Confirm</button>}{s.status!=="confirmed"&&<button className={`btn ${s.status==="cancelled"?"btnSecondary":"btnDanger"}`} onClick={()=>toggleScheduledCancelled(s)}>{s.status==="cancelled"?"Restore":"Cancel"}</button>}<span className={`scheduleStatus ${s.status}`}>{s.status}</span></div></div></div>})}</div>)}{!visibleScheduled.length&&<div className="empty">Generate {monthLabel(month)} to create the staffing rota from your regular classes.</div>}</div></div></div></>;
+      <div className="card"><div className="sectionHeader"><div><h2>{monthLabel(month)} staffing</h2><p>Change covers here. Confirmed sessions flow into the coach's timesheet.</p></div><div className="scheduleLegend"><span>Forecast {money(forecastCost)}</span><span>Confirmed {money(confirmedScheduleCost)}</span></div></div><div className="scheduleAgenda">{Object.entries(grouped).map(([date,items]:[string,ScheduledShift[]])=><div className="scheduleDay" key={date}><div className="scheduleDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}</strong></div>{items.map(s=>{const allowed=staffOptionsForVenue(s.venue_id);return <div className={`scheduleShift ${s.status}`} key={s.id}><div className="scheduleShiftMain"><div className="scheduleTime">{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</div><div><strong>{s.class_name}</strong><span>{venueName(s.venue_id)} · {scheduleHours(s).toFixed(2)}h</span></div></div><div className="scheduleAssignment"><select value={s.profile_id||""} disabled={s.status==="cancelled"} onChange={e=>reassignScheduled(s,e.target.value)}><option value="">Unassigned</option>{allowed.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select><div className="row">{s.status==="scheduled"&&s.profile_id&&<button className="btn btnPrimary" type="button" onClick={(e)=>{e.preventDefault();void confirmScheduled(s)}}>Confirm</button>}{s.status==="confirmed"&&<button className="btn btnSecondary" type="button" onClick={(e)=>{e.preventDefault();void unconfirmScheduled(s)}}>Unconfirm</button>}{s.status!=="confirmed"&&<button className={`btn ${s.status==="cancelled"?"btnSecondary":"btnDanger"}`} type="button" onClick={()=>toggleScheduledCancelled(s)}>{s.status==="cancelled"?"Restore":"Cancel"}</button>}<span className={`scheduleStatus ${s.status}`}>{s.status}</span></div></div></div>})}</div>)}{!visibleScheduled.length&&<div className="empty">Generate {monthLabel(month)} to create the staffing rota from your regular classes.</div>}</div></div></div></>;
   }
 
   function TimesheetView(){
@@ -617,7 +682,26 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       <div className="card section"><div className="sectionHeader"><div><h2>Hours & cost by venue</h2><p>Based on the organisation selected on each shift.</p></div></div><div className="venueSummaryGrid">{adminVenues().map(v=>{const vs=adminMonthShifts.filter(s=>s.venue_id===v.id);const hrs=vs.reduce((a,s)=>a+shiftHours(s),0);const cost=vs.reduce((a,s)=>a+shiftHours(s)*Number(staff.find(p=>p.id===s.coach_id)?.hourly_rate||0),0);const people=new Set(vs.map(s=>s.coach_id)).size;return <div className="venueSummary" key={v.id}><div className="venueSummaryName"><span className="venueSwatch" style={{background:v.brand_color||undefined}}/>{v.name}</div><strong>{hrs.toFixed(2)}h</strong><span>{money(cost)} · {people} staff</span></div>})}</div></div>
       <div className="section"><div className="card"><div className="sectionHeader"><div><h2>Cost by coach</h2><p>Current selected month.</p></div></div><div className="mobileDataList">{[...adminRows].sort((a,b)=>b.value-a.value).map(r=><div className="mobileReportRow" key={r.coach.id}><strong>{r.coach.full_name}</strong><span>{r.hours.toFixed(2)}h</span><b>{money(r.value)}</b></div>)}</div><div className="tableWrap desktopDataTable"><table><thead><tr><th>Coach</th><th className="num">Hours</th><th className="num">Cost</th></tr></thead><tbody>{[...adminRows].sort((a,b)=>b.value-a.value).map(r=><tr key={r.coach.id}><td>{r.coach.full_name}</td><td className="num">{r.hours.toFixed(2)}</td><td className="num">{money(r.value)}</td></tr>)}</tbody></table></div></div></div>
       {isGlobalAdmin&&<div className="section"><button className="btn btnSecondary" onClick={()=>setAuditOpen(!auditOpen)}>{auditOpen?"Hide activity history":"View activity history"}</button>{auditOpen&&<div className="card" style={{marginTop:12}}><div className="activityList">{audits.slice(0,30).map(a=><div className="activityItem" key={a.id}><div className="activityIcon"><ClockIcon/></div><div><div className="activityText"><strong>{a.action.replaceAll("_"," ")}</strong> · {a.entity_type}</div><div className="activityTime">{fmtStamp(a.created_at)}</div></div></div>)}{!audits.length&&<div className="empty">No recorded activity yet.</div>}</div></div>}</div>}
+    {isGlobalAdmin&&<div className="section"><PageHead title="Launch tools" sub="Clear test data before real staff begin using the portal."/><div className="card dangerZone"><div className="formSection"><div className="formSectionTitle"><h3>System reset</h3><p>This is permanent. It keeps AV branding, Kirklees/Greenhead organisation settings and the Super Admin account you are currently using.</p></div><div className="resetSummary"><strong>Always cleared</strong><span>Scheduled sessions · classes · regular shift templates · shifts · timesheets · invoices · audit/test activity</span></div><label className="checkCard resetOption"><input type="checkbox" checked={resetRemoveStaff} onChange={e=>setResetRemoveStaff(e.target.checked)}/><span><strong>Also remove every other staff account</strong><small>Use this only when you want a completely clean launch. Your current Super Admin is protected.</small></span></label><div className="field"><label>Type RESET MY DATA to enable</label><input value={resetConfirm} onChange={e=>setResetConfirm(e.target.value)} placeholder="RESET MY DATA" autoComplete="off"/></div><button className="btn btnDanger" type="button" disabled={resetBusy||resetConfirm!=="RESET MY DATA"} onClick={runLaunchReset}>{resetBusy?"Resetting…":resetRemoveStaff?"Reset data & remove other staff":"Reset operational data"}</button></div></div></div>}
     </>
+  }
+
+  async function runLaunchReset(){
+    if(!isGlobalAdmin){flash("Super Admin only.");return}
+    if(resetConfirm!=="RESET MY DATA"){flash('Type "RESET MY DATA" exactly before resetting.');return}
+    const warning=resetRemoveStaff
+      ?"This permanently clears all operational/test data AND deletes every other user account. Your current Super Admin and organisation settings remain. Continue?"
+      :"This permanently clears schedules, classes, shifts, timesheets, invoices, templates and audit/test activity. Staff accounts remain. Continue?";
+    if(!confirm(warning))return;
+    setResetBusy(true);
+    try{
+      const res=await fetch("/api/launch-reset",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({confirm:"RESET MY DATA",remove_staff:resetRemoveStaff})});
+      const j=await res.json();
+      if(!res.ok){flash(j.error||"Reset failed.");return}
+      setResetConfirm("");
+      flash(resetRemoveStaff?"Launch reset complete. Other staff accounts removed.":"Launch reset complete. Staff accounts kept.");
+      await Promise.all([loadStaff(),loadInvoices(),loadAudits(),loadSchedule(),loadAdmin(),loadCoachMonth(initialProfile.id),loadTemplates(initialProfile.id)]);
+    }catch(e:any){flash(e?.message||"Reset failed.")}finally{setResetBusy(false)}
   }
 
   function SettingsView(){

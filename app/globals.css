@@ -407,3 +407,11 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);box-shadow:0 0 
   .scheduleTime{min-width:76px}.forecastCards{grid-template-columns:1fr 1fr!important}
 }
 @media(max-width:420px){.scheduleSummary,.forecastCards{grid-template-columns:1fr!important}}
+
+
+/* v1.2.6 schedule corrections + launch tools */
+.dangerZone{border:1px solid #f0caca}
+.resetSummary{display:flex;flex-direction:column;gap:6px;padding:14px 16px;margin-bottom:14px;border-radius:12px;background:#faf7f7}
+.resetSummary span{font-size:13px;line-height:1.5;color:var(--muted)}
+.resetOption{margin-bottom:14px;border-color:#ead4d4}
+.resetOption small{display:block;margin-top:4px}
