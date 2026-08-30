@@ -1,8 +1,8 @@
 "use client";
 
-import { CalendarIcon, ChartIcon, ClockIcon, HomeIcon, InvoiceIcon, SettingsIcon, UserIcon, UsersIcon } from "./icons";
+import { ChartIcon, ClockIcon, HomeIcon, InvoiceIcon, SettingsIcon, UserIcon, UsersIcon } from "./icons";
 
-type Tab = "dashboard"|"schedule"|"timesheets"|"invoices"|"staff"|"reports"|"settings"|"profile";
+type Tab = "dashboard"|"timesheets"|"invoices"|"staff"|"reports"|"settings"|"profile";
 
 type Props = {
   tab: Tab;
@@ -30,7 +30,6 @@ export default function MobileNav({tab,setTab,role,name,open,setOpen,onSignOut}:
       <div className="mobileMoreHandle"/>
       <div className="mobileMoreHead"><div><strong>AV Gymnastics Solutions</strong><span>{name}</span></div><button onClick={()=>setOpen(false)} aria-label="Close">×</button></div>
       <div className="mobileMoreLinks">
-        <button onClick={()=>choose("schedule")}><CalendarIcon/><span><strong>Schedule</strong><small>Classes, rota and planned shifts</small></span></button>
         {admin&&<button onClick={()=>choose("staff")}><UsersIcon/><span><strong>Staff</strong><small>People, venues and rates</small></span></button>}
         {admin&&<button onClick={()=>choose("reports")}><ChartIcon/><span><strong>Reports</strong><small>Hours and costs by venue</small></span></button>}
         {admin&&<button onClick={()=>choose("settings")}><SettingsIcon/><span><strong>Settings</strong><small>Invoice and submission settings</small></span></button>}

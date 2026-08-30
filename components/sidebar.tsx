@@ -1,15 +1,14 @@
 "use client";
 
-import { CalendarIcon, ChartIcon, ClockIcon, HomeIcon, InvoiceIcon, SettingsIcon, UserIcon, UsersIcon } from "./icons";
+import { ChartIcon, ClockIcon, HomeIcon, InvoiceIcon, SettingsIcon, UserIcon, UsersIcon } from "./icons";
 
-type Tab = "dashboard"|"schedule"|"timesheets"|"invoices"|"staff"|"reports"|"settings"|"profile";
+type Tab = "dashboard"|"timesheets"|"invoices"|"staff"|"reports"|"settings"|"profile";
 
 export default function Sidebar({tab,setTab,name,role,onSignOut,mobileOpen,onClose}:{tab:Tab;setTab:(t:Tab)=>void;name:string;role:string;onSignOut:()=>void;mobileOpen:boolean;onClose:()=>void}) {
   const admin = role === "admin" || role === "org_admin";
   const userInitials = name.split(" ").filter(Boolean).slice(0,2).map(x=>x[0]).join("").toUpperCase() || "AV";
   const items:{id:Tab;label:string;icon:any;admin?:boolean}[] = [
     {id:"dashboard",label:"Dashboard",icon:HomeIcon},
-    {id:"schedule",label:"Schedule & Staffing",icon:CalendarIcon},
     {id:"timesheets",label:"Timesheets",icon:ClockIcon},
     {id:"invoices",label:"Invoices",icon:InvoiceIcon},
     {id:"staff",label:"Staff",icon:UsersIcon,admin:true},
