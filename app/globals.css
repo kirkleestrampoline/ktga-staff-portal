@@ -445,3 +445,12 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);box-shadow:0 0 
   .todayShiftCard{align-items:flex-start;flex-direction:column}
   .staffingCalendarHead,.staffingCalendarGrid{grid-template-columns:repeat(7,minmax(120px,1fr));min-width:840px}
 }
+/* v2.0.1 multi-day regular class editor */
+.classOccurrenceList{display:grid;gap:14px;margin-bottom:14px}
+.classOccurrenceCard{border:1px solid var(--line);border-radius:14px;padding:14px;background:#fbfcfd}
+.classOccurrenceHead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.classOccurrenceHead strong{font-size:13px;color:var(--navy)}
+@media(max-width:760px){
+  .classOccurrenceCard{padding:12px}
+  .classOccurrenceHead{align-items:flex-start}
+}
