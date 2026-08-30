@@ -6,9 +6,9 @@ import Sidebar from "@/components/sidebar";
 import MobileNav from "@/components/mobile-nav";
 import StatCard from "@/components/stat-card";
 import StatusPill from "@/components/status-pill";
-import { CalendarIcon, CheckIcon, ClockIcon, InvoiceIcon, MenuIcon, PlusIcon, PoundIcon, SearchIcon, UsersIcon } from "@/components/icons";
+import { CalendarIcon, ChartIcon, CheckIcon, ClockIcon, InvoiceIcon, MenuIcon, PlusIcon, PoundIcon, SearchIcon, UsersIcon } from "@/components/icons";
 
-type Tab="dashboard"|"timesheets"|"invoices"|"staff"|"reports"|"settings"|"profile";
+type Tab="dashboard"|"schedule"|"timesheets"|"invoices"|"staff"|"reports"|"settings"|"profile";
 type Profile={
   id:string;full_name:string;email:string|null;phone:string|null;address:string|null;role:"coach"|"org_admin"|"admin";
   hourly_rate:number;account_name:string|null;sort_code:string|null;account_number:string|null;utr:string|null;
@@ -24,6 +24,10 @@ type Invoice={id:string;coach_id:string;timesheet_id:string;venue_id?:string|nul
 type Business={id:number;business_name:string;business_address:string|null;payment_note:string|null;cutoff_day:number};
 type AdminRow={coach:Profile;hours:number;value:number;timesheet:Timesheet|null;invoice:Invoice|null};
 type Audit={id:string;actor_id:string|null;subject_id:string|null;action:string;entity_type:string;entity_id:string|null;details:any;created_at:string};
+type ClassTemplate={id:string;venue_id:string;name:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;active:boolean;notes:string|null};
+type ClassStaffingSlot={id:string;class_id:string;slot_number:number;default_profile_id:string|null};
+type ScheduledShift={id:string;class_id:string|null;staffing_slot_id:string|null;venue_id:string;profile_id:string|null;original_profile_id:string|null;shift_date:string;start_time:string;finish_time:string;break_minutes:number;class_name:string;status:"scheduled"|"confirmed"|"cancelled";actual_shift_id:string|null;notes:string|null};
+type ClassDraft={id?:string;venue_id:string;name:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;notes:string;coach_ids:string[]};
 
 const supabase=createClient();
 const money=(n:number)=>new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(Number(n||0));
@@ -74,6 +78,11 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const [inviteRole,setInviteRole]=useState<"coach"|"org_admin">("coach");
   const [venueDrafts,setVenueDrafts]=useState<Record<string,Venue>>({});
   const [managedVenueIds,setManagedVenueIds]=useState<string[]>([]);
+  const [classes,setClasses]=useState<ClassTemplate[]>([]);
+  const [classSlots,setClassSlots]=useState<ClassStaffingSlot[]>([]);
+  const [scheduledShifts,setScheduledShifts]=useState<ScheduledShift[]>([]);
+  const [classModal,setClassModal]=useState<ClassDraft|null>(null);
+  const [scheduleFilter,setScheduleFilter]=useState("");
 
   const totalHours=useMemo(()=>shifts.reduce((a,s)=>a+shiftHours(s),0),[shifts]);
   const totalValue=totalHours*Number(activeCoach.hourly_rate||0);
@@ -83,8 +92,8 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const viewingOther=isAdmin&&activeCoach.id!==initialProfile.id;
 
   useEffect(()=>{void loadBusiness();void loadVenues();void loadStaff();void loadInvoices();if(isAdmin)void loadAudits();},[]);
-  useEffect(()=>{void loadCoachMonth(activeCoach.id);void loadTemplates(activeCoach.id);if(isAdmin)void loadAdmin();},[month,activeCoach.id]);
-  useEffect(()=>{if(tab==="invoices")void loadInvoices();if(tab==="staff"&&isAdmin)void loadStaff();if(tab==="reports"&&isAdmin)void loadAudits();},[tab]);
+  useEffect(()=>{void loadCoachMonth(activeCoach.id);void loadTemplates(activeCoach.id);void loadSchedule();if(isAdmin)void loadAdmin();},[month,activeCoach.id]);
+  useEffect(()=>{if(tab==="invoices")void loadInvoices();if(tab==="staff"&&isAdmin)void loadStaff();if(tab==="reports"&&isAdmin)void loadAudits();if(tab==="schedule")void loadSchedule();},[tab]);
 
   async function loadCoachMonth(coachId:string){
     const {from,to}=monthRange(month);
@@ -425,6 +434,83 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     a.href=URL.createObjectURL(blob);a.download=`${inv.invoice_number}.pdf`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
   }
 
+  async function loadSchedule(){
+    const {from,to}=monthRange(month);
+    const [{data:c},{data:slots},{data:ss}]=await Promise.all([
+      supabase.from("classes").select("*").eq("active",true).order("weekday").order("start_time"),
+      supabase.from("class_staffing_slots").select("*").order("slot_number"),
+      supabase.from("scheduled_shifts").select("*").gte("shift_date",from).lte("shift_date",to).order("shift_date").order("start_time")
+    ]);
+    setClasses((c||[]) as ClassTemplate[]);setClassSlots((slots||[]) as ClassStaffingSlot[]);setScheduledShifts((ss||[]) as ScheduledShift[]);
+  }
+
+  function openNewClass(){
+    const av=adminVenues();
+    setClassModal({venue_id:av[0]?.id||"",name:"",weekday:1,start_time:"16:30",finish_time:"18:00",break_minutes:0,coaches_required:1,notes:"",coach_ids:[]});
+  }
+
+  function openEditClass(c:ClassTemplate){
+    const slots=classSlots.filter(x=>x.class_id===c.id).sort((a,b)=>a.slot_number-b.slot_number);
+    setClassModal({id:c.id,venue_id:c.venue_id,name:c.name,weekday:c.weekday,start_time:c.start_time.slice(0,5),finish_time:c.finish_time.slice(0,5),break_minutes:c.break_minutes,coaches_required:c.coaches_required,notes:c.notes||"",coach_ids:slots.map(x=>x.default_profile_id).filter(Boolean) as string[]});
+  }
+
+  async function saveClass(){
+    if(!classModal||!classModal.name||!classModal.venue_id)return;
+    setSaving(true);
+    const payload={venue_id:classModal.venue_id,name:classModal.name,weekday:Number(classModal.weekday),start_time:classModal.start_time,finish_time:classModal.finish_time,break_minutes:Number(classModal.break_minutes||0),coaches_required:Number(classModal.coaches_required||1),notes:classModal.notes||null,active:true,updated_at:new Date().toISOString()};
+    let classId=classModal.id||"";
+    if(classModal.id){const{error}=await supabase.from("classes").update(payload).eq("id",classModal.id);if(error){setSaving(false);flash(error.message);return}}
+    else{const{data,error}=await supabase.from("classes").insert(payload).select("id").single();if(error){setSaving(false);flash(error.message);return}classId=data.id}
+    const del=await supabase.from("class_staffing_slots").delete().eq("class_id",classId);if(del.error){setSaving(false);flash(del.error.message);return}
+    const count=Math.max(1,Number(classModal.coaches_required||1));
+    const rows=Array.from({length:count},(_,i)=>({class_id:classId,slot_number:i+1,default_profile_id:classModal.coach_ids[i]||null}));
+    const ins=await supabase.from("class_staffing_slots").insert(rows);setSaving(false);
+    if(ins.error){flash(ins.error.message);return}
+    setClassModal(null);flash("Class saved.");await loadSchedule();
+  }
+
+  async function archiveClass(c:ClassTemplate){
+    if(!confirm(`Archive ${c.name}? Existing generated shifts will remain.`))return;
+    const{error}=await supabase.from("classes").update({active:false,updated_at:new Date().toISOString()}).eq("id",c.id);flash(error?error.message:"Class archived.");if(!error)await loadSchedule();
+  }
+
+  async function generateSchedule(){
+    const{data,error}=await supabase.rpc("generate_schedule_month",{p_month_start:`${month}-01`});
+    flash(error?error.message:`Schedule generated — ${data||0} new staffing shifts added.`);if(!error)await loadSchedule();
+  }
+
+  async function confirmScheduled(sch:ScheduledShift){
+    const{error}=await supabase.rpc("confirm_scheduled_shift",{p_scheduled_id:sch.id});
+    flash(error?error.message:"Shift confirmed into timesheet.");if(!error){await loadSchedule();if(sch.profile_id===activeCoach.id)await loadCoachMonth(activeCoach.id);if(isAdmin)await loadAdmin()}
+  }
+
+  async function reassignScheduled(sch:ScheduledShift,profileId:string){
+    const{error}=await supabase.rpc("reassign_scheduled_shift",{p_scheduled_id:sch.id,p_profile_id:profileId||null});
+    flash(error?error.message:"Scheduled coach changed.");if(!error)await loadSchedule();
+  }
+
+  async function toggleScheduledCancelled(sch:ScheduledShift){
+    const cancelled=sch.status!=="cancelled";
+    const{error}=await supabase.rpc("set_scheduled_shift_cancelled",{p_scheduled_id:sch.id,p_cancelled:cancelled});
+    flash(error?error.message:(cancelled?"Scheduled shift cancelled.":"Scheduled shift restored."));if(!error)await loadSchedule();
+  }
+
+  const scheduleHours=(s:ScheduledShift)=>shiftHours({coach_id:s.profile_id||"",shift_date:s.shift_date,start_time:s.start_time,finish_time:s.finish_time,break_minutes:s.break_minutes,session_location:s.class_name,notes:s.notes});
+  const profileById=(id:string|null)=>staff.find(x=>x.id===id)||(id===initialProfile.id?initialProfile:null);
+  const staffOptionsForVenue=(venueId:string)=>{const list=staff.filter(p=>(staffVenueMap[p.id]||[]).includes(venueId)&&p.is_active);if((staffVenueMap[initialProfile.id]||[]).includes(venueId)&&initialProfile.is_active&&!list.some(p=>p.id===initialProfile.id))return [initialProfile,...list];return list};
+  const scheduleScope=scheduledShifts.filter(s=>!scheduleFilter||s.venue_id===scheduleFilter);
+  const plannedSchedule=scheduleScope.filter(s=>s.status!=="cancelled");
+  const forecastCost=plannedSchedule.reduce((a,s)=>a+scheduleHours(s)*Number(profileById(s.profile_id)?.hourly_rate||0),0);
+  const confirmedScheduleCost=scheduleScope.filter(s=>s.status==="confirmed").reduce((a,s)=>a+scheduleHours(s)*Number(profileById(s.profile_id)?.hourly_rate||0),0);
+  const unassignedScheduleCount=plannedSchedule.filter(s=>!s.profile_id).length;
+  const actualScheduleCost=adminMonthShifts.filter(s=>!scheduleFilter||s.venue_id===scheduleFilter).reduce((a,s)=>a+shiftHours(s)*Number(profileById(s.coach_id)?.hourly_rate||0),0);
+  const normalCost=classes.filter(c=>!scheduleFilter||c.venue_id===scheduleFilter).reduce((total,c)=>{
+    const [y,m]=month.split("-").map(Number);const last=new Date(y,m,0).getDate();let occurrences=0;
+    for(let d=1;d<=last;d++)if(new Date(y,m-1,d).getDay()===c.weekday)occurrences++;
+    const slots=classSlots.filter(x=>x.class_id===c.id);
+    return total+slots.reduce((a,slot)=>a+occurrences*shiftHours({coach_id:slot.default_profile_id||"",shift_date:`${month}-01`,start_time:c.start_time,finish_time:c.finish_time,break_minutes:c.break_minutes,session_location:c.name,notes:null})*Number(profileById(slot.default_profile_id)?.hourly_rate||0),0);
+  },0);
+
   const submittedCount=adminRows.filter(r=>r.timesheet?.status==="submitted"||r.timesheet?.status==="paid").length;
   const unpaidTotal=allInvoices.filter((i:any)=>i.status==="awaiting_payment").reduce((a:number,i:any)=>a+Number(i.total_amount||0),0);
   const adminHours=adminRows.reduce((a,r)=>a+r.hours,0);
@@ -433,10 +519,11 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   return <div className="portal">
     <Sidebar tab={tab} setTab={(t:any)=>{setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="topBrandMark">AV</div><div className="topTitle">AV Gymnastics Solutions</div></div><div className="topActions"><span className="versionBadge">v1.1.2</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="topBrandMark">AV</div><div className="topTitle">AV Gymnastics Solutions</div></div><div className="topActions"><span className="versionBadge">v1.2.1</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
         {message&&<div className={`notice ${/(saved|sent|submitted|added|copied|reopened|created|paid)/i.test(message)?"success":""}`}>{message}</div>}
         {tab==="dashboard"&&DashboardView()}
+        {tab==="schedule"&&ScheduleView()}
         {tab==="timesheets"&&TimesheetView()}
         {tab==="invoices"&&InvoicesView()}
         {tab==="staff"&&isAdmin&&StaffView()}
@@ -449,6 +536,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     {inviteOpen&&InviteModal()}
     {staffEdit&&StaffModal()}
     {templateOpen&&TemplateModal()}
+    {classModal&&ClassModal()}
     <MobileNav tab={tab} setTab={(t:any)=>{setTab(t);if(t!=="timesheets")backToAdmin()}} role={initialProfile.role} name={initialProfile.full_name} open={mobileMoreOpen} setOpen={setMobileMoreOpen} onSignOut={signOut}/>
   </div>;
 
@@ -458,6 +546,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   function DashboardView(){
     if(isAdmin)return <><PageHead title={`Good ${new Date().getHours()<12?"morning":new Date().getHours()<18?"afternoon":"evening"}, ${initialProfile.full_name.split(" ")[0]}`} sub="Your current staffing, timesheet and invoice position."><MonthSelect/></PageHead>
       <div className="grid grid4"><StatCard label="Active coaches" value={String(adminRows.length)} foot="Self-employed staff" icon={<UsersIcon/>}/><StatCard label="Hours this month" value={adminHours.toFixed(2)} foot={monthLabel(month)} icon={<ClockIcon/>}/><StatCard label="Submitted" value={`${submittedCount}/${adminRows.length}`} foot={`${Math.max(0,adminRows.length-submittedCount)} outstanding`} icon={<CheckIcon/>}/><StatCard label="Unpaid invoices" value={money(unpaidTotal)} foot="Awaiting payment" icon={<PoundIcon/>}/></div>
+      <div className="grid grid4 section forecastCards"><StatCard label="Normal staffing cost" value={money(normalCost)} foot="Based on regular classes" icon={<CalendarIcon/>}/><StatCard label="Current forecast" value={money(forecastCost)} foot={`${unassignedScheduleCount} unassigned shifts`} icon={<PoundIcon/>}/><StatCard label="Actual cost so far" value={money(actualScheduleCost)} foot="Confirmed timesheet hours" icon={<CheckIcon/>}/><StatCard label="Forecast variance" value={money(forecastCost-normalCost)} foot={forecastCost>normalCost?"Above normal plan":"At / below normal plan"} icon={<ChartIcon/>}/></div>
       <div className="grid grid2 section"><div className="card"><div className="sectionHeader"><div><h2>Monthly status</h2><p>Open a coach to review or edit their shifts.</p></div><button className="btn btnSecondary" onClick={()=>setTab("timesheets")}>View all</button></div><div className="mobileDataList">{adminRows.slice(0,8).map(r=><button className="mobileDataCard" key={r.coach.id} onClick={()=>selectCoach(r.coach)}><div><strong>{r.coach.full_name}</strong><span>{r.hours.toFixed(2)} hours</span></div><StatusPill status={r.timesheet?.status}/></button>)}</div><div className="tableWrap desktopDataTable"><table><thead><tr><th>Coach</th><th className="num">Hours</th><th>Status</th><th></th></tr></thead><tbody>{adminRows.slice(0,8).map(r=><tr key={r.coach.id}><td><strong>{r.coach.full_name}</strong></td><td className="num">{r.hours.toFixed(2)}</td><td><StatusPill status={r.timesheet?.status}/></td><td><button className="btn btnSecondary" onClick={()=>selectCoach(r.coach)}>Open</button></td></tr>)}</tbody></table></div></div>
       <div className="card"><div className="sectionHeader"><div><h2>By organisation</h2><p>Hours and estimated staffing cost this month.</p></div></div><div className="orgSummary">{adminVenues().map(v=>{const vs=adminMonthShifts.filter(s=>s.venue_id===v.id);const h=vs.reduce((a,s)=>a+shiftHours(s),0);const cost=vs.reduce((a,s)=>a+shiftHours(s)*Number(staff.find(p=>p.id===s.coach_id)?.hourly_rate||0),0);return <div className="orgSummaryRow" key={v.id}><span><span className="venueDot" style={{background:v.brand_color||"#667085"}}/>{v.name}</span><strong>{h.toFixed(2)}h · {money(cost)}</strong></div>})}</div></div></div></>;
 
@@ -465,6 +554,21 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       {overdue&&<div className="notice danger">The normal submission deadline for {monthLabel(month)} has passed. Please submit your hours as soon as possible.</div>}
       <div className="grid grid4"><StatCard label="Hours logged" value={totalHours.toFixed(2)} foot={monthLabel(month)} icon={<ClockIcon/>}/><StatCard label="Hourly rate" value={money(ownProfile.hourly_rate)} foot="Set by admin" icon={<PoundIcon/>}/><StatCard label="Estimated invoice" value={money(totalValue)} foot="Based on logged hours" icon={<InvoiceIcon/>}/><StatCard label="Timesheet status" value={(timesheet?.status||"Draft").replace(/^./,x=>x.toUpperCase())} foot={`Due ${business.cutoff_day||1} ${new Date(Number(month.slice(0,4)),Number(month.slice(5,7)),1).toLocaleDateString("en-GB",{month:"long"})}`} icon={<CalendarIcon/>}/></div>
       <div className="section">{TimesheetCalendar({compact:true})}</div></>
+  }
+
+  function ScheduleView(){
+    const dayNames=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+    const visibleScheduled=isAdmin?scheduleScope:scheduleScope.filter(s=>s.profile_id===initialProfile.id);
+    const grouped=visibleScheduled.reduce((m:Record<string,ScheduledShift[]>,s)=>{(m[s.shift_date]||=[]).push(s);return m},{});
+    if(!isAdmin)return <><PageHead title="My schedule" sub="Your planned coaching. Confirm each session after you work it so it flows into your timesheet."><MonthSelect/></PageHead>
+      <div className="grid grid3 scheduleSummary"><StatCard label="Scheduled hours" value={plannedSchedule.filter(s=>s.profile_id===initialProfile.id).reduce((a,s)=>a+scheduleHours(s),0).toFixed(2)} foot={monthLabel(month)} icon={<CalendarIcon/>}/><StatCard label="Confirmed" value={scheduledShifts.filter(s=>s.profile_id===initialProfile.id&&s.status==="confirmed").reduce((a,s)=>a+scheduleHours(s),0).toFixed(2)} foot="Already in your timesheet" icon={<CheckIcon/>}/><StatCard label="Remaining" value={String(scheduledShifts.filter(s=>s.profile_id===initialProfile.id&&s.status==="scheduled").length)} foot="Sessions to confirm" icon={<ClockIcon/>}/></div>
+      <div className="scheduleAgenda section">{Object.entries(grouped).map(([date,items]:[string,ScheduledShift[]])=><div className="scheduleDay" key={date}><div className="scheduleDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</strong></div>{items.map(s=><div className={`scheduleShift ${s.status}`} key={s.id}><div className="scheduleShiftMain"><div className="scheduleTime">{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</div><div><strong>{s.class_name}</strong><span>{venueName(s.venue_id)} · {scheduleHours(s).toFixed(2)}h</span></div></div><div className="scheduleActions"><span className={`scheduleStatus ${s.status}`}>{s.status}</span>{s.status==="scheduled"&&<button className="btn btnPrimary" onClick={()=>confirmScheduled(s)}>Confirm worked</button>}</div></div>)}</div>)}{!visibleScheduled.length&&<div className="card empty">No scheduled coaching for {monthLabel(month)} yet.</div>}</div></>;
+
+    return <><PageHead title="Schedule & Staffing" sub="Build the regular timetable, assign coaches and compare planned staffing cost with the month as it actually happens."><div className="row"><MonthSelect/><button className="btn btnPrimary" onClick={generateSchedule}>Generate {monthLabel(month)}</button></div></PageHead>
+      <div className="scheduleToolbar"><select value={scheduleFilter} onChange={e=>setScheduleFilter(e.target.value)}><option value="">All organisations</option>{adminVenues().map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select><button className="btn btnAccent" onClick={openNewClass}><PlusIcon/>Add class</button></div>
+      <div className="grid grid4 scheduleSummary"><StatCard label="Normal monthly cost" value={money(normalCost)} foot="Regular timetable" icon={<PoundIcon/>}/><StatCard label="Current forecast" value={money(forecastCost)} foot={`${plannedSchedule.length} scheduled staffing shifts`} icon={<CalendarIcon/>}/><StatCard label="Actual cost so far" value={money(actualScheduleCost)} foot={`${money(actualScheduleCost-forecastCost)} vs forecast`} icon={<CheckIcon/>}/><StatCard label="Unassigned shifts" value={String(unassignedScheduleCount)} foot={unassignedScheduleCount?"Needs a coach":"Fully staffed"} icon={<UsersIcon/>}/></div>
+      <div className="grid scheduleAdminGrid section"><div className="card"><div className="sectionHeader"><div><h2>Regular classes</h2><p>Enter the weekly timetable once. These become the normal staffing plan every month.</p></div><button className="btn btnSecondary" onClick={openNewClass}>Add class</button></div><div className="classList">{classes.filter(c=>!scheduleFilter||c.venue_id===scheduleFilter).map(c=>{const slots=classSlots.filter(x=>x.class_id===c.id);return <div className="classCard" key={c.id}><div className="classCardMain"><span className="classDay">{dayNames[c.weekday].slice(0,3)}</span><div><strong>{c.name}</strong><span>{venueName(c.venue_id)} · {c.start_time.slice(0,5)}–{c.finish_time.slice(0,5)}</span><small>{slots.map(x=>profileById(x.default_profile_id)?.full_name||"Unassigned").join(" · ")}</small></div></div><div className="row"><button className="btn btnSecondary" onClick={()=>openEditClass(c)}>Edit</button><button className="btn btnDanger" onClick={()=>archiveClass(c)}>Archive</button></div></div>})}{!classes.length&&<div className="empty">Add your first class to build the regular staffing plan.</div>}</div></div>
+      <div className="card"><div className="sectionHeader"><div><h2>{monthLabel(month)} staffing</h2><p>Change covers here. Confirmed sessions flow into the coach's timesheet.</p></div><div className="scheduleLegend"><span>Forecast {money(forecastCost)}</span><span>Confirmed {money(confirmedScheduleCost)}</span></div></div><div className="scheduleAgenda">{Object.entries(grouped).map(([date,items]:[string,ScheduledShift[]])=><div className="scheduleDay" key={date}><div className="scheduleDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}</strong></div>{items.map(s=>{const allowed=staffOptionsForVenue(s.venue_id);return <div className={`scheduleShift ${s.status}`} key={s.id}><div className="scheduleShiftMain"><div className="scheduleTime">{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</div><div><strong>{s.class_name}</strong><span>{venueName(s.venue_id)} · {scheduleHours(s).toFixed(2)}h</span></div></div><div className="scheduleAssignment"><select value={s.profile_id||""} disabled={s.status==="confirmed"} onChange={e=>reassignScheduled(s,e.target.value)}><option value="">Unassigned</option>{allowed.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select><div className="row">{s.status==="scheduled"&&s.profile_id&&<button className="btn btnPrimary" onClick={()=>confirmScheduled(s)}>Confirm</button>}{s.status!=="confirmed"&&<button className={`btn ${s.status==="cancelled"?"btnSecondary":"btnDanger"}`} onClick={()=>toggleScheduledCancelled(s)}>{s.status==="cancelled"?"Restore":"Cancel"}</button>}<span className={`scheduleStatus ${s.status}`}>{s.status}</span></div></div></div>})}</div>)}{!visibleScheduled.length&&<div className="empty">Generate {monthLabel(month)} to create the staffing rota from your regular classes.</div>}</div></div></div></>;
   }
 
   function TimesheetView(){
@@ -534,6 +638,13 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       <div className="card"><div className="formSection"><div className="formSectionTitle"><h3>Rate</h3><p>Your agreed hourly rate is controlled by admin.</p></div><div className="statValue">{money(p.hourly_rate)}</div></div></div></div>
       <div className="section"><button className="btn btnPrimary" onClick={saveOwnProfile} disabled={saving}>{saving?"Saving…":"Save profile"}</button></div>
     </>
+  }
+
+  function ClassModal(){
+    const d=classModal!;const dayNames=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+    const eligible=staffOptionsForVenue(d.venue_id);
+    const coachIds=[...d.coach_ids];while(coachIds.length<d.coaches_required)coachIds.push("");
+    return <div className="modalBackdrop"><div className="modal modalWide"><div className="modalHead"><h2>{d.id?"Edit class":"Add regular class"}</h2><button className="iconButton" onClick={()=>setClassModal(null)}>×</button></div><div className="modalBody"><div className="grid grid2"><div className="field"><label>Organisation</label><select value={d.venue_id} onChange={e=>setClassModal({...d,venue_id:e.target.value,coach_ids:[]})}>{adminVenues().map(v=><option value={v.id} key={v.id}>{v.name}</option>)}</select></div><div className="field"><label>Class / session name</label><input value={d.name} onChange={e=>setClassModal({...d,name:e.target.value})} placeholder="e.g. Champ Tots"/></div></div><div className="grid grid3"><div className="field"><label>Day</label><select value={d.weekday} onChange={e=>setClassModal({...d,weekday:Number(e.target.value)})}>{dayNames.map((x,i)=><option value={i} key={x}>{x}</option>)}</select></div><div className="field"><label>Start</label><input type="time" value={d.start_time} onChange={e=>setClassModal({...d,start_time:e.target.value})}/></div><div className="field"><label>Finish</label><input type="time" value={d.finish_time} onChange={e=>setClassModal({...d,finish_time:e.target.value})}/></div></div><div className="grid grid2"><div className="field"><label>Break minutes</label><input type="number" min={0} value={d.break_minutes} onChange={e=>setClassModal({...d,break_minutes:Number(e.target.value)})}/></div><div className="field"><label>Coaches required</label><input type="number" min={1} max={12} value={d.coaches_required} onChange={e=>{const n=Math.max(1,Number(e.target.value)||1);setClassModal({...d,coaches_required:n,coach_ids:d.coach_ids.slice(0,n)})}}/></div></div><div className="formSectionTitle"><h3>Default staffing</h3><p>These coaches will be assigned automatically each month. Leave a slot unassigned if it changes regularly.</p></div><div className="grid grid2">{Array.from({length:d.coaches_required},(_,i)=><div className="field" key={i}><label>Coach {i+1}</label><select value={coachIds[i]||""} onChange={e=>{const ids=[...coachIds];ids[i]=e.target.value;setClassModal({...d,coach_ids:ids})}}><option value="">Unassigned</option>{eligible.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select></div>)}</div><div className="field"><label>Notes</label><textarea value={d.notes} onChange={e=>setClassModal({...d,notes:e.target.value})}/></div></div><div className="modalFoot"><span/><div className="row"><button className="btn btnSecondary" onClick={()=>setClassModal(null)}>Cancel</button><button className="btn btnPrimary" disabled={saving||!d.name||!d.venue_id} onClick={saveClass}>{saving?"Saving…":"Save class"}</button></div></div></div></div>;
   }
 
   function TemplateModal(){
