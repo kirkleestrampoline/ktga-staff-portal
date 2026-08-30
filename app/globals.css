@@ -482,3 +482,92 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);box-shadow:0 0 
   .classOccurrenceHead>.row{width:100%;display:grid;grid-template-columns:1fr 1fr}
   .classOccurrenceHead .btn{width:100%}
 }
+/* AV Gymnastics Solutions v2.0.4 — master sync + responsive staffing board */
+
+/* Organisation colour coding */
+.orgKirklees{--org-colour:#6d3a91;--org-soft:#f5eff9}
+.orgGreenhead{--org-colour:#2f8f4e;--org-soft:#edf8f0}
+.orgOther{--org-colour:#667085;--org-soft:#f4f5f6}
+
+.staffingCalendarShift.orgKirklees,
+.staffingCalendarShift.orgGreenhead,
+.staffingCalendarShift.orgOther{
+  border-left:5px solid var(--org-colour);
+  background:var(--org-soft);
+}
+.scheduleShift.orgKirklees,
+.scheduleShift.orgGreenhead,
+.scheduleShift.orgOther{
+  border-left:5px solid var(--org-colour);
+}
+.masterClassRow.orgKirklees,
+.masterClassRow.orgGreenhead,
+.masterClassRow.orgOther{
+  border-left:4px solid var(--org-colour);
+}
+
+/* No horizontal calendar scrolling: dates wrap into responsive day cards. */
+.staffingBoard{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:12px;
+  padding:0 18px 18px;
+}
+.staffingBoardDay{
+  min-width:0;
+  border:1px solid var(--line);
+  border-radius:13px;
+  background:#fff;
+  overflow:hidden;
+}
+.staffingBoardDay.emptyDay{background:#fafbfc;opacity:.72}
+.staffingBoardDate{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  padding:10px 11px;
+  border-bottom:1px solid var(--line);
+  background:#fbfcfd;
+}
+.staffingBoardDate strong{font-size:12px}
+.staffingBoardDate span{font-size:10px;color:var(--muted)}
+.staffingBoardShifts{display:flex;flex-direction:column;gap:7px;padding:8px}
+.staffingBoard .staffingCalendarShift{
+  margin:0;
+  min-width:0;
+}
+.staffingBoard .staffingCalendarShift strong,
+.staffingBoard .staffingCalendarShift span,
+.staffingBoard .staffingCalendarShift small{
+  white-space:normal;
+  overflow-wrap:anywhere;
+}
+
+/* Give actions a real desktop column so they cannot cover the class name. */
+.masterClassRow{
+  grid-template-columns:105px minmax(220px,1fr) minmax(315px,auto);
+  position:relative;
+}
+.masterClassInfo{min-width:0;padding-right:10px}
+.masterClassActions{
+  min-width:315px;
+  position:relative;
+  z-index:1;
+}
+.masterClassActions .btn{white-space:nowrap}
+
+@media(max-width:1250px){
+  .staffingBoard{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .masterClassRow{grid-template-columns:95px minmax(180px,1fr)}
+  .masterClassActions{grid-column:2;min-width:0;justify-content:flex-start}
+}
+@media(max-width:900px){
+  .staffingBoard{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:620px){
+  .staffingBoard{grid-template-columns:1fr;padding:0 12px 12px}
+  .staffingBoardDay.emptyDay{display:none}
+  .masterClassRow{grid-template-columns:1fr}
+  .masterClassActions{grid-column:auto;min-width:0}
+}
