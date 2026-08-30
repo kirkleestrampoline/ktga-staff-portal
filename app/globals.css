@@ -415,3 +415,224 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);box-shadow:0 0 
 .resetSummary span{font-size:13px;line-height:1.5;color:var(--muted)}
 .resetOption{margin-bottom:14px;border-color:#ead4d4}
 .resetOption small{display:block;margin-top:4px}
+-- AV Gymnastics Solutions v2 Scheduling Foundation
+-- Run once in Supabase SQL Editor.
+
+begin;
+
+create table if not exists public.staff_availability (
+  id uuid primary key default gen_random_uuid(),
+  profile_id uuid not null references public.profiles(id) on delete cascade,
+  availability_date date not null,
+  status text not null check (status in ('available','unavailable','holiday','sick','competition','camp')),
+  notes text,
+  created_at timestamptz not null default now(),
+  unique(profile_id, availability_date)
+);
+
+create table if not exists public.schedule_exceptions (
+  id uuid primary key default gen_random_uuid(),
+  venue_id uuid references public.venues(id) on delete cascade,
+  start_date date not null,
+  end_date date not null,
+  exception_type text not null default 'school_holiday'
+    check (exception_type in ('school_holiday','closure','competition','custom')),
+  label text not null,
+  cancel_regular_classes boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+alter table public.staff_availability enable row level security;
+alter table public.schedule_exceptions enable row level security;
+
+drop policy if exists "availability own or admin read" on public.staff_availability;
+create policy "availability own or admin read"
+on public.staff_availability for select to authenticated
+using (
+  profile_id=auth.uid()
+  or public.is_global_admin()
+  or exists (
+    select 1 from public.staff_venues sv
+    where sv.profile_id=staff_availability.profile_id
+      and public.is_venue_admin(sv.venue_id)
+  )
+);
+
+drop policy if exists "availability own write" on public.staff_availability;
+create policy "availability own write"
+on public.staff_availability for all to authenticated
+using (profile_id=auth.uid() or public.is_global_admin())
+with check (profile_id=auth.uid() or public.is_global_admin());
+
+drop policy if exists "schedule exceptions admin" on public.schedule_exceptions;
+create policy "schedule exceptions admin"
+on public.schedule_exceptions for all to authenticated
+using (
+  public.is_global_admin()
+  or venue_id is null
+  or public.is_venue_admin(venue_id)
+)
+with check (
+  public.is_global_admin()
+  or venue_id is null
+  or public.is_venue_admin(venue_id)
+);
+
+create or replace function public.clone_schedule_month(
+  p_source_month date,
+  p_target_month date
+)
+returns integer
+language plpgsql
+security definer
+set search_path=public
+as $$
+declare
+  r public.scheduled_shifts%rowtype;
+  target_date date;
+  copied integer:=0;
+  week_index integer;
+  dow integer;
+begin
+  if not public.is_global_admin() then
+    raise exception 'Super Admin only';
+  end if;
+
+  for r in
+    select * from public.scheduled_shifts
+    where shift_date>=date_trunc('month',p_source_month)::date
+      and shift_date<(date_trunc('month',p_source_month)+interval '1 month')::date
+  loop
+    dow:=extract(dow from r.shift_date)::integer;
+    week_index:=floor((extract(day from r.shift_date)::integer-1)/7.0)::integer;
+
+    select d into target_date
+    from generate_series(
+      date_trunc('month',p_target_month)::date,
+      (date_trunc('month',p_target_month)+interval '1 month - 1 day')::date,
+      interval '1 day'
+    ) d
+    where extract(dow from d)::integer=dow
+    order by d
+    offset week_index limit 1;
+
+    if target_date is null then
+      select max(d)::date into target_date
+      from generate_series(
+        date_trunc('month',p_target_month)::date,
+        (date_trunc('month',p_target_month)+interval '1 month - 1 day')::date,
+        interval '1 day'
+      ) d
+      where extract(dow from d)::integer=dow;
+    end if;
+
+    if not exists(
+      select 1 from public.scheduled_shifts s
+      where s.shift_date=target_date
+        and coalesce(s.class_id,'00000000-0000-0000-0000-000000000000'::uuid)=coalesce(r.class_id,'00000000-0000-0000-0000-000000000000'::uuid)
+        and coalesce(s.staffing_slot_id,'00000000-0000-0000-0000-000000000000'::uuid)=coalesce(r.staffing_slot_id,'00000000-0000-0000-0000-000000000000'::uuid)
+        and s.start_time=r.start_time
+    ) then
+      insert into public.scheduled_shifts(
+        class_id,staffing_slot_id,venue_id,profile_id,original_profile_id,
+        shift_date,start_time,finish_time,break_minutes,class_name,status,notes
+      )
+      values(
+        r.class_id,r.staffing_slot_id,r.venue_id,r.profile_id,r.profile_id,
+        target_date,r.start_time,r.finish_time,r.break_minutes,r.class_name,
+        case when r.status='cancelled' then 'cancelled' else 'scheduled' end,
+        r.notes
+      );
+      copied:=copied+1;
+    end if;
+  end loop;
+
+  return copied;
+end;
+$$;
+
+grant execute on function public.clone_schedule_month(date,date) to authenticated;
+
+create or replace function public.copy_schedule_week(
+  p_source_monday date,
+  p_target_monday date
+)
+returns integer
+language plpgsql
+security definer
+set search_path=public
+as $$
+declare
+  r public.scheduled_shifts%rowtype;
+  target_date date;
+  copied integer:=0;
+begin
+  if not public.is_global_admin() then
+    raise exception 'Super Admin only';
+  end if;
+
+  for r in
+    select * from public.scheduled_shifts
+    where shift_date between p_source_monday and p_source_monday+6
+  loop
+    target_date:=p_target_monday+(r.shift_date-p_source_monday);
+
+    if not exists(
+      select 1 from public.scheduled_shifts s
+      where s.shift_date=target_date
+        and coalesce(s.class_id,'00000000-0000-0000-0000-000000000000'::uuid)=coalesce(r.class_id,'00000000-0000-0000-0000-000000000000'::uuid)
+        and coalesce(s.staffing_slot_id,'00000000-0000-0000-0000-000000000000'::uuid)=coalesce(r.staffing_slot_id,'00000000-0000-0000-0000-000000000000'::uuid)
+        and s.start_time=r.start_time
+    ) then
+      insert into public.scheduled_shifts(
+        class_id,staffing_slot_id,venue_id,profile_id,original_profile_id,
+        shift_date,start_time,finish_time,break_minutes,class_name,status,notes
+      )
+      values(
+        r.class_id,r.staffing_slot_id,r.venue_id,r.profile_id,r.profile_id,
+        target_date,r.start_time,r.finish_time,r.break_minutes,r.class_name,
+        case when r.status='cancelled' then 'cancelled' else 'scheduled' end,
+        r.notes
+      );
+      copied:=copied+1;
+    end if;
+  end loop;
+
+  return copied;
+end;
+$$;
+
+grant execute on function public.copy_schedule_week(date,date) to authenticated;
+
+create or replace function public.swap_scheduled_assignments(
+  p_source_id uuid,
+  p_target_id uuid
+)
+returns void
+language plpgsql
+security definer
+set search_path=public
+as $$
+declare
+  a public.scheduled_shifts%rowtype;
+  b public.scheduled_shifts%rowtype;
+  tmp uuid;
+begin
+  select * into a from public.scheduled_shifts where id=p_source_id for update;
+  select * into b from public.scheduled_shifts where id=p_target_id for update;
+
+  if a.id is null or b.id is null then raise exception 'Scheduled shift not found'; end if;
+  if not public.is_global_admin() then raise exception 'Super Admin only'; end if;
+  if a.status='confirmed' or b.status='confirmed' then
+    raise exception 'Unconfirm both shifts before swapping coach assignments';
+  end if;
+
+  tmp:=a.profile_id;
+  update public.scheduled_shifts set profile_id=b.profile_id,updated_at=now() where id=a.id;
+  update public.scheduled_shifts set profile_id=tmp,updated_at=now() where id=b.id;
+end;
+$$;
+
+grant execute on function public.swap_scheduled_assignments(uuid,uuid) to authenticated;
+
+commit;
