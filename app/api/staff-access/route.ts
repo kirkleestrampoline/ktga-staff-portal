@@ -13,6 +13,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 
+  const userId = user.id;
+  const actorRole = me.role as "admin" | "org_admin";
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const secret = process.env.SUPABASE_SECRET_KEY;
   if (!url || !secret) return NextResponse.json({ error: "Supabase server configuration is missing" }, { status: 500 });
@@ -21,11 +24,11 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
 
   async function allowedVenueIds() {
-    if (me.role === "admin") {
+    if (actorRole === "admin") {
       const { data } = await admin.from("venues").select("id").eq("active", true);
       return (data || []).map((x: any) => x.id);
     }
-    const { data } = await admin.from("staff_venues").select("venue_id").eq("profile_id", user.id).eq("is_admin", true);
+    const { data } = await admin.from("staff_venues").select("venue_id").eq("profile_id", userId).eq("is_admin", true);
     return (data || []).map((x: any) => x.venue_id);
   }
 
@@ -34,7 +37,7 @@ export async function POST(req: NextRequest) {
   if (body.action === "create_placeholder") {
     const fullName = String(body.full_name || "").trim();
     const venueIds: string[] = Array.isArray(body.venue_ids) ? body.venue_ids : [];
-    const role = me.role === "admin" && body.role === "org_admin" ? "org_admin" : "coach";
+    const role = actorRole === "admin" && body.role === "org_admin" ? "org_admin" : "coach";
     if (!fullName) return NextResponse.json({ error: "Name is required" }, { status: 400 });
     if (venueIds.some(id => !allowed.includes(id))) return NextResponse.json({ error: "You cannot add staff to that organisation" }, { status: 403 });
 
@@ -61,7 +64,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (venueIds.length) {
-      const adminVenueIds: string[] = me.role === "admin" && Array.isArray(body.admin_venue_ids) ? body.admin_venue_ids : [];
+      const adminVenueIds: string[] = actorRole === "admin" && Array.isArray(body.admin_venue_ids) ? body.admin_venue_ids : [];
       const { error } = await admin.from("staff_venues").insert(venueIds.map(venue_id => ({
         profile_id: id,
         venue_id,
@@ -79,7 +82,7 @@ export async function POST(req: NextRequest) {
     if (!profileId || !email) return NextResponse.json({ error: "Staff member and email are required" }, { status: 400 });
 
     const { data: links } = await admin.from("staff_venues").select("venue_id").eq("profile_id", profileId);
-    if (me.role !== "admin" && (links || []).some((x: any) => !allowed.includes(x.venue_id))) {
+    if (actorRole !== "admin" && (links || []).some((x: any) => !allowed.includes(x.venue_id))) {
       return NextResponse.json({ error: "You do not manage this staff member" }, { status: 403 });
     }
 
