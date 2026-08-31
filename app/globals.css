@@ -1743,3 +1743,37 @@ table{background:#fff}th{background:#fafbfc;color:#858e9c;letter-spacing:.07em}t
  .v435DashboardHead .monthArrow{width:44px;min-width:44px}
  .v435DashboardHead .monthCurrent{font-size:13px;padding-inline:5px}
 }
+
+/* v4.3.6 — mobile master timetable and Timesheet navigation */
+.v436MasterDayToggle{appearance:none;display:flex;align-items:center;gap:9px;min-width:0;padding:0;border:0;background:transparent;text-align:left;color:inherit}
+.v436MasterDayToggle span{font-size:11px;font-weight:750;color:var(--muted)}
+.v436MasterDayToggle b{display:none;font-size:18px;line-height:1;transition:transform .16s ease}
+.v436TimesheetHeadControls{display:flex;align-items:center;justify-content:center;gap:14px}
+.v436TimesheetHeadControls .monthNavigator{flex:none}
+@media(min-width:821px){
+ .v436MasterDayToggle{pointer-events:none}
+ .v434CenteredPageHead>.v436TimesheetHeadControls{grid-column:2/4;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center}
+ .v436TimesheetHeadControls .monthNavigator{justify-self:start}
+}
+@media(max-width:820px){
+ .scheduleAdminGrid{display:flex!important;flex-direction:column;gap:16px}
+ .v436StaffingCard{order:1}
+ .v436MasterTimetableCard{order:2}
+ .v436MasterDayToggle{width:100%;min-height:48px;cursor:pointer}
+ .v436MasterDayToggle strong{font-size:14px}
+ .v436MasterDayToggle span{margin-left:auto}
+ .v436MasterDayToggle b{display:block;transform:rotate(-90deg)}
+ .masterDay.expanded .v436MasterDayToggle b{transform:rotate(0)}
+ .masterDay.collapsed .masterDayClasses{display:none}
+ .masterDayHead{display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;align-items:center!important;gap:8px!important;padding:7px 9px 7px 14px!important}
+ .masterDayHead>.btn{width:auto!important;min-height:44px;padding-inline:12px;white-space:nowrap}
+ .masterTimetable{gap:9px!important}
+ .v434CenteredPageHead>.v436TimesheetHeadControls{width:100%;display:flex;flex-direction:column;gap:9px}
+ .v436TimesheetHeadControls .monthNavigator{width:100%;display:grid;grid-template-columns:48px minmax(0,1fr) 48px;gap:9px}
+ .v436TimesheetHeadControls>.btn{width:100%;min-height:44px}
+}
+@media(max-width:390px){
+ .masterDayHead{grid-template-columns:minmax(0,1fr)!important}
+ .masterDayHead>.btn{width:100%!important}
+ .v436TimesheetHeadControls .monthNavigator{grid-template-columns:44px minmax(0,1fr) 44px;gap:6px}
+}
