@@ -1,8 +1,8 @@
 "use client";
 
 import { CalendarIcon, ChartIcon, ClockIcon, HomeIcon, InvoiceIcon, SettingsIcon, UserIcon, UsersIcon } from "./icons";
+import type { DashboardTab as Tab } from "@/types/navigation";
 
-type Tab = "dashboard"|"schedule"|"leave"|"timesheets"|"invoices"|"staff"|"reports"|"settings"|"profile";
 type Props={tab:Tab;setTab:(t:Tab)=>void;role:string;name:string;open:boolean;setOpen:(v:boolean)=>void;onSignOut:()=>void};
 
 export default function MobileNav({tab,setTab,role,name,open,setOpen,onSignOut}:Props){
@@ -37,13 +37,14 @@ export default function MobileNav({tab,setTab,role,name,open,setOpen,onSignOut}:
       <button className={tab==="schedule"?"active":""} onClick={()=>choose("schedule")}><CalendarIcon/><span>Schedule</span></button>
       <button className={tab==="timesheets"?"active":""} onClick={()=>choose("timesheets")}><ClockIcon/><span>Payroll</span></button>
       <button className={tab==="staff"?"active":""} onClick={()=>choose("staff")}><UsersIcon/><span>People</span></button>
-      <button className={open||(["leave","invoices","reports","settings","profile"] as string[]).includes(tab)?"active":""} onClick={()=>setOpen(!open)}><span className="moreGlyph">•••</span><span>More</span></button>
+      <button className={open||(["availability","leave","invoices","reports","settings","profile"] as string[]).includes(tab)?"active":""} onClick={()=>setOpen(!open)}><span className="moreGlyph">•••</span><span>More</span></button>
     </nav>
     {open&&<button className="mobileMoreScrim" aria-label="Close more menu" onClick={()=>setOpen(false)}/>}
     <section className={`mobileMoreSheet ${open?"open":""}`} aria-hidden={!open}>
       <div className="mobileMoreHandle"/>
       <div className="mobileMoreHead"><div><strong>AV Gymnastics</strong><span>{name}</span></div><button onClick={()=>setOpen(false)} aria-label="Close">×</button></div>
       <div className="mobileMoreLinks">
+        <button onClick={()=>choose("availability")}><UsersIcon/><span><strong>Staff Availability</strong><small>Who can coach today and this week</small></span></button>
         <button onClick={()=>choose("leave")}><ClockIcon/><span><strong>Leave Management</strong><small>Approve leave and availability</small></span></button>
         <button onClick={()=>choose("invoices")}><InvoiceIcon/><span><strong>Invoices</strong><small>Coach invoices and payment history</small></span></button>
         <button onClick={()=>choose("reports")}><ChartIcon/><span><strong>Reports</strong><small>Hours and costs</small></span></button>

@@ -8,8 +8,8 @@ import StatCard from "@/components/stat-card";
 import StatusPill from "@/components/status-pill";
 import AvLogo from "@/components/av-logo";
 import { CalendarIcon, ChartIcon, CheckIcon, ClockIcon, InvoiceIcon, MenuIcon, PlusIcon, PoundIcon, SearchIcon, UserIcon, UsersIcon } from "@/components/icons";
+import type { DashboardTab as Tab } from "@/types/navigation";
 
-type Tab="dashboard"|"availability"|"schedule"|"leave"|"timesheets"|"invoices"|"staff"|"reports"|"settings"|"profile";
 type Profile={
   id:string;full_name:string;email:string|null;phone:string|null;address:string|null;role:"coach"|"org_admin"|"admin";
   hourly_rate:number;account_name:string|null;sort_code:string|null;account_number:string|null;utr:string|null;
@@ -1402,9 +1402,9 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   })();
 
   return <div className="portal">
-    <Sidebar tab={tab} setTab={(t:any)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
+    <Sidebar tab={tab} setTab={(t:Tab)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v4.3.1</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v4.3.1a</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
         {tab!=="schedule"&&mobilePageMeta&&<div className="v303MobilePageHero">
           <span>{mobilePageMeta.eyebrow}</span>
@@ -1435,7 +1435,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     {adminScheduleShift&&AdminScheduleShiftModal()}
     {confirmShift&&ConfirmShiftModal()}
     {adjustShift&&AdjustmentModal()}
-    <MobileNav tab={tab} setTab={(t:any)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} role={initialProfile.role} name={initialProfile.full_name} open={mobileMoreOpen} setOpen={setMobileMoreOpen} onSignOut={signOut}/>
+    <MobileNav tab={tab} setTab={(t:Tab)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} role={initialProfile.role} name={initialProfile.full_name} open={mobileMoreOpen} setOpen={setMobileMoreOpen} onSignOut={signOut}/>
   </div>;
 
   function PageHead({title,sub,children}:{title:string;sub:string;children?:React.ReactNode}){return <div className="pageHead"><div><h1>{title}</h1><p>{sub}</p></div>{children}</div>}

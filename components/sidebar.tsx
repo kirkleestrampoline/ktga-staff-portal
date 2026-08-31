@@ -2,14 +2,14 @@
 
 import { CalendarIcon, ChartIcon, ClockIcon, HomeIcon, InvoiceIcon, SettingsIcon, UserIcon, UsersIcon } from "./icons";
 import AvLogo from "./av-logo";
-
-type Tab="dashboard"|"schedule"|"leave"|"timesheets"|"invoices"|"staff"|"reports"|"settings"|"profile";
+import type { DashboardTab as Tab } from "@/types/navigation";
 
 export default function Sidebar({tab,setTab,name,role,onSignOut,mobileOpen,onClose}:{tab:Tab;setTab:(t:Tab)=>void;name:string;role:string;onSignOut:()=>void;mobileOpen:boolean;onClose:()=>void}){
   const admin=role==="admin"||role==="org_admin";
   const initials=name.split(" ").filter(Boolean).slice(0,2).map(x=>x[0]).join("").toUpperCase()||"AV";
   const adminItems:{id:Tab;label:string;icon:any}[]=[
     {id:"dashboard",label:"Overview",icon:HomeIcon},
+    {id:"availability",label:"Staff Availability",icon:UsersIcon},
     {id:"schedule",label:"Schedule",icon:CalendarIcon},
     {id:"leave",label:"Leave",icon:ClockIcon},
     {id:"timesheets",label:"Payroll",icon:ClockIcon},
