@@ -134,8 +134,14 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const [availabilityPeriod,setAvailabilityPeriod]=useState<"today"|"tomorrow"|"week">("today");
   const [availabilitySearch,setAvailabilitySearch]=useState("");
   const [availabilityVenue,setAvailabilityVenue]=useState("");
+  const [availabilityExpanded,setAvailabilityExpanded]=useState<Record<"available"|"coaching"|"pending"|"unavailable",boolean>>({available:true,coaching:false,pending:false,unavailable:false});
   const [loadingTab,setLoadingTab]=useState<Tab|null>(null);
-  const loadedTabs=useRef<Set<Tab>>(new Set(isAdmin?["dashboard"]:[]));
+  const [tabLoadError,setTabLoadError]=useState<{tab:Tab;message:string}|null>(null);
+  const initialLoadedTabs=useRef<Set<Tab>>(new Set(isAdmin?["dashboard"]:[]));
+  const [loadedTabs,setLoadedTabs]=useState<Set<Tab>>(()=>new Set(initialLoadedTabs.current));
+  const loadedTabsRef=useRef<Set<Tab>>(initialLoadedTabs.current);
+  const tabLoadsInFlight=useRef<Set<Tab>>(new Set());
+  const sharedDataLoads=useRef<Record<string,Promise<void>>>({});
 
   const totalHours=useMemo(()=>shifts.filter(s=>!s.approval_status||s.approval_status==="approved").reduce((a,s)=>a+shiftHours(s),0),[shifts]);
   const totalValue=totalHours*Number(activeCoach.hourly_rate||0);
@@ -148,24 +154,70 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const overdue=new Date()>cutoffDate(month,business.cutoff_day||1)&&!timesheet?.submitted_at;
   const viewingOther=isAdmin&&activeCoach.id!==initialProfile.id;
 
-  useEffect(()=>{void loadVenues();void loadStaff();if(isAdmin){void loadLeaveData().then(()=>loadedTabs.current.add("leave"));void loadFutureUnstaffedShifts();void loadInvoiceSummary()}},[]);
-  useEffect(()=>{if(isAdmin&&tab==="dashboard"){void loadOverviewSchedule();void loadAdmin(false)}else if(loadedTabs.current.has(tab))void reloadLoadedTab(tab)},[month,activeCoach.id]);
+  useEffect(()=>{
+    void runSharedDataLoad("venues",loadVenues).catch(reportStartupLoadFailure);
+    void runSharedDataLoad("staff",loadStaff).catch(reportStartupLoadFailure);
+    if(isAdmin){
+      void runSharedDataLoad("leave",loadLeaveData).then(()=>markTabLoaded("leave")).catch(reportStartupLoadFailure);
+      void runSharedDataLoad("future-schedule",loadFutureUnstaffedShifts).catch(reportStartupLoadFailure);
+      void loadInvoiceSummary();
+    }
+  },[]);
+  useEffect(()=>{if(isAdmin&&tab==="dashboard"){void runSharedDataLoad(`overview-schedule:${month}`,loadOverviewSchedule).catch(reportStartupLoadFailure);void loadAdmin(false)}else if(loadedTabsRef.current.has(tab))void reloadLoadedTab(tab)},[month,activeCoach.id]);
   useEffect(()=>{void loadTabOnce(tab)},[tab]);
 
+  function reportStartupLoadFailure(error:unknown){if(process.env.NODE_ENV!=="production")console.error("[startup-data] load failed",error)}
+  function runSharedDataLoad(key:string,loader:()=>Promise<void>){
+    const existing=sharedDataLoads.current[key];
+    if(existing)return existing;
+    const request=loader().catch(error=>{delete sharedDataLoads.current[key];throw error});
+    sharedDataLoads.current[key]=request;
+    return request;
+  }
+  function markTabLoaded(next:Tab){
+    loadedTabsRef.current.add(next);
+    setLoadedTabs(current=>current.has(next)?current:new Set([...current,next]));
+  }
+  function clearTabLoaded(next:Tab){
+    loadedTabsRef.current.delete(next);
+    setLoadedTabs(current=>{if(!current.has(next))return current;const updated=new Set(current);updated.delete(next);return updated});
+  }
+  function logTabLoad(next:Tab,event:"load started"|"load completed"|"load failed"|"cache hit",error?:unknown){
+    if(process.env.NODE_ENV!=="production"&&(next==="availability"||next==="staff"||next==="profile"))console.debug(`[tab-load:${next}] ${event}`,error||"");
+  }
+
   async function loadTabOnce(next:Tab){
-    if(next==="dashboard"||loadedTabs.current.has(next))return;
+    if(next==="dashboard")return;
+    if(loadedTabsRef.current.has(next)){logTabLoad(next,"cache hit");return}
+    if(tabLoadsInFlight.current.has(next))return;
+    tabLoadsInFlight.current.add(next);
+    logTabLoad(next,"load started");
     setLoadingTab(next);
+    setTabLoadError(current=>current?.tab===next?null:current);
     try{
-      if(next==="schedule"){
-        if(isAdmin)await Promise.all([loadRemovedOccurrences(),loadPendingExtraShifts()]);
-        else await Promise.all([loadSchedule(),loadLeaveData()]);
-      }else if(next==="leave")await loadLeaveData();
-      else if(next==="timesheets")await Promise.all([loadBusiness(),loadCoachMonth(activeCoach.id),loadTemplates(activeCoach.id),isAdmin?loadAdmin(true):Promise.resolve()]);
-      else if(next==="invoices")await Promise.all([loadBusiness(),loadInvoices()]);
-      else if(next==="reports"&&isAdmin)await loadAudits();
-      else if(next==="settings"&&isAdmin)await loadBusiness();
-      loadedTabs.current.add(next);
-    }finally{setLoadingTab(current=>current===next?null:current)}
+      let lastError:unknown=null;
+      for(let attempt=0;attempt<2;attempt++){
+        try{
+          await Promise.race([loadTabData(next),new Promise((_,reject)=>window.setTimeout(()=>reject(new Error("This page took too long to load.")),15000))]);
+          markTabLoaded(next);logTabLoad(next,"load completed");lastError=null;break;
+        }catch(error){lastError=error;if(attempt===0)await new Promise(resolve=>window.setTimeout(resolve,500))}
+      }
+      if(lastError)throw lastError;
+    }catch(error:any){logTabLoad(next,"load failed",error);setTabLoadError({tab:next,message:error?.message||"Page data could not be loaded."})}
+    finally{tabLoadsInFlight.current.delete(next);setLoadingTab(current=>current===next?null:current)}
+  }
+
+  async function loadTabData(next:Tab){
+    if(next==="availability"&&isAdmin)await Promise.all([runSharedDataLoad("venues",loadVenues),runSharedDataLoad("staff",loadStaff),runSharedDataLoad("leave",loadLeaveData),runSharedDataLoad("future-schedule",loadFutureUnstaffedShifts),runSharedDataLoad(`overview-schedule:${month}`,loadOverviewSchedule)]);
+    else if(next==="staff"&&isAdmin)await Promise.all([runSharedDataLoad("venues",loadVenues),runSharedDataLoad("staff",loadStaff)]);
+    else if(next==="schedule"){
+      if(isAdmin)await Promise.all([loadRemovedOccurrences(),loadPendingExtraShifts()]);
+      else await Promise.all([loadSchedule(),loadLeaveData()]);
+    }else if(next==="leave")await loadLeaveData();
+    else if(next==="timesheets")await Promise.all([loadBusiness(),loadCoachMonth(activeCoach.id),loadTemplates(activeCoach.id),isAdmin?loadAdmin(true):Promise.resolve()]);
+    else if(next==="invoices")await Promise.all([loadBusiness(),loadInvoices()]);
+    else if(next==="reports"&&isAdmin)await loadAudits();
+    else if(next==="settings"&&isAdmin)await loadBusiness();
   }
 
   async function reloadLoadedTab(current:Tab){
@@ -177,7 +229,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   async function loadLeaveData(){
     const q=supabase.from("time_away_requests").select("*").order("start_date",{ascending:true}).order("created_at",{ascending:false});
     const{data,error}=isAdmin?await q:await q.eq("profile_id",initialProfile.id);
-    if(error)console.error(error);
+    if(error)throw error;
     setTimeAwayRequests((data||[]) as TimeAwayRequest[]);
   }
 
@@ -353,10 +405,12 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   }
 
   async function loadVenues(){
-    const{data}=await supabase.from("venues").select("*").eq("active",true).order("name");
+    const{data,error}=await supabase.from("venues").select("*").eq("active",true).order("name");
+    if(error)throw error;
     setVenues((data||[]) as Venue[]);
     setVenueDrafts(Object.fromEntries(((data||[]) as Venue[]).map(v=>[v.id,{...v}])));
-    const{data:links}=await supabase.from("staff_venues").select("profile_id,venue_id,is_admin");
+    const{data:links,error:linksError}=await supabase.from("staff_venues").select("profile_id,venue_id,is_admin");
+    if(linksError)throw linksError;
     const map:Record<string,string[]>={};
     for(const l of links||[]){if(!map[l.profile_id])map[l.profile_id]=[];map[l.profile_id].push(l.venue_id)}
     setStaffVenueMap(map);
@@ -396,7 +450,8 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   }
 
   async function loadStaff(){
-    const{data}=await supabase.from("profiles").select("*").neq("role","admin").order("full_name");
+    const{data,error}=await supabase.from("profiles").select("*").neq("role","admin").order("full_name");
+    if(error)throw error;
     setStaff((data||[]) as Profile[]);
   }
 
@@ -863,17 +918,20 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
 
   async function loadFutureUnstaffedShifts(){
     const{data,error}=await supabase.from("scheduled_shifts").select("*").neq("status","cancelled").gte("shift_date",localDateKey()).order("shift_date").order("start_time");
-    if(error){console.error(error);return}
+    if(error)throw error;
     setFutureScheduledShifts((data||[]) as ScheduledShift[]);
   }
 
   async function loadOverviewSchedule(){
     const{from,to}=monthRange(month);
-    const[{data:c},{data:slots},{data:ss}]=await Promise.all([
+    const[{data:c,error:classesError},{data:slots,error:slotsError},{data:ss,error:scheduleError}]=await Promise.all([
       supabase.from("classes").select("*").eq("active",true).order("weekday").order("start_time"),
       supabase.from("class_staffing_slots").select("*").order("slot_number"),
       supabase.from("scheduled_shifts").select("*").gte("shift_date",from).lte("shift_date",to).order("shift_date").order("start_time")
     ]);
+    if(classesError)throw classesError;
+    if(slotsError)throw slotsError;
+    if(scheduleError)throw scheduleError;
     setClasses((c||[]) as ClassTemplate[]);
     setClassSlots((slots||[]) as ClassStaffingSlot[]);
     setScheduledShifts((ss||[]) as ScheduledShift[]);
@@ -1404,7 +1462,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   return <div className="portal">
     <Sidebar tab={tab} setTab={(t:Tab)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v4.3.1a</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v4.3.3</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
         {tab!=="schedule"&&mobilePageMeta&&<div className="v303MobilePageHero">
           <span>{mobilePageMeta.eyebrow}</span>
@@ -1412,7 +1470,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
           <p>{mobilePageMeta.sub}</p>
         </div>}
         {message&&<div className={`notice ${/(saved|sent|submitted|added|copied|reopened|created|paid)/i.test(message)?"success":""}`}>{message}</div>}
-        {tab!=="dashboard"&&(loadingTab===tab||!loadedTabs.current.has(tab))?TabLoadingSkeleton():<>
+        {tab!=="dashboard"&&tabLoadError?.tab===tab?TabLoadFailure():tab!=="dashboard"&&(loadingTab===tab||!loadedTabs.has(tab))?TabLoadingSkeleton():<>
           {tab==="dashboard"&&DashboardView()}
           {tab==="availability"&&isAdmin&&StaffAvailabilityView()}
           {tab==="schedule"&&ScheduleView()}
@@ -1440,12 +1498,15 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
 
   function PageHead({title,sub,children}:{title:string;sub:string;children?:React.ReactNode}){return <div className="pageHead"><div><h1>{title}</h1><p>{sub}</p></div>{children}</div>}
   function TabLoadingSkeleton(){
-    return <div className="v412Loading" role="status" aria-live="polite" aria-label="Loading page data">
+    return <div className={`v412Loading v432Skeleton-${tab}`} role="status" aria-live="polite" aria-label="Loading page data">
       <span className="srOnly">Loading page data</span>
       <div className="v412SkeletonHead"><i/><i/></div>
       <div className="v412SkeletonCards"><i/><i/><i/></div>
       <div className="v412SkeletonPanel"><i/><i/><i/><i/></div>
     </div>;
+  }
+  function TabLoadFailure(){
+    return <div className="card v432LoadFailure" role="alert"><div><strong>We couldn’t load this page</strong><span>{tabLoadError?.message||"Please try again."}</span></div><button className="btn btnPrimary" onClick={()=>{clearTabLoaded(tab);setTabLoadError(null);void loadTabOnce(tab)}}>Retry</button></div>;
   }
   function MonthSelect(){
     return <div className="monthNavigator">
@@ -1471,9 +1532,9 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
         {schedulingIssues.length>0&&<div className="v402IssueGroups">{(["critical","warning","reminder"] as const).map(severity=>{const allIssues=schedulingIssues.filter(issue=>issue.severity===severity);if(!allIssues.length)return null;const expanded=expandedSchedulingSections[severity];const issues=expanded?allIssues:severity==="warning"?allIssues.slice(0,1):[];const heading=severity==="critical"?"Needs Immediate Attention":severity==="warning"?"Actions":"Planning";return <div className={`v402IssueGroup v406IssueSection ${severity} ${expanded?"expanded":"collapsed"}`} key={severity}><button className="v402SeverityHead v406SectionToggle" type="button" aria-expanded={expanded} onClick={()=>setExpandedSchedulingSections({...expandedSchedulingSections,[severity]:!expanded})}><span aria-hidden="true">{severity==="critical"?"●":severity==="warning"?"▲":"●"}</span><strong>{heading}</strong><small>{allIssues.length}</small><b aria-hidden="true">{expanded?"⌃":"⌄"}</b></button>{issues.length>0&&<div className="v402IssueList">{issues.map(issue=><article className="v402Issue" key={issue.id}><span className="v402SeverityIcon" aria-label={`${heading} issue`}>{severity==="critical"?"!":severity==="warning"?"!":"i"}</span><div className="v402IssueMain"><strong>{issue.coach}</strong><span>{issue.description}</span><small>{new Date(`${issue.date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}{issue.startTime?` · ${issue.startTime.slice(0,5)}–${issue.finishTime.slice(0,5)}`:" · Not scheduled"}</small></div><div className="v402IssueContext"><span>{issue.venueId?venueName(issue.venueId):"All organisations"}</span><strong>{issue.className}</strong></div><button className="btn btnSecondary" type="button" onClick={()=>openSchedulingIssue(issue)}>Fix Now</button></article>)}</div>}{!expanded&&severity==="warning"&&allIssues.length>1&&<button className="v406PreviewMore" type="button" onClick={()=>setExpandedSchedulingSections({...expandedSchedulingSections,warning:true})}>+ {allIssues.length-1} more action{allIssues.length-1===1?"":"s"}</button>}</div>})}{(!expandedSchedulingSections.critical||!expandedSchedulingSections.warning||!expandedSchedulingSections.reminder)&&<button className="v402ViewAll" type="button" onClick={()=>setExpandedSchedulingSections({critical:true,warning:true,reminder:true})}>View all scheduling issues</button>}</div>}
       </section>
       <div className="grid grid4 section forecastCards"><StatCard label="Normal staffing cost" value={money(normalCost)} foot="Based on regular classes" icon={<CalendarIcon/>}/><StatCard label="Current forecast" value={money(forecastCost)} foot={`${unassignedScheduleCount} unassigned shifts`} icon={<PoundIcon/>}/><StatCard label="Actual cost so far" value={money(actualScheduleCost)} foot="Confirmed timesheet hours" icon={<CheckIcon/>}/><StatCard label="Forecast variance" value={money(forecastCost-normalCost)} foot={forecastCost>normalCost?"Above normal plan":"At / below normal plan"} icon={<ChartIcon/>}/></div>
-      <div className="card section todayCoaching"><div className="sectionHeader"><div><h2>Today's coaching</h2><p>{new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</p></div><button className="btn btnSecondary" onClick={()=>setTab("schedule")}>Open schedule</button></div><div className="todayShiftGrid">{scheduledShifts.filter(s=>s.shift_date===new Date().toISOString().slice(0,10)&&s.status!=="cancelled").sort((a,b)=>a.start_time.localeCompare(b.start_time)).map(s=><div className="todayShiftCard" key={s.id}><div><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</strong><span>{s.class_name} · {venueName(s.venue_id)}</span></div><b>{profileById(s.profile_id)?.full_name||"Unassigned"}</b></div>)}{!scheduledShifts.some(s=>s.shift_date===new Date().toISOString().slice(0,10)&&s.status!=="cancelled")&&<div className="empty">No coaching scheduled today.</div>}</div></div>
+      <div className="card section todayCoaching v432TodayCoaching"><div className="sectionHeader"><div><h2>Today&apos;s coaching</h2><p>{new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</p></div><button className="btn btnSecondary" onClick={()=>setTab("schedule")}>Open Schedule</button></div><div className="v432SessionGrid">{scheduledShifts.filter(s=>s.shift_date===localDateKey()&&s.status!=="cancelled").sort((a,b)=>a.start_time.localeCompare(b.start_time)).map(s=><article className={`v432SessionCard ${s.profile_id?"assigned":"unassigned"}`} key={s.id}><time>{s.start_time.slice(0,5)}<small>{s.finish_time.slice(0,5)}</small></time><div><strong>{s.class_name}</strong><span>{venueName(s.venue_id)}</span></div><b>{profileById(s.profile_id)?.full_name||"Unassigned"}</b></article>)}{!scheduledShifts.some(s=>s.shift_date===localDateKey()&&s.status!=="cancelled")&&<div className="v432OverviewEmpty"><CalendarIcon/><div><strong>No coaching scheduled today</strong><span>Today&apos;s generated sessions will appear here.</span></div></div>}</div></div>
       <div className="grid grid2 section"><div className="card"><div className="sectionHeader"><div><h2>Monthly status</h2><p>Open a coach to review or edit their shifts.</p></div><button className="btn btnSecondary" onClick={()=>setTab("timesheets")}>View all</button></div><div className="mobileDataList">{adminRows.slice(0,8).map(r=><button className="mobileDataCard" key={r.coach.id} onClick={()=>selectCoach(r.coach)}><div><strong>{r.coach.full_name}</strong><span>{r.hours.toFixed(2)} hours</span></div><StatusPill status={r.timesheet?.status}/></button>)}</div><div className="tableWrap desktopDataTable"><table><thead><tr><th>Coach</th><th className="num">Hours</th><th>Status</th><th></th></tr></thead><tbody>{adminRows.slice(0,8).map(r=><tr key={r.coach.id}><td><strong>{r.coach.full_name}</strong></td><td className="num">{r.hours.toFixed(2)}</td><td><StatusPill status={r.timesheet?.status}/></td><td><button className="btn btnSecondary" onClick={()=>selectCoach(r.coach)}>Open</button></td></tr>)}</tbody></table></div></div>
-      <div className="card"><div className="sectionHeader"><div><h2>By organisation</h2><p>Hours and estimated staffing cost this month.</p></div></div><div className="orgSummary">{adminVenues().map(v=>{const vs=adminMonthShifts.filter(s=>s.venue_id===v.id);const h=vs.reduce((a,s)=>a+shiftHours(s),0);const cost=vs.reduce((a,s)=>a+shiftHours(s)*Number(staff.find(p=>p.id===s.coach_id)?.hourly_rate||0),0);return <div className="orgSummaryRow" key={v.id}><span><span className="venueDot" style={{background:v.brand_color||"#667085"}}/>{v.name}</span><strong>{h.toFixed(2)}h · {money(cost)}</strong></div>})}</div></div></div></>;
+      <div className="card v432OrganisationSection"><div className="sectionHeader"><div><h2>By organisation</h2><p>Hours and estimated staffing cost this month.</p></div></div><div className="v432OrganisationGrid">{adminVenues().map(v=>{const vs=adminMonthShifts.filter(s=>s.venue_id===v.id),h=vs.reduce((a,s)=>a+shiftHours(s),0),cost=vs.reduce((a,s)=>a+shiftHours(s)*Number(staff.find(p=>p.id===s.coach_id)?.hourly_rate||0),0);return <article className={venueColourClass(v.id)} key={v.id} style={{"--org-accent":v.brand_color||"#6f4a8e"} as React.CSSProperties}><span className="venueDot" style={{background:v.brand_color||"#6f4a8e"}}/><strong>{v.name}</strong><div><span><small>Monthly hours</small><b>{h.toFixed(2)}h</b></span><span><small>Estimated cost</small><b>{money(cost)}</b></span></div></article>})}</div></div></div></>;
 
     return <><PageHead title={`Good ${new Date().getHours()<12?"morning":new Date().getHours()<18?"afternoon":"evening"}, ${ownProfile.full_name.split(" ")[0]}`} sub="Your hours and invoice for this month."><MonthSelect/></PageHead>
       {overdue&&<div className="notice danger">The normal submission deadline for {monthLabel(month)} has passed. Please submit your hours as soon as possible.</div>}
@@ -1501,9 +1562,10 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       const groupedMine=visible.reduce((m:Record<string,ScheduledShift[]>,s)=>{(m[s.shift_date]||=[]).push(s);return m},{});
       const moveRota=(delta:number)=>{
         const d=new Date(selected);
-        d.setDate(d.getDate()+delta*(rotaView==="day"?1:rotaView==="week"?7:30));
-        setRotaDate(d.toISOString().slice(0,10));
-        if(rotaView==="month")setMonth(monthKey(d));
+        if(rotaView==="month")d.setMonth(d.getMonth()+delta,1);
+        else d.setDate(d.getDate()+delta*(rotaView==="day"?1:7));
+        setRotaDate(localDateKey(d));
+        const targetMonth=monthKey(d);if(targetMonth!==month)setMonth(targetMonth);
       };
       return <>{(()=>{
         const today=new Date().toISOString().slice(0,10);
@@ -1562,7 +1624,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       <div className="v313MonthActions">
         <div className="v313MonthActionsText"><span>Month actions</span><strong>{monthLabel(month)}</strong></div>
         <div className="v313MonthActionButtons">
-          <button className="btn btnPrimary" onClick={generateSchedule}>Generate missing shifts</button>
+          <button className="btn btnPrimary" onClick={generateSchedule}>Load shifts</button>
           <button className="btn btnSecondary" onClick={clonePreviousScheduleMonth}>Duplicate previous month</button>
           <div className="v313MoreWrap">
             <button className="btn btnSecondary" onClick={()=>setMonthActionsOpen(!monthActionsOpen)}>More <span className="v313Chevron">⌄</span></button>
@@ -1731,7 +1793,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     return <><PageHead title="Staff Availability" sub="See who can coach across your organisations."><span className="v431Updated"><ClockIcon/>Updated {updatedTime}</span></PageHead>
       <div className="grid grid4 v430AvailabilitySummary">{groups.map(group=><div className={`card ${group.key}`} key={group.key}><span>{group.title}</span><strong>{coaches.filter(item=>item.group===group.key).length}</strong><small>{range.label}</small></div>)}</div>
       <div className="v430AvailabilityControls"><div className="v430PeriodTabs"><button className={availabilityPeriod==="today"?"active":""} onClick={()=>setAvailabilityPeriod("today")}>Today</button><button className={availabilityPeriod==="tomorrow"?"active":""} onClick={()=>setAvailabilityPeriod("tomorrow")}>Tomorrow</button><button className={availabilityPeriod==="week"?"active":""} onClick={()=>setAvailabilityPeriod("week")}>This Week</button></div><select aria-label="Filter by organisation" value={availabilityVenue} onChange={e=>setAvailabilityVenue(e.target.value)}><option value="">All organisations</option>{adminVenues().map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select><div className="searchBar"><SearchIcon/><input value={availabilitySearch} onChange={e=>setAvailabilitySearch(e.target.value)} placeholder="Search staff…"/></div></div>
-      <div className="v430AvailabilityBoard">{groups.map(group=>{const people=coaches.filter(item=>item.group===group.key);return <section className={`v430AvailabilityColumn ${group.key}`} key={group.key}><header><strong>{group.title}</strong><span>{people.length}</span></header><div>{people.map(item=>{const away=item.approved||item.pending,session=item.coaching[0];return <article className="v430AvailabilityCard" key={item.person.id}>
+      <div className="v430AvailabilityBoard">{groups.map(group=>{const people=coaches.filter(item=>item.group===group.key),expanded=availabilityExpanded[group.key];return <section className={`v430AvailabilityColumn ${group.key} ${expanded?"expanded":"collapsed"}`} key={group.key}><header><button type="button" aria-expanded={expanded} onClick={()=>setAvailabilityExpanded(current=>({...current,[group.key]:!current[group.key]}))}><strong>{group.title}</strong><span>{people.length}</span><b aria-hidden="true">⌄</b></button></header><div className="v432AvailabilityContents">{people.map(item=>{const away=item.approved||item.pending,session=item.coaching[0];return <article className="v430AvailabilityCard" key={item.person.id}>
         <div className="v430AvailabilityIdentity"><div>{initials(item.person.full_name)}</div><span><strong>{item.person.full_name}</strong><small>{group.key==="coaching"?"Coaching":group.key==="pending"?"Pending leave":group.key==="unavailable"?"Unavailable":"Available"}</small></span></div>
         <div className="v430AvailabilityHours"><span><small>Today</small><b>{item.todayHours.toFixed(2)}h</b></span><span><small>This week</small><b>{item.weekHours.toFixed(2)}h</b></span></div>
         <div className="v430AvailabilityOrgs">{profileVenues(item.person.id).map(v=><span key={v.id}>{v.name}</span>)}{!profileVenues(item.person.id).length&&<span>No organisation</span>}</div>
