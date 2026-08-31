@@ -895,7 +895,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   return <div className="portal">
     <Sidebar tab={tab} setTab={(t:any)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v3.0.1</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v3.0.2</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
         {message&&<div className={`notice ${/(saved|sent|submitted|added|copied|reopened|created|paid)/i.test(message)?"success":""}`}>{message}</div>}
         {tab==="dashboard"&&DashboardView()}
@@ -964,24 +964,54 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
         setRotaDate(d.toISOString().slice(0,10));
         if(rotaView==="month")setMonth(monthKey(d));
       };
-      return <><div className="v3CoachWelcome"><div><span className="v3WelcomeEyebrow">My coaching</span><h1>{`Good ${new Date().getHours()<12?"morning":new Date().getHours()<18?"afternoon":"evening"}, ${initialProfile.full_name.split(" ")[0]}`}</h1><p>{allMine.filter(s=>s.shift_date===new Date().toISOString().slice(0,10)&&s.status!=="cancelled").length?`You have ${allMine.filter(s=>s.shift_date===new Date().toISOString().slice(0,10)&&s.status!=="cancelled").length} coaching ${allMine.filter(s=>s.shift_date===new Date().toISOString().slice(0,10)&&s.status!=="cancelled").length===1?"session":"sessions"} today.`:"You have no coaching scheduled today."}</p></div>{isAdmin&&adminPersonalRota&&<button className="btn btnSecondary" onClick={()=>setAdminPersonalRota(false)}>← Admin Schedule</button>}</div>
-        <div className="rotaControls"><div className="rotaViewTabs"><button className={`btn ${rotaView==="day"?"btnPrimary":"btnSecondary"}`} onClick={()=>setRotaView("day")}>Day</button><button className={`btn ${rotaView==="week"?"btnPrimary":"btnSecondary"}`} onClick={()=>setRotaView("week")}>Week</button><button className={`btn ${rotaView==="month"?"btnPrimary":"btnSecondary"}`} onClick={()=>setRotaView("month")}>Month</button></div><div className="v3RotaDateNav"><button className="btn btnSecondary v3DateArrow" aria-label="Previous" onClick={()=>moveRota(-1)}>←</button><input className="rotaDateInput" type="date" value={rotaDate} onChange={e=>{setRotaDate(e.target.value);if(rotaView==="month")setMonth(e.target.value.slice(0,7))}}/><button className="btn btnSecondary v3DateArrow" aria-label="Next" onClick={()=>moveRota(1)}>→</button></div></div>
-        <div className="grid grid3 scheduleSummary">{(()=>{
-          const today=new Date().toISOString().slice(0,10);
-          const now=new Date(`${today}T12:00:00`);
-          const ws=new Date(now);ws.setDate(now.getDate()-((now.getDay()+6)%7));
-          const we=new Date(ws);we.setDate(ws.getDate()+6);
-          const active=allMine.filter(s=>s.status!=="cancelled");
-          const todayH=active.filter(s=>s.shift_date===today).reduce((a,s)=>a+scheduleHours(s),0);
-          const weekH=active.filter(s=>{const d=new Date(`${s.shift_date}T12:00:00`);return d>=ws&&d<=we}).reduce((a,s)=>a+scheduleHours(s),0);
-          const monthH=active.reduce((a,s)=>a+scheduleHours(s),0);
-          return <><StatCard label="Today" value={`${todayH.toFixed(2)}h`} foot={todayH?"Scheduled coaching":"No coaching today"} icon={<ClockIcon/>}/><StatCard label="This week" value={`${weekH.toFixed(2)}h`} foot="Planned rota hours" icon={<CalendarIcon/>}/><StatCard label="This month" value={`${monthH.toFixed(2)}h`} foot={`${allMine.filter(s=>s.status==="confirmed").length} sessions confirmed`} icon={<CheckIcon/>}/></>
-        })()}</div>
+      return <>{(()=>{
+        const today=new Date().toISOString().slice(0,10);
+        const todayItems=allMine.filter(s=>s.shift_date===today&&s.status!=="cancelled").sort((a,b)=>a.start_time.localeCompare(b.start_time));
+        const future=allMine.filter(s=>s.status!=="cancelled"&&`${s.shift_date}T${s.start_time}`>=`${today}T00:00`).sort((a,b)=>`${a.shift_date}${a.start_time}`.localeCompare(`${b.shift_date}${b.start_time}`));
+        const next=future[0]||null;
+        const now=new Date(`${today}T12:00:00`);
+        const ws=new Date(now);ws.setDate(now.getDate()-((now.getDay()+6)%7));
+        const we=new Date(ws);we.setDate(ws.getDate()+6);
+        const active=allMine.filter(s=>s.status!=="cancelled");
+        const todayH=active.filter(s=>s.shift_date===today).reduce((a,s)=>a+scheduleHours(s),0);
+        const weekH=active.filter(s=>{const d=new Date(`${s.shift_date}T12:00:00`);return d>=ws&&d<=we}).reduce((a,s)=>a+scheduleHours(s),0);
+        const monthH=active.reduce((a,s)=>a+scheduleHours(s),0);
+        return <>
+          <div className="v3CoachWelcome"><div><span className="v3WelcomeEyebrow">My coaching</span><h1>{`Good ${new Date().getHours()<12?"morning":new Date().getHours()<18?"afternoon":"evening"}, ${initialProfile.full_name.split(" ")[0]}`}</h1><p>{todayItems.length?`You have ${todayItems.length} coaching ${todayItems.length===1?"session":"sessions"} today.`:"You have no coaching scheduled today."}</p></div>{isAdmin&&adminPersonalRota&&<button className="btn btnSecondary" onClick={()=>setAdminPersonalRota(false)}>← Admin Schedule</button>}</div>
+
+          <div className="v302MobileHero">
+            <span className="v302HeroEyebrow">{todayItems.length?"Today's coaching":"A quieter day"}</span>
+            <h1>{`Good ${new Date().getHours()<12?"morning":new Date().getHours()<18?"afternoon":"evening"}, ${initialProfile.full_name.split(" ")[0]}`}</h1>
+            <p>{todayItems.length?`${todayItems.length} ${todayItems.length===1?"session":"sessions"} on your rota today.`:next?`Nothing today. Your next session is ${new Date(`${next.shift_date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"short"})}.`:"You're all caught up — no upcoming coaching on the rota."}</p>
+          </div>
+
+          {next&&<div className={`v302NextSession ${venueColourClass(next.venue_id)}`}>
+            <div className="v302NextTop"><span>Up next</span><small>{new Date(`${next.shift_date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}</small></div>
+            <div className="v302NextBody"><div className="v302NextTime">{next.start_time.slice(0,5)}</div><div><strong>{next.class_name}</strong><span>{venueName(next.venue_id)} · {next.start_time.slice(0,5)}–{next.finish_time.slice(0,5)}</span></div></div>
+          </div>}
+
+          <div className="rotaControls">
+            <div className="rotaViewTabs"><button className={`btn ${rotaView==="day"?"btnPrimary":"btnSecondary"}`} onClick={()=>setRotaView("day")}>Day</button><button className={`btn ${rotaView==="week"?"btnPrimary":"btnSecondary"}`} onClick={()=>setRotaView("week")}>Week</button><button className={`btn ${rotaView==="month"?"btnPrimary":"btnSecondary"}`} onClick={()=>setRotaView("month")}>Month</button></div>
+            <div className="v302DateNavigator">
+              <button className="v302DateArrow" aria-label="Previous" onClick={()=>moveRota(-1)}>←</button>
+              <label className="v302DateCentre"><span>{new Date(`${rotaDate}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"short",year:"numeric"})}</span><input type="date" value={rotaDate} onChange={e=>{setRotaDate(e.target.value);if(rotaView==="month")setMonth(e.target.value.slice(0,7))}}/></label>
+              <button className="v302DateArrow" aria-label="Next" onClick={()=>moveRota(1)}>→</button>
+            </div>
+          </div>
+
+          <div className="v302MiniStats">
+            <div><span>Today</span><strong>{todayH.toFixed(2)}h</strong></div>
+            <div><span>This week</span><strong>{weekH.toFixed(2)}h</strong></div>
+            <div><span>This month</span><strong>{monthH.toFixed(2)}h</strong></div>
+          </div>
+          <div className="grid grid3 scheduleSummary v302DesktopStats"><StatCard label="Today" value={`${todayH.toFixed(2)}h`} foot={todayH?"Scheduled coaching":"No coaching today"} icon={<ClockIcon/>}/><StatCard label="This week" value={`${weekH.toFixed(2)}h`} foot="Planned rota hours" icon={<CalendarIcon/>}/><StatCard label="This month" value={`${monthH.toFixed(2)}h`} foot={`${allMine.filter(s=>s.status==="confirmed").length} sessions confirmed`} icon={<CheckIcon/>}/></div>
+        </>;
+      })()}
         <div className="staffRotaList section">{Object.entries(groupedMine).map(([date,items])=><div className="staffRotaDay" key={date}><div className="staffRotaDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</strong></div>{items.map(s=><div className={`staffRotaCard ${s.status} ${venueColourClass(s.venue_id)}`} key={s.id}><div className="staffRotaMain"><div><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</strong><span>{s.class_name}</span><small>{venueName(s.venue_id)}</small></div><span className={`scheduleStatus ${s.adjustment_status==="pending"?"scheduled":s.status}`}>{s.adjustment_status==="pending"?"Approval pending":s.status}</span></div><div className="staffRotaActions">
           {s.status==="scheduled"&&s.adjustment_status!=="pending"&&<><button className="btn btnPrimary" onClick={()=>confirmScheduled(s)}>Confirm as planned</button><button className="btn btnSecondary" onClick={()=>openAdjustment(s)}>Adjust actual time</button></>}
           {s.adjustment_status==="pending"&&<><span className="rotaPendingText">Extra time awaiting admin approval</span><button className="btn btnDanger" onClick={()=>undoOwnRota(s)}>Cancel request</button></>}
           {s.status==="confirmed"&&<><span className="rotaConfirmedText">Confirmed into timesheet</span><button className="btn btnSecondary" onClick={()=>undoOwnRota(s)}>Undo</button></>}
-        </div></div>)}</div>)}{!visible.length&&<div className="card empty">No rota sessions in this view.</div>}</div>
+        </div></div>)}</div>)}{!visible.length&&<div className="card empty v302EmptyState"><div className="v302EmptyMark"><CalendarIcon/></div><strong>You're all caught up</strong><span>No coaching is planned in this view.</span></div>}</div>
         <div className="card section rotaExtraCard"><div><strong>Need to record work that wasn't on your rota?</strong><p>Use Record Additional Work for cover, camps, competitions, meetings, admin or anything else that was not on your rota. It will be sent to an admin for approval.</p></div><button className="btn btnAccent" onClick={()=>{setTab("timesheets");setShiftModal({coach_id:initialProfile.id,shift_date:rotaDate,start_time:"16:30",finish_time:"18:00",break_minutes:0,venue_id:profileVenues(initialProfile.id)[0]?.id||null,session_location:"",notes:"",source:"extra",approval_status:"pending"})}}><PlusIcon/>Record Additional Work</button></div>
       </>;
     }
@@ -1073,7 +1103,11 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   }
 
   function SettingsView(){
-    const editableOrgs=isGlobalAdmin?venues:venues.filter(v=>managedVenueIds.includes(v.id));
+    const invoiceOrganisationVisible=(v:Venue)=>{
+      const key=`${v.name||""} ${v.slug||""}`.toLowerCase();
+      return !key.includes("other")&&!key.includes("event");
+    };
+    const editableOrgs=(isGlobalAdmin?venues:venues.filter(v=>managedVenueIds.includes(v.id))).filter(invoiceOrganisationVisible);
     return <>{isGlobalAdmin&&<><PageHead title="Portal settings" sub="Workspace settings for AV Gymnastics."/><div className="card" style={{maxWidth:780}}>
       <div className="formSection"><div className="formSectionTitle"><h3>Organisation</h3><p>Shown on generated invoices.</p></div><div className="field"><label>Business name</label><input value={business.business_name} onChange={e=>setBusiness({...business,business_name:e.target.value})}/></div><div className="field"><label>Business address</label><textarea value={business.business_address||""} onChange={e=>setBusiness({...business,business_address:e.target.value})}/></div></div>
       <div className="formSection"><div className="formSectionTitle"><h3>Timesheets & payment</h3><p>Submission is due on this day of the following month.</p></div><div className="grid grid2"><div className="field"><label>Cut-off day</label><select value={business.cutoff_day} onChange={e=>setBusiness({...business,cutoff_day:Number(e.target.value)})}>{Array.from({length:7},(_,i)=>i+1).map(d=><option value={d} key={d}>{d}{d===1?"st":d===2?"nd":d===3?"rd":"th"} of following month</option>)}</select></div><div className="field"><label>Payment note</label><input value={business.payment_note||""} onChange={e=>setBusiness({...business,payment_note:e.target.value})}/></div></div><button className="btn btnPrimary" onClick={saveBusiness} disabled={saving}>{saving?"Saving…":"Save settings"}</button></div>
