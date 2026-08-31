@@ -2,14 +2,13 @@
 
 export default function AvLogo({size=38,showWordmark=false,inverse=false}:{size?:number;showWordmark?:boolean;inverse?:boolean}){
   return <div className={`avLogoLockup ${inverse?"inverse":""}`}>
-    <svg className="avLogoMark" width={size} height={size} viewBox="0 0 64 64" role="img" aria-label="AV Gymnastics">
+    <svg className="avLogoMark v3StandaloneMark" width={size} height={size} viewBox="0 0 64 64" role="img" aria-label="AV Gymnastics">
       <defs>
-        <linearGradient id="avPurple" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#9a63e8"/><stop offset="1" stopColor="#5f2e84"/></linearGradient>
-        <linearGradient id="avGreen" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#73df95"/><stop offset="1" stopColor="#2f9f5d"/></linearGradient>
+        <linearGradient id="avPurple" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#a06af0"/><stop offset="1" stopColor="#6335b0"/></linearGradient>
+        <linearGradient id="avGreen" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#7ce39c"/><stop offset="1" stopColor="#31a962"/></linearGradient>
       </defs>
-      <rect x="1.5" y="1.5" width="61" height="61" rx="17" fill={inverse?"rgba(255,255,255,.07)":"#111827"}/>
-      <path d="M13.2 44.8 27.3 17.5c1.2-2.3 4.5-2.3 5.7 0l9.6 18.3-6.4 0-6-11.5-10.6 20.5h-6.4Z" fill="url(#avPurple)"/>
-      <path d="M31.4 20.7h6.7l7.2 14.2 9.2-17.4h7L47.9 44.8c-1.1 2.2-4.3 2.3-5.5.1L31.4 20.7Z" fill="url(#avGreen)"/>
+      <path d="M6.5 47.7 23.1 15.8c1.5-2.9 5.7-2.9 7.2.1l10.9 20.8h-7.8L26.7 24 14.4 47.7H6.5Z" fill="url(#avPurple)"/>
+      <path d="M28.2 19h8.3l9 17.4 11.1-21h8.6L49.1 47.5c-1.4 2.8-5.4 2.9-6.9.1L28.2 19Z" fill="url(#avGreen)"/>
     </svg>
     {showWordmark&&<div className="avWordmark"><strong>AV Gymnastics</strong><span>Coach. Schedule. Perform.</span></div>}
   </div>

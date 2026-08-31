@@ -6,6 +6,7 @@ import Sidebar from "@/components/sidebar";
 import MobileNav from "@/components/mobile-nav";
 import StatCard from "@/components/stat-card";
 import StatusPill from "@/components/status-pill";
+import AvLogo from "@/components/av-logo";
 import { CalendarIcon, ChartIcon, CheckIcon, ClockIcon, InvoiceIcon, MenuIcon, PlusIcon, PoundIcon, SearchIcon, UsersIcon } from "@/components/icons";
 
 type Tab="dashboard"|"schedule"|"timesheets"|"invoices"|"staff"|"reports"|"settings"|"profile";
@@ -91,7 +92,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const [resetBusy,setResetBusy]=useState(false);
   const [scheduleView,setScheduleView]=useState<"calendar"|"agenda">("calendar");
   const [dragShiftId,setDragShiftId]=useState<string|null>(null);
-  const [rotaView,setRotaView]=useState<"month"|"week"|"day">("month");
+  const [rotaView,setRotaView]=useState<"month"|"week"|"day">("day");
   const [rotaDate,setRotaDate]=useState(new Date().toISOString().slice(0,10));
   const [adjustShift,setAdjustShift]=useState<ScheduledShift|null>(null);
   const [adjustStart,setAdjustStart]=useState("");
@@ -894,7 +895,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   return <div className="portal">
     <Sidebar tab={tab} setTab={(t:any)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="topBrandMark v3TopMark">AV</div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v3.0.0</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v3.0.1</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
         {message&&<div className={`notice ${/(saved|sent|submitted|added|copied|reopened|created|paid)/i.test(message)?"success":""}`}>{message}</div>}
         {tab==="dashboard"&&DashboardView()}
@@ -963,8 +964,8 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
         setRotaDate(d.toISOString().slice(0,10));
         if(rotaView==="month")setMonth(monthKey(d));
       };
-      return <><PageHead title="My Schedule" sub="Your planned work. Confirm what you actually worked each day."><div className="row">{isAdmin&&adminPersonalRota&&<button className="btn btnSecondary" onClick={()=>setAdminPersonalRota(false)}>← Admin Schedule</button>}<MonthSelect/></div></PageHead>
-        <div className="rotaControls"><div className="rotaViewTabs"><button className={`btn ${rotaView==="month"?"btnPrimary":"btnSecondary"}`} onClick={()=>setRotaView("month")}>Month</button><button className={`btn ${rotaView==="week"?"btnPrimary":"btnSecondary"}`} onClick={()=>setRotaView("week")}>Week</button><button className={`btn ${rotaView==="day"?"btnPrimary":"btnSecondary"}`} onClick={()=>setRotaView("day")}>Day</button></div><div className="row"><button className="btn btnSecondary" onClick={()=>moveRota(-1)}>←</button><input className="rotaDateInput" type="date" value={rotaDate} onChange={e=>setRotaDate(e.target.value)}/><button className="btn btnSecondary" onClick={()=>moveRota(1)}>→</button></div></div>
+      return <><div className="v3CoachWelcome"><div><span className="v3WelcomeEyebrow">My coaching</span><h1>{`Good ${new Date().getHours()<12?"morning":new Date().getHours()<18?"afternoon":"evening"}, ${initialProfile.full_name.split(" ")[0]}`}</h1><p>{allMine.filter(s=>s.shift_date===new Date().toISOString().slice(0,10)&&s.status!=="cancelled").length?`You have ${allMine.filter(s=>s.shift_date===new Date().toISOString().slice(0,10)&&s.status!=="cancelled").length} coaching ${allMine.filter(s=>s.shift_date===new Date().toISOString().slice(0,10)&&s.status!=="cancelled").length===1?"session":"sessions"} today.`:"You have no coaching scheduled today."}</p></div>{isAdmin&&adminPersonalRota&&<button className="btn btnSecondary" onClick={()=>setAdminPersonalRota(false)}>← Admin Schedule</button>}</div>
+        <div className="rotaControls"><div className="rotaViewTabs"><button className={`btn ${rotaView==="day"?"btnPrimary":"btnSecondary"}`} onClick={()=>setRotaView("day")}>Day</button><button className={`btn ${rotaView==="week"?"btnPrimary":"btnSecondary"}`} onClick={()=>setRotaView("week")}>Week</button><button className={`btn ${rotaView==="month"?"btnPrimary":"btnSecondary"}`} onClick={()=>setRotaView("month")}>Month</button></div><div className="v3RotaDateNav"><button className="btn btnSecondary v3DateArrow" aria-label="Previous" onClick={()=>moveRota(-1)}>←</button><input className="rotaDateInput" type="date" value={rotaDate} onChange={e=>{setRotaDate(e.target.value);if(rotaView==="month")setMonth(e.target.value.slice(0,7))}}/><button className="btn btnSecondary v3DateArrow" aria-label="Next" onClick={()=>moveRota(1)}>→</button></div></div>
         <div className="grid grid3 scheduleSummary">{(()=>{
           const today=new Date().toISOString().slice(0,10);
           const now=new Date(`${today}T12:00:00`);
