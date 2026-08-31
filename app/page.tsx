@@ -18,9 +18,12 @@ export default function LoginPage(){
 
   async function signIn(event:FormEvent){
     event.preventDefault();setBusy(true);setMessage("");
-    const{error}=await supabase.auth.signInWithPassword({email,password});
+    const{data,error}=await supabase.auth.signInWithPassword({email,password});
+    if(error){setBusy(false);setMessage(error.message);return}
+    if(data.user){
+      await supabase.from("profiles").update({last_login_at:new Date().toISOString()}).eq("id",data.user.id);
+    }
     setBusy(false);
-    if(error){setMessage(error.message);return}
     window.location.href="/dashboard";
   }
 

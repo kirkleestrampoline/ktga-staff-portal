@@ -1141,4 +1141,34 @@ table{background:#fff}th{background:#fafbfc;color:#858e9c;letter-spacing:.07em}t
   .v314RemovedAgenda{grid-template-columns:1fr!important}
   .v314RemovedOccurrence{padding:11px!important}
 }
+
+/* AV Gymnastics v3.2.0 — Accounts & Security */
+.v32PeopleStats{margin-bottom:18px}
+.v32PeopleGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:0 16px 16px}
+.v32PersonCard{appearance:none;border:1px solid #e7e3eb;border-radius:16px;background:#fff;padding:15px;text-align:left;color:var(--ink);display:grid;gap:13px;cursor:pointer;transition:.18s ease}
+.v32PersonCard:hover{transform:translateY(-2px);border-color:#d9cedf;box-shadow:0 14px 34px rgba(31,24,42,.07)}
+.v32PersonTop{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center}
+.v32PersonAvatar,.v32StaffHeroAvatar{display:grid;place-items:center;background:linear-gradient(145deg,#f0e8f8,#e7f5eb);color:#4d286b;font-weight:900}
+.v32PersonAvatar{width:43px;height:43px;border-radius:13px}
+.v32PersonIdentity{display:grid;gap:2px;min-width:0}.v32PersonIdentity strong{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.v32PersonIdentity span{font-size:11px;color:#7f8793}
+.v32AccountDot{font-size:9px;font-weight:850;text-transform:uppercase;letter-spacing:.05em;padding:5px 7px;border-radius:999px}.v32AccountDot.active{background:#eaf7ef;color:#28754b}.v32AccountDot.inactive{background:#f2f0f3;color:#77707b}
+.v32PersonMeta{display:grid;grid-template-columns:1fr 1fr;gap:7px}.v32PersonMeta>div{display:grid;gap:3px;padding:9px;border-radius:10px;background:#faf9fb}.v32PersonMeta span{font-size:8px;text-transform:uppercase;letter-spacing:.06em;color:#969ca6;font-weight:800}.v32PersonMeta strong{font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v32PersonFooter{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:10px;border-top:1px solid #eeeaf0}.v32PersonFooter span{font-size:10px;color:#8c939d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.v32PersonFooter strong{font-size:10px;color:#65379d;white-space:nowrap}
+.v32StaffModal{overflow:hidden}.v32StaffHero{padding:19px 20px;background:radial-gradient(circle at 6% 0%,rgba(150,81,220,.66),transparent 43%),radial-gradient(circle at 96% 115%,rgba(55,175,97,.44),transparent 48%),linear-gradient(145deg,#171224,#24143d 58%,#13261f 122%);display:flex;align-items:flex-start;justify-content:space-between;color:#fff}.v32StaffHeroIdentity{display:flex;gap:12px;align-items:center}.v32StaffHeroAvatar{width:48px;height:48px;border-radius:15px;background:rgba(255,255,255,.14);color:#fff}.v32StaffHeroIdentity>div:last-child{display:grid;gap:2px}.v32StaffHeroIdentity span{font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:#d3c3e8;font-weight:850}.v32StaffHeroIdentity h2{margin:0;color:#fff;font-size:20px}.v32StaffHeroIdentity p{margin:0;color:#d7d5de;font-size:11px}.v32StaffHero .iconButton{background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.12)}
+.v32ProfileTabs{display:flex;gap:3px;padding:8px 12px 0;border-bottom:1px solid #ebe7ef;background:#fbfafc;overflow:auto}.v32ProfileTabs button{border:0;background:transparent;padding:10px 12px;border-radius:9px 9px 0 0;font-size:11px;font-weight:800;color:#7a818d;white-space:nowrap}.v32ProfileTabs button.active{color:#5f3096;background:#fff;border:1px solid #e7e1eb;border-bottom-color:#fff}
+.v32StaffBody{min-height:350px}.v32SecurityOverview{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:18px}.v32SecurityOverview>div{display:grid;gap:5px;padding:12px;border:1px solid #ebe7ef;border-radius:12px;background:#faf9fb}.v32SecurityOverview span,.v32SecurityMeta span{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:#9299a4;font-weight:800}.v32SecurityOverview strong{font-size:12px}.v32SecurityActions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}.v32SecurityActions .btn{width:100%}
+.v32Notes{min-height:190px}.v32SecurityCard{background:linear-gradient(145deg,#fff,#fbf9fc)}.v32SecurityMeta{display:grid;gap:4px;margin-top:18px;padding-top:14px;border-top:1px solid #ebe7ef}.v32SecurityMeta strong{font-size:12px;color:#3e444d}
+
+@media(max-width:1100px){.v32PeopleGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:820px){
+ .v32PeopleStats{grid-template-columns:1fr!important}
+ .v32PeopleGrid{grid-template-columns:1fr;padding:0 12px 12px}
+ .v32PersonCard{border-radius:17px;padding:14px}
+ .v32StaffModal{border-radius:24px 24px 0 0!important}
+ .v32StaffHero{padding:21px 17px 18px}
+ .v32ProfileTabs{padding-left:8px;padding-right:8px}
+ .v32StaffBody{min-height:0}
+ .v32SecurityOverview{grid-template-columns:1fr}
+ .v32SecurityActions{grid-template-columns:1fr}
+}
 /* AV_V3_IDENTITY_END */
