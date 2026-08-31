@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Sidebar from "@/components/sidebar";
 import MobileNav from "@/components/mobile-nav";
@@ -9,15 +9,13 @@ import StatusPill from "@/components/status-pill";
 import AvLogo from "@/components/av-logo";
 import { CalendarIcon, ChartIcon, CheckIcon, ClockIcon, InvoiceIcon, MenuIcon, PlusIcon, PoundIcon, SearchIcon, UsersIcon } from "@/components/icons";
 
-type Tab="dashboard"|"schedule"|"leave"|"timesheets"|"invoices"|"staff"|"reports"|"settings"|"profile";
+type Tab="dashboard"|"schedule"|"timesheets"|"invoices"|"staff"|"reports"|"settings"|"profile";
 type Profile={
   id:string;full_name:string;email:string|null;phone:string|null;address:string|null;role:"coach"|"org_admin"|"admin";
   hourly_rate:number;account_name:string|null;sort_code:string|null;account_number:string|null;utr:string|null;
   invoice_prefix:string|null;is_active:boolean;
   emergency_contact_name?:string|null;emergency_contact_phone?:string|null;
   dbs_expiry?:string|null;first_aid_expiry?:string|null;safeguarding_expiry?:string|null;qualifications?:string|null;
-  job_title?:string|null;employment_status?:string|null;start_date?:string|null;payroll_id?:string|null;
-  last_login_at?:string|null;force_password_reset?:boolean|null;password_changed_at?:string|null;admin_notes?:string|null;username?:string|null;contact_email?:string|null;auth_email?:string|null;
 };
 type Venue={id:string;name:string;slug:string;active:boolean;brand_color:string|null;legal_name?:string|null;invoice_address?:string|null;invoice_prefix?:string|null;payment_note?:string|null};
 type ShiftTemplate={id:string;profile_id:string;venue_id:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;session_location:string|null;notes:string|null;active:boolean};
@@ -30,15 +28,12 @@ type Audit={id:string;actor_id:string|null;subject_id:string|null;action:string;
 type ClassTemplate={id:string;venue_id:string;name:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;active:boolean;notes:string|null};
 type ClassStaffingSlot={id:string;class_id:string;slot_number:number;default_profile_id:string|null};
 type ScheduledShift={id:string;class_id:string|null;staffing_slot_id:string|null;venue_id:string;profile_id:string|null;original_profile_id:string|null;shift_date:string;start_time:string;finish_time:string;break_minutes:number;class_name:string;status:"scheduled"|"confirmed"|"cancelled";actual_shift_id:string|null;notes:string|null;adjustment_status?:"none"|"pending"|null;requested_start_time?:string|null;requested_finish_time?:string|null;requested_break_minutes?:number|null;adjustment_reason?:string|null};
-type RemovedOccurrence={class_id:string;shift_date:string;class_name:string;venue_id:string;start_time:string;finish_time:string;removed_slots:number};
-type TimeAwayRequest={id:string;profile_id:string;request_type:"holiday"|"sickness"|"appointment"|"compassionate"|"unavailable"|"other";start_date:string;end_date:string;all_day:boolean;start_time:string|null;end_time:string|null;notes:string|null;status:"pending"|"approved"|"declined"|"cancelled";reviewed_by:string|null;reviewed_at:string|null;created_at:string};
 type ClassOccurrenceDraft={key:string;id?:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;coach_ids:string[];notes:string};
 type ClassDraft={id?:string;original_ids?:string[];venue_id:string;name:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;notes:string;coach_ids:string[];occurrences?:ClassOccurrenceDraft[]};
 
 const supabase=createClient();
 const money=(n:number)=>new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(Number(n||0));
 const monthKey=(d=new Date())=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-const localDateKey=(d=new Date())=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 const monthLabel=(k:string)=>new Date(`${k}-01T12:00:00`).toLocaleDateString("en-GB",{month:"long",year:"numeric"});
 const initials=(n:string)=>n.split(" ").filter(Boolean).slice(0,2).map(x=>x[0]).join("").toUpperCase()||"AV";
 const monthRange=(month:string)=>{const[y,m]=month.split("-").map(Number),last=new Date(y,m,0).getDate();return{from:`${month}-01`,to:`${month}-${String(last).padStart(2,"0")}`}};
@@ -60,7 +55,6 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const [timesheet,setTimesheet]=useState<Timesheet|null>(null);
   const [invoice,setInvoice]=useState<Invoice|null>(null);
   const [allInvoices,setAllInvoices]=useState<any[]>([]);
-  const [unpaidInvoiceTotal,setUnpaidInvoiceTotal]=useState(0);
   const [staff,setStaff]=useState<Profile[]>([]);
   const [adminRows,setAdminRows]=useState<AdminRow[]>([]);
   const [business,setBusiness]=useState<Business>({id:1,business_name:"Kirklees Trampoline Gymnastics Academy Ltd",business_address:"",payment_note:"Payment by bank transfer",cutoff_day:1});
@@ -71,7 +65,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const [shiftModal,setShiftModal]=useState<Shift|null>(null);
   const [inviteOpen,setInviteOpen]=useState(false);
   const [staffEdit,setStaffEdit]=useState<Profile|null>(null);
-  const [invite,setInvite]=useState({name:"",username:"",password:"",email:"",rate:""});
+  const [invite,setInvite]=useState({name:"",email:"",rate:""});
   const [saving,setSaving]=useState(false);
   const [mobileOpen,setMobileOpen]=useState(false);
   const [mobileMoreOpen,setMobileMoreOpen]=useState(false);
@@ -91,7 +85,6 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const [classes,setClasses]=useState<ClassTemplate[]>([]);
   const [classSlots,setClassSlots]=useState<ClassStaffingSlot[]>([]);
   const [scheduledShifts,setScheduledShifts]=useState<ScheduledShift[]>([]);
-  const [futureScheduledShifts,setFutureScheduledShifts]=useState<ScheduledShift[]>([]);
   const [classModal,setClassModal]=useState<ClassDraft|null>(null);
   const [scheduleFilter,setScheduleFilter]=useState("");
   const [resetConfirm,setResetConfirm]=useState("");
@@ -102,37 +95,11 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const [rotaView,setRotaView]=useState<"month"|"week"|"day">("day");
   const [rotaDate,setRotaDate]=useState(new Date().toISOString().slice(0,10));
   const [adjustShift,setAdjustShift]=useState<ScheduledShift|null>(null);
-  const [confirmShift,setConfirmShift]=useState<ScheduledShift|null>(null);
   const [adjustStart,setAdjustStart]=useState("");
   const [adjustFinish,setAdjustFinish]=useState("");
   const [adjustBreak,setAdjustBreak]=useState(0);
   const [adjustReason,setAdjustReason]=useState("");
   const [adminPersonalRota,setAdminPersonalRota]=useState(false);
-  const [adminScheduleShift,setAdminScheduleShift]=useState<ScheduledShift|null>(null);
-  const [highlightedScheduleShiftId,setHighlightedScheduleShiftId]=useState<string|null>(null);
-  const [expandedSchedulingSections,setExpandedSchedulingSections]=useState<Record<"critical"|"warning"|"reminder",boolean>>({critical:true,warning:false,reminder:false});
-  const [pendingExtraShifts,setPendingExtraShifts]=useState<Shift[]>([]);
-  const [monthActionsOpen,setMonthActionsOpen]=useState(false);
-  const [removedOccurrences,setRemovedOccurrences]=useState<RemovedOccurrence[]>([]);
-  const [staffPanel,setStaffPanel]=useState<"profile"|"employment"|"security"|"notes">("profile");
-  const [newPassword,setNewPassword]=useState("");
-  const [confirmNewPassword,setConfirmNewPassword]=useState("");
-  const [passwordBusy,setPasswordBusy]=useState(false);
-  const [temporaryPassword,setTemporaryPassword]=useState("");
-  const [temporaryPasswordConfirm,setTemporaryPasswordConfirm]=useState("");
-  const [forceTempPasswordChange,setForceTempPasswordChange]=useState(true);
-  const [temporaryPasswordBusy,setTemporaryPasswordBusy]=useState(false);
-  const [securityActionMessage,setSecurityActionMessage]=useState("");
-  const [securityActionBusy,setSecurityActionBusy]=useState(false);
-  const [timeAwayRequests,setTimeAwayRequests]=useState<TimeAwayRequest[]>([]);
-  const [timeAwayModal,setTimeAwayModal]=useState<TimeAwayRequest|null|undefined>(undefined);
-  const [timeAwayDraft,setTimeAwayDraft]=useState({request_type:"holiday" as TimeAwayRequest["request_type"],start_date:"",end_date:"",all_day:true,start_time:"",end_time:"",notes:""});
-  const [leaveSaving,setLeaveSaving]=useState(false);
-  const [adminTimeAwayProfileId,setAdminTimeAwayProfileId]=useState("");
-  const [adminTimeAwayStatus,setAdminTimeAwayStatus]=useState<"pending"|"approved">("approved");
-  const [coachAssignmentSearch,setCoachAssignmentSearch]=useState("");
-  const [loadingTab,setLoadingTab]=useState<Tab|null>(null);
-  const loadedTabs=useRef<Set<Tab>>(new Set(isAdmin?["dashboard"]:[]));
 
   const totalHours=useMemo(()=>shifts.filter(s=>!s.approval_status||s.approval_status==="approved").reduce((a,s)=>a+shiftHours(s),0),[shifts]);
   const totalValue=totalHours*Number(activeCoach.hourly_rate||0);
@@ -145,194 +112,9 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const overdue=new Date()>cutoffDate(month,business.cutoff_day||1)&&!timesheet?.submitted_at;
   const viewingOther=isAdmin&&activeCoach.id!==initialProfile.id;
 
-  useEffect(()=>{void loadVenues();void loadStaff();if(isAdmin){void loadLeaveData().then(()=>loadedTabs.current.add("leave"));void loadFutureUnstaffedShifts();void loadInvoiceSummary()}},[]);
-  useEffect(()=>{if(isAdmin&&tab==="dashboard"){void loadOverviewSchedule();void loadAdmin(false)}else if(loadedTabs.current.has(tab))void reloadLoadedTab(tab)},[month,activeCoach.id]);
-  useEffect(()=>{void loadTabOnce(tab)},[tab]);
-
-  async function loadTabOnce(next:Tab){
-    if(next==="dashboard"||loadedTabs.current.has(next))return;
-    setLoadingTab(next);
-    try{
-      if(next==="schedule"){
-        if(isAdmin)await Promise.all([loadRemovedOccurrences(),loadPendingExtraShifts()]);
-        else await Promise.all([loadSchedule(),loadLeaveData()]);
-      }else if(next==="leave")await loadLeaveData();
-      else if(next==="timesheets")await Promise.all([loadBusiness(),loadCoachMonth(activeCoach.id),loadTemplates(activeCoach.id),isAdmin?loadAdmin(true):Promise.resolve()]);
-      else if(next==="invoices")await Promise.all([loadBusiness(),loadInvoices()]);
-      else if(next==="reports"&&isAdmin)await loadAudits();
-      else if(next==="settings"&&isAdmin)await loadBusiness();
-      loadedTabs.current.add(next);
-    }finally{setLoadingTab(current=>current===next?null:current)}
-  }
-
-  async function reloadLoadedTab(current:Tab){
-    if(current==="schedule")await Promise.all([loadSchedule(),isAdmin?loadPendingExtraShifts():Promise.resolve()]);
-    else if(current==="timesheets")await Promise.all([loadCoachMonth(activeCoach.id),loadTemplates(activeCoach.id),isAdmin?loadAdmin(true):Promise.resolve()]);
-    else if(current==="reports"&&isAdmin)await loadAdmin(false);
-  }
-
-  async function loadLeaveData(){
-    const q=supabase.from("time_away_requests").select("*").order("start_date",{ascending:true}).order("created_at",{ascending:false});
-    const{data,error}=isAdmin?await q:await q.eq("profile_id",initialProfile.id);
-    if(error)console.error(error);
-    setTimeAwayRequests((data||[]) as TimeAwayRequest[]);
-  }
-
-  function openNewTimeAway(type:TimeAwayRequest["request_type"]="holiday",profileId?:string){
-    setTimeAwayDraft({request_type:type,start_date:"",end_date:"",all_day:true,start_time:"",end_time:"",notes:""});
-    setAdminTimeAwayProfileId(profileId||"");
-    setAdminTimeAwayStatus("approved");
-    setTimeAwayModal(null);
-  }
-
-  function openEditTimeAway(r:TimeAwayRequest){
-    setTimeAwayDraft({
-      request_type:r.request_type,
-      start_date:r.start_date,
-      end_date:r.end_date,
-      all_day:r.all_day,
-      start_time:r.start_time?.slice(0,5)||"",
-      end_time:r.end_time?.slice(0,5)||"",
-      notes:r.notes||""
-    });
-    setAdminTimeAwayProfileId(r.profile_id);
-    setAdminTimeAwayStatus(r.status==="approved"?"approved":"pending");
-    setTimeAwayModal(r);
-  }
-
-  async function saveTimeAway(){
-    if(!timeAwayDraft.start_date){flash("Choose a date.");return}
-    const end=timeAwayDraft.all_day?(timeAwayDraft.end_date||timeAwayDraft.start_date):timeAwayDraft.start_date;
-    if(end<timeAwayDraft.start_date){flash("End date cannot be before the start date.");return}
-    if(!timeAwayDraft.all_day&&(!timeAwayDraft.start_time||!timeAwayDraft.end_time)){flash("Choose the start and finish time.");return}
-    if(!timeAwayDraft.all_day&&timeAwayDraft.end_time<=timeAwayDraft.start_time){flash("Finish time must be after start time.");return}
-
-    setLeaveSaving(true);
-    const targetProfileId=isAdmin?(adminTimeAwayProfileId||timeAwayModal?.profile_id||""):initialProfile.id;
-    if(isAdmin&&!targetProfileId){flash("Choose a staff member.");setLeaveSaving(false);return}
-    const payload={
-      profile_id:targetProfileId,
-      request_type:timeAwayDraft.request_type,
-      start_date:timeAwayDraft.start_date,
-      end_date:end,
-      all_day:timeAwayDraft.all_day,
-      start_time:timeAwayDraft.all_day?null:timeAwayDraft.start_time,
-      end_time:timeAwayDraft.all_day?null:timeAwayDraft.end_time,
-      notes:timeAwayDraft.notes.trim()||null
-    };
-
-    let error:any=null;
-    if(timeAwayModal?.id){
-      ({error}=await supabase.from("time_away_requests").update({...payload,...(isAdmin?{status:adminTimeAwayStatus,reviewed_by:adminTimeAwayStatus==="approved"?initialProfile.id:null,reviewed_at:adminTimeAwayStatus==="approved"?new Date().toISOString():null}:{})}).eq("id",timeAwayModal.id));
-    }else{
-      const status=isAdmin?adminTimeAwayStatus:"pending";
-      ({error}=await supabase.from("time_away_requests").insert({...payload,status,reviewed_by:isAdmin&&status==="approved"?initialProfile.id:null,reviewed_at:isAdmin&&status==="approved"?new Date().toISOString():null}));
-    }
-    setLeaveSaving(false);
-    if(error){flash(error.message);return}
-
-    setTimeAwayModal(undefined);
-    setTimeAwayDraft({request_type:"holiday",start_date:"",end_date:"",all_day:true,start_time:"",end_time:"",notes:""});
-    flash(timeAwayModal?.id?"Time-away request updated.":"Request sent for approval.");
-    await loadLeaveData();
-  }
-
-  async function reviewLeave(id:string,status:"approved"|"declined"){
-    const{error}=await supabase.from("time_away_requests").update({status,reviewed_by:initialProfile.id,reviewed_at:new Date().toISOString()}).eq("id",id);
-    if(error){flash(error.message);return}
-    flash(status==="approved"?"Request approved.":"Request declined.");
-    await loadLeaveData();
-  }
-
-  async function cancelOwnLeave(id:string){
-    const{error}=await supabase.from("time_away_requests").update({status:"cancelled"}).eq("id",id).eq("profile_id",initialProfile.id).eq("status","pending");
-    if(error){flash(error.message);return}
-    flash("Request cancelled.");
-    await loadLeaveData();
-  }
-
-  async function deleteTimeAway(r:TimeAwayRequest){
-    if(!confirm(`Delete ${r.request_type==="unavailable"?"this unavailable period":"this leave request"}?\n\nThis removes it completely.`))return;
-    const{error}=await supabase.from("time_away_requests").delete().eq("id",r.id);
-    if(error){flash(error.message);return}
-    flash("Request deleted.");
-    await loadLeaveData();
-  }
-
-
-  function approvedConflictsForCoach(profileId:string,date:string,start:string,finish:string){
-    return timeAwayRequests.filter(r=>{
-      if(r.profile_id!==profileId||r.status!=="approved")return false;
-      if(date<r.start_date||date>r.end_date)return false;
-      if(r.all_day)return true;
-      const s=start.slice(0,5),f=finish.slice(0,5);
-      const rs=(r.start_time||"00:00").slice(0,5),rf=(r.end_time||"23:59").slice(0,5);
-      return s<rf&&f>rs;
-    });
-  }
-
-  function coachAvailabilityLabel(profileId:string,date:string,start:string,finish:string){
-    const conflicts=approvedConflictsForCoach(profileId,date,start,finish);
-    if(!conflicts.length)return null;
-    const r=conflicts[0];
-    const label=r.request_type==="unavailable"?"Unavailable":"Leave";
-    return r.all_day?`${label} · full day`:`${label} · ${r.start_time?.slice(0,5)}–${r.end_time?.slice(0,5)}`;
-  }
-
-  function pendingConflictsForCoach(profileId:string,date:string,start:string,finish:string){
-    return timeAwayRequests.filter(r=>{
-      if(r.profile_id!==profileId||r.status!=="pending")return false;
-      if(date<r.start_date||date>r.end_date)return false;
-      if(r.all_day)return true;
-      const s=start.slice(0,5),f=finish.slice(0,5);
-      const rs=(r.start_time||"00:00").slice(0,5),rf=(r.end_time||"23:59").slice(0,5);
-      return s<rf&&f>rs;
-    });
-  }
-
-  function coachAvailabilityState(profileId:string,date:string,start:string,finish:string){
-    const approved=approvedConflictsForCoach(profileId,date,start,finish);
-    if(approved.length){
-      const r=approved[0];
-      const label=r.request_type==="unavailable"?"Unavailable":"Leave";
-      return {state:"away" as const,label:r.all_day?`${label} · full day`:`${label} · ${r.start_time?.slice(0,5)}–${r.end_time?.slice(0,5)}`};
-    }
-    const pending=pendingConflictsForCoach(profileId,date,start,finish);
-    if(pending.length){
-      const r=pending[0];
-      const label=r.request_type==="unavailable"?"Unavailable request":"Leave request";
-      return {state:"pending" as const,label:r.all_day?`${label} · pending`:`${label} · ${r.start_time?.slice(0,5)}–${r.end_time?.slice(0,5)} · pending`};
-    }
-    return {state:"available" as const,label:"Available"};
-  }
-
-  function scheduledOverlapsForCoach(profileId:string,shift:ScheduledShift){
-    const start=shift.start_time.slice(0,5),finish=shift.finish_time.slice(0,5);
-    return scheduledShifts.filter(x=>x.id!==shift.id&&x.profile_id===profileId&&x.shift_date===shift.shift_date&&x.status!=="cancelled"&&start<x.finish_time.slice(0,5)&&finish>x.start_time.slice(0,5));
-  }
-
-  function coachAssignmentState(profileId:string,shift:ScheduledShift){
-    const away=approvedConflictsForCoach(profileId,shift.shift_date,shift.start_time,shift.finish_time);
-    if(away.length){const r=away[0];return{state:"away" as const,label:r.all_day?(r.request_type==="unavailable"?"Unavailable · full day":"Leave · full day"):`${r.request_type==="unavailable"?"Unavailable":"Leave"} · ${r.start_time?.slice(0,5)}–${r.end_time?.slice(0,5)}`}}
-    const working=scheduledOverlapsForCoach(profileId,shift);
-    if(working.length)return{state:"working" as const,label:`Already coaching · ${working[0].start_time.slice(0,5)}–${working[0].finish_time.slice(0,5)} ${working[0].class_name}`};
-    const pending=pendingConflictsForCoach(profileId,shift.shift_date,shift.start_time,shift.finish_time);
-    if(pending.length){const r=pending[0];return{state:"pending" as const,label:r.all_day?"Pending time-away request":`Pending request · ${r.start_time?.slice(0,5)}–${r.end_time?.slice(0,5)}`}}
-    return{state:"available" as const,label:"Available"};
-  }
-
-  async function reassignScheduledWithAvailability(s:ScheduledShift,profileId:string){
-    if(!profileId){await reassignScheduled(s,profileId);return true}
-    const state=coachAssignmentState(profileId,s);
-    if(state.state!=="available"){
-      const name=profileById(profileId)?.full_name||"This coach";
-      const title=state.state==="away"?"has approved time away":state.state==="working"?"is already coaching another overlapping session":"has a pending time-away request";
-      const ok=confirm(`${name} ${title}.\n\n${state.label}\n\nAssign anyway?`);
-      if(!ok)return false;
-    }
-    await reassignScheduled(s,profileId);return true;
-  }
-
+  useEffect(()=>{void loadBusiness();void loadVenues();void loadStaff();void loadInvoices();if(isAdmin)void loadAudits();},[]);
+  useEffect(()=>{void loadCoachMonth(activeCoach.id);void loadTemplates(activeCoach.id);void loadSchedule();if(isAdmin)void loadAdmin();},[month,activeCoach.id]);
+  useEffect(()=>{if(tab==="invoices")void loadInvoices();if(tab==="staff"&&isAdmin)void loadStaff();if(tab==="reports"&&isAdmin)void loadAudits();if(tab==="schedule")void loadSchedule();},[tab]);
 
   async function loadCoachMonth(coachId:string){
     const {from,to}=monthRange(month);
@@ -416,15 +198,9 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       const{data}=await supabase.from("invoices").select("*,venues(name,legal_name,invoice_address,invoice_prefix,payment_note)").eq("coach_id",initialProfile.id).order("invoice_date",{ascending:false}).limit(120);
       setAllInvoices(data||[]);
     }
-    if(isAdmin)void loadInvoiceSummary();
   }
 
-  async function loadInvoiceSummary(){
-    const{data}=await supabase.from("invoices").select("total_amount").eq("status","awaiting_payment");
-    setUnpaidInvoiceTotal((data||[]).reduce((total,row:any)=>total+Number(row.total_amount||0),0));
-  }
-
-  async function loadAdmin(includeInvoices=true){
+  async function loadAdmin(){
     if(!isAdmin)return;
     const{from,to}=monthRange(month);
     const [{data:coaches},{data:ss},{data:ts}]=await Promise.all([
@@ -434,7 +210,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     ]);
     const tids=((ts||[]) as Timesheet[]).map(t=>t.id);
     let inv:Invoice[]=[];
-    if(includeInvoices&&tids.length){
+    if(tids.length){
       const{data}=await supabase.from("invoices").select("*").in("timesheet_id",tids);
       inv=(data||[]) as Invoice[];
     }
@@ -448,23 +224,10 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     setAdminRows(rows);
   }
 
-  async function loadPendingExtraShifts(){
-    if(!isAdmin)return;
-    const{data,error}=await supabase.rpc("get_schedule_extra_shifts",{p_month_start:`${month}-01`});
-    if(error){console.error(error);return}
-    setPendingExtraShifts((data||[]) as Shift[]);
-  }
-
   function flash(t:string){setMessage(t);window.setTimeout(()=>setMessage(""),4500)}
   async function signOut(){await supabase.auth.signOut();window.location.href="/"}
   function selectCoach(c:Profile){setActiveCoach(c);setTab("timesheets")}
   async function openStaffEdit(s:Profile){
-    setStaffPanel("profile");
-    setTemporaryPassword("");
-    setTemporaryPasswordConfirm("");
-    setForceTempPasswordChange(true);
-    setSecurityActionMessage("");
-    setSecurityActionBusy(false);
     setStaffEdit({...s});setStaffEditVenueIds(staffVenueMap[s.id]||[]);
     const{data}=await supabase.from("staff_venues").select("venue_id,is_admin").eq("profile_id",s.id);
     setStaffEditAdminVenueIds((data||[]).filter((x:any)=>x.is_admin).map((x:any)=>x.venue_id));
@@ -474,16 +237,8 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   async function saveOwnProfile(){
     setSaving(true);
     const p=ownProfile;
-    const originalEmail=(initialProfile.email||initialProfile.contact_email||"").trim().toLowerCase();
-    const nextEmail=(p.email||p.contact_email||"").trim().toLowerCase();
-    if(nextEmail!==originalEmail){
-      const res=await fetch("/api/account-email",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:nextEmail})});
-      const j=await res.json();
-      if(!res.ok){setSaving(false);flash(j.error||"Could not update recovery email.");return}
-    }
     const editable={
       full_name:p.full_name,phone:p.phone,address:p.address,account_name:p.account_name,sort_code:p.sort_code,account_number:p.account_number,utr:p.utr,invoice_prefix:p.invoice_prefix,
-      email:nextEmail||null,contact_email:nextEmail||null,
       emergency_contact_name:p.emergency_contact_name||null,emergency_contact_phone:p.emergency_contact_phone||null,
       dbs_expiry:p.dbs_expiry||null,first_aid_expiry:p.first_aid_expiry||null,safeguarding_expiry:p.safeguarding_expiry||null,qualifications:p.qualifications||null
     };
@@ -496,24 +251,12 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   async function saveStaff(){
     if(!staffEdit)return;
     setSaving(true);
-    const original=staff.find(x=>x.id===staffEdit.id);
-    const nextUsername=(staffEdit.username||"").trim().toLowerCase();
-    const nextEmail=(staffEdit.email||staffEdit.contact_email||"").trim().toLowerCase();
-    if(!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(nextUsername)){setSaving(false);flash("Username must be 3–32 characters using letters, numbers, dots, dashes or underscores.");return}
-    if(!original||nextUsername!==(original.username||"").toLowerCase()||nextEmail!==(original.email||original.contact_email||"").toLowerCase()){
-      const res=await fetch("/api/staff-access",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update_identity",profile_id:staffEdit.id,username:nextUsername,email:nextEmail})});
-      const j=await res.json();
-      if(!res.ok){setSaving(false);flash(j.error||"Could not update username/email.");return}
-    }
     const payload={
       full_name:staffEdit.full_name,phone:staffEdit.phone,address:staffEdit.address,hourly_rate:Number(staffEdit.hourly_rate||0),is_active:staffEdit.is_active,
       ...(isGlobalAdmin?{role:staffEdit.role}:{}),
-      username:nextUsername,email:nextEmail||null,contact_email:nextEmail||null,
       account_name:staffEdit.account_name,sort_code:staffEdit.sort_code,account_number:staffEdit.account_number,utr:staffEdit.utr,invoice_prefix:staffEdit.invoice_prefix,
       emergency_contact_name:staffEdit.emergency_contact_name||null,emergency_contact_phone:staffEdit.emergency_contact_phone||null,
-      dbs_expiry:staffEdit.dbs_expiry||null,first_aid_expiry:staffEdit.first_aid_expiry||null,safeguarding_expiry:staffEdit.safeguarding_expiry||null,qualifications:staffEdit.qualifications||null,
-      job_title:staffEdit.job_title||null,employment_status:staffEdit.employment_status||"active",start_date:staffEdit.start_date||null,payroll_id:staffEdit.payroll_id||null,
-      force_password_reset:Boolean(staffEdit.force_password_reset),admin_notes:staffEdit.admin_notes||null
+      dbs_expiry:staffEdit.dbs_expiry||null,first_aid_expiry:staffEdit.first_aid_expiry||null,safeguarding_expiry:staffEdit.safeguarding_expiry||null,qualifications:staffEdit.qualifications||null
     };
     const{error}=await supabase.from("profiles").update(payload).eq("id",staffEdit.id);
     setSaving(false);
@@ -530,56 +273,27 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     flash(error?error.message:"Business settings saved.");
   }
 
-  function generateInvitePassword(){
-    const upper="ABCDEFGHJKLMNPQRSTUVWXYZ",lower="abcdefghijkmnopqrstuvwxyz",nums="23456789",symbols="!@#$%*?";
-    const all=upper+lower+nums+symbols;
-    const pick=(chars:string)=>chars[Math.floor(Math.random()*chars.length)];
-    let value=pick(upper)+pick(lower)+pick(nums)+pick(symbols);
-    for(let i=0;i<8;i++)value+=pick(all);
-    value=value.split("").sort(()=>Math.random()-.5).join("");
-    setInvite({...invite,password:value});
-  }
-
   async function sendInvite(e:FormEvent){
-    e.preventDefault();
-    const username=invite.username.trim().toLowerCase();
-    if(!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(username)){flash("Username must be 3–32 characters using letters, numbers, dots, dashes or underscores.");return}
-    if(invite.password.length<8){flash("Set a password of at least 8 characters.");return}
-    setSaving(true);
-    const res=await fetch("/api/staff-access",{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({
-        action:"create_account",
-        full_name:invite.name,
-        username,
-        password:invite.password,
-        email:invite.email.trim(),
-        hourly_rate:Number(invite.rate),
-        venue_ids:inviteVenueIds,
-        role:inviteRole,
-        admin_venue_ids:inviteRole==="org_admin"?inviteVenueIds:[],
-        force_password_reset:true
-      })
-    });
+    e.preventDefault();setSaving(true);
+    const hasEmail=Boolean(invite.email.trim());
+    const endpoint=hasEmail?"/api/invite":"/api/staff-access";
+    const body=hasEmail
+      ? {full_name:invite.name,email:invite.email.trim(),hourly_rate:Number(invite.rate),venue_ids:inviteVenueIds,role:inviteRole,admin_venue_ids:inviteRole==="org_admin"?inviteVenueIds:[]}
+      : {action:"create_placeholder",full_name:invite.name,hourly_rate:Number(invite.rate),venue_ids:inviteVenueIds,role:inviteRole,admin_venue_ids:inviteRole==="org_admin"?inviteVenueIds:[]};
+    const res=await fetch(endpoint,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
     const j=await res.json();setSaving(false);
-    if(!res.ok){flash(j.error||"Could not create staff account.");return}
-    flash(`Account created · username ${username}`);
-    setInviteOpen(false);
-    setInvite({name:"",username:"",password:"",email:"",rate:""});
-    setInviteVenueIds([]);setInviteRole("coach");
-    void loadStaff();void loadAdmin();
+    if(!res.ok){flash(j.error||"Could not add staff member.");return}
+    flash(hasEmail?"Invitation sent.":"Staff member added without portal access.");
+    setInviteOpen(false);setInvite({name:"",email:"",rate:""});setInviteVenueIds([]);setInviteRole("coach");void loadStaff();void loadAdmin();
   }
 
   async function inviteExistingStaff(s:Profile){
-    const email=window.prompt(`Enter a recovery/contact email for ${s.full_name}.`);
-    if(email===null)return;
-    const res=await fetch("/api/staff-access",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"set_contact_email",profile_id:s.id,email:email.trim()})});
+    const email=window.prompt(`Enter the email address to invite ${s.full_name} to the portal.`);
+    if(!email)return;
+    const res=await fetch("/api/staff-access",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"invite_existing",profile_id:s.id,email:email.trim()})});
     const j=await res.json();
-    if(!res.ok){flash(j.error||"Could not update recovery email.");return}
-    flash(email.trim()?"Recovery email saved.":"Recovery email removed.");
-    setStaffEdit({...s,email:email.trim()||null,contact_email:email.trim()||null});
-    void loadStaff();
+    if(!res.ok){flash(j.error||"Could not invite staff member.");return}
+    flash("Portal invitation sent.");setStaffEdit(null);void loadStaff();
   }
 
   async function saveShift(){
@@ -602,7 +316,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       ? await supabase.from("shifts").update(payload).eq("id",shiftModal.id)
       : await supabase.from("shifts").insert(payload);
     if(result.error){flash(result.error.message);return}
-    setShiftModal(null);flash(isAdmin?"Extra shift saved.":"Extra shift sent to admin for approval.");await loadCoachMonth(activeCoach.id);if(isAdmin){void loadAdmin();void loadAudits();void loadPendingExtraShifts()}
+    setShiftModal(null);flash(isAdmin?"Extra shift saved.":"Extra shift sent to admin for approval.");await loadCoachMonth(activeCoach.id);if(isAdmin){void loadAdmin();void loadAudits()}
   }
 
   async function deleteShift(){
@@ -713,91 +427,6 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     if(!error){void loadAdmin();if(activeCoach.id===row.coach.id)void loadCoachMonth(row.coach.id);void loadInvoices();void loadAudits()}
   }
 
-  function generateTemporaryPassword(){
-    const upper="ABCDEFGHJKLMNPQRSTUVWXYZ",lower="abcdefghijkmnopqrstuvwxyz",nums="23456789",symbols="!@#$%*?";
-    const all=upper+lower+nums+symbols;
-    const pick=(chars:string)=>chars[Math.floor(Math.random()*chars.length)];
-    let value=pick(upper)+pick(lower)+pick(nums)+pick(symbols);
-    for(let i=0;i<8;i++)value+=pick(all);
-    value=value.split("").sort(()=>Math.random()-.5).join("");
-    setTemporaryPassword(value);setTemporaryPasswordConfirm(value);
-  }
-
-  async function setStaffTemporaryPassword(s:Profile){
-    if(temporaryPassword.length<8){flash("Temporary password must be at least 8 characters.");return}
-    if(temporaryPassword!==temporaryPasswordConfirm){flash("The temporary passwords do not match.");return}
-    setTemporaryPasswordBusy(true);
-    try{
-      const res=await fetch("/api/staff-access",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          action:"set_password",
-          profile_id:s.id,
-          password:temporaryPassword,
-          force_password_reset:forceTempPasswordChange
-        })
-      });
-      const body=await res.json();
-      if(!res.ok)throw new Error(body.error||"Could not set password");
-      const updated={...s,force_password_reset:forceTempPasswordChange,password_changed_at:new Date().toISOString()};
-      setStaffEdit(updated);
-      setTemporaryPassword("");setTemporaryPasswordConfirm("");
-      flash(forceTempPasswordChange?"Temporary password set. Coach must choose a new password after signing in.":"Password set successfully.");
-      void loadStaff();
-    }catch(e:any){flash(e?.message||"Could not set password")}
-    finally{setTemporaryPasswordBusy(false)}
-  }
-
-  async function copyTemporaryPassword(){
-    if(!temporaryPassword){flash("Generate or enter a temporary password first.");return}
-    await navigator.clipboard.writeText(temporaryPassword);
-    flash("Temporary password copied.");
-  }
-
-  async function sendPasswordResetEmail(s:Profile){
-    if(!s.email&&!s.contact_email){setSecurityActionMessage("Add a recovery email before sending a password reset.");return}
-    setSecurityActionBusy(true);setSecurityActionMessage("Sending password reset email…");
-    try{
-      const res=await fetch("/api/staff-access",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"send_reset_email",profile_id:s.id})});
-      const j=await res.json();
-      if(!res.ok){
-        const raw=String(j.error||"Could not send password reset email.");
-        setSecurityActionMessage(raw.includes("over_email_send_rate_limit")||raw.toLowerCase().includes("rate limit")
-          ?"Supabase has temporarily reached its email sending limit. Use Set Password above, or try the email reset again later."
-          :raw);
-        return
-      }
-      setSecurityActionMessage(`Password reset email sent to ${j.email||s.email||s.contact_email}.`);
-    }catch(e:any){
-      setSecurityActionMessage(e?.message||"Could not send password reset email.");
-    }finally{
-      setSecurityActionBusy(false);
-    }
-  }
-
-  async function toggleForcePasswordReset(s:Profile){
-    const next=!Boolean(s.force_password_reset);
-    const{error}=await supabase.from("profiles").update({force_password_reset:next}).eq("id",s.id);
-    if(error){flash(error.message);return}
-    setStaffEdit({...s,force_password_reset:next});
-    flash(next?"Password change required at next portal use.":"Forced password change removed.");
-    void loadStaff();
-  }
-
-  async function changeOwnPassword(){
-    if(newPassword.length<8){flash("Use a password of at least 8 characters.");return}
-    if(newPassword!==confirmNewPassword){flash("The new passwords do not match.");return}
-    setPasswordBusy(true);
-    const{error}=await supabase.auth.updateUser({password:newPassword});
-    if(!error)await supabase.from("profiles").update({force_password_reset:false,password_changed_at:new Date().toISOString()}).eq("id",initialProfile.id);
-    setPasswordBusy(false);
-    if(error){flash(error.message);return}
-    setNewPassword("");setConfirmNewPassword("");
-    setOwnProfile({...ownProfile,force_password_reset:false});
-    flash("Password changed successfully.");
-  }
-
   async function createSetupLink(s:Profile){
     const res=await fetch("/api/admin-user",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"setup_link",email:s.email})});
     const j=await res.json();if(!res.ok){flash(j.error||"Could not create setup link.");return}
@@ -858,47 +487,14 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     a.href=URL.createObjectURL(blob);a.download=`${inv.invoice_number}.pdf`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
   }
 
-  async function loadFutureUnstaffedShifts(){
-    const cutoff=new Date();
-    cutoff.setHours(12,0,0,0);
-    cutoff.setDate(cutoff.getDate()+7);
-    const{data,error}=await supabase.from("scheduled_shifts").select("*").neq("status","cancelled").gt("shift_date",localDateKey(cutoff)).order("shift_date").order("start_time");
-    if(error){console.error(error);return}
-    setFutureScheduledShifts((data||[]) as ScheduledShift[]);
-  }
-
-  async function loadOverviewSchedule(){
-    const{from,to}=monthRange(month);
-    const[{data:c},{data:slots},{data:ss}]=await Promise.all([
+  async function loadSchedule(){
+    const {from,to}=monthRange(month);
+    const [{data:c},{data:slots},{data:ss}]=await Promise.all([
       supabase.from("classes").select("*").eq("active",true).order("weekday").order("start_time"),
       supabase.from("class_staffing_slots").select("*").order("slot_number"),
       supabase.from("scheduled_shifts").select("*").gte("shift_date",from).lte("shift_date",to).order("shift_date").order("start_time")
     ]);
-    setClasses((c||[]) as ClassTemplate[]);
-    setClassSlots((slots||[]) as ClassStaffingSlot[]);
-    setScheduledShifts((ss||[]) as ScheduledShift[]);
-  }
-
-  async function loadRemovedOccurrences(){
-    if(!isAdmin)return;
-    const{data,error}=await supabase.rpc("get_removed_schedule_occurrences",{p_month_start:`${month}-01`});
-    if(error){console.error(error);return}
-    setRemovedOccurrences((data||[]) as RemovedOccurrence[]);
-  }
-
-  async function loadSchedule(){
-    const {from,to}=monthRange(month);
-    const [{data:c},{data:slots},{data:ss},{data:removed,error:removedError}]=await Promise.all([
-      supabase.from("classes").select("*").eq("active",true).order("weekday").order("start_time"),
-      supabase.from("class_staffing_slots").select("*").order("slot_number"),
-      supabase.from("scheduled_shifts").select("*").gte("shift_date",from).lte("shift_date",to).order("shift_date").order("start_time"),
-      isAdmin?supabase.rpc("get_removed_schedule_occurrences",{p_month_start:`${month}-01`}):Promise.resolve({data:[],error:null} as any)
-    ]);
-    if(removedError)console.error(removedError);
-    setClasses((c||[]) as ClassTemplate[]);
-    setClassSlots((slots||[]) as ClassStaffingSlot[]);
-    setScheduledShifts((ss||[]) as ScheduledShift[]);
-    setRemovedOccurrences((removed||[]) as RemovedOccurrence[]);
+    setClasses((c||[]) as ClassTemplate[]);setClassSlots((slots||[]) as ClassStaffingSlot[]);setScheduledShifts((ss||[]) as ScheduledShift[]);
   }
 
   function blankClassOccurrence(weekday=1):ClassOccurrenceDraft{
@@ -1127,20 +723,6 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     if(!fillError)await loadSchedule();
   }
 
-  async function clearScheduleMonth(){
-    const label=monthLabel(month);
-    if(!confirm(`Clear the entire ${label} rota?\n\nThis removes generated schedule sessions for ${label} only. The Master Timetable is not changed, and you can generate the month again afterwards.`))return;
-    const phrase=`CLEAR ${label.toUpperCase()}`;
-    const typed=prompt(`For safety, type:\n\n${phrase}`);
-    if(typed!==phrase){if(typed!==null)flash("Month clear cancelled — confirmation text did not match.");return}
-    flash(`Clearing ${label} rota…`);
-    const{data,error}=await supabase.rpc("clear_schedule_month",{p_month_start:`${month}-01`});
-    if(error){flash(error.message);return}
-    flash(`${label} rota cleared${typeof data==="number"?` — ${data} staffing shifts removed`:""}.`);
-    await loadSchedule();
-    await loadAdmin();
-  }
-
   async function copyScheduleWeek(){
     const source=prompt("Source week start (Monday, YYYY-MM-DD)",`${month}-01`);
     if(!source)return;
@@ -1160,6 +742,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
 
   async function confirmScheduled(sch:ScheduledShift){
     if(!sch.profile_id){flash("Assign a coach before confirming this shift.");return}
+    if(!isAdmin&&!confirm(`Confirm this session as worked?\n\n${sch.class_name}\n${sch.start_time.slice(0,5)}–${sch.finish_time.slice(0,5)}\n${venueName(sch.venue_id)}`))return;
     flash("Confirming shift…");
 
     const monthStart=`${sch.shift_date.slice(0,7)}-01`;
@@ -1256,14 +839,14 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     if(!s.id)return;
     const{error}=await supabase.rpc("approve_extra_shift",{p_shift_id:s.id});
     flash(error?error.message:"Extra shift approved.");
-    if(!error){await loadCoachMonth(activeCoach.id);await loadAdmin();await loadPendingExtraShifts();await loadSchedule()}
+    if(!error){await loadCoachMonth(activeCoach.id);await loadAdmin()}
   }
 
   async function rejectExtraShift(s:Shift){
     if(!s.id)return;
     const{error}=await supabase.rpc("reject_extra_shift",{p_shift_id:s.id});
     flash(error?error.message:"Extra shift rejected.");
-    if(!error){setShiftModal(null);await loadCoachMonth(activeCoach.id);await loadAdmin();await loadPendingExtraShifts();await loadSchedule()}
+    if(!error){setShiftModal(null);await loadCoachMonth(activeCoach.id);await loadAdmin()}
   }
 
   async function reassignScheduled(sch:ScheduledShift,profileId:string){
@@ -1285,38 +868,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   async function toggleScheduledCancelled(sch:ScheduledShift){
     const cancelled=sch.status!=="cancelled";
     const{error}=await supabase.rpc("set_scheduled_shift_cancelled",{p_scheduled_id:sch.id,p_cancelled:cancelled});
-    flash(error?error.message:(cancelled?"Scheduled shift cancelled.":"Scheduled shift restored."));
-    if(!error){
-      await loadSchedule();
-      setAdminScheduleShift(prev=>prev?.id===sch.id?{...prev,status:cancelled?"cancelled":"scheduled"}:prev);
-    }
-  }
-
-  async function removeScheduledOccurrence(sch:ScheduledShift){
-    if(!confirm(`Remove ${sch.class_name} on ${new Date(`${sch.shift_date}T12:00:00`).toLocaleDateString("en-GB")}?\n\nThis removes this class on this date only. The Master Timetable and other months are unchanged.`))return;
-    const{error}=await supabase.rpc("remove_scheduled_occurrence",{p_scheduled_id:sch.id});
-    if(error){flash(error.message);return}
-    setAdminScheduleShift(null);
-    flash("Class removed from this date only.");
-    await loadSchedule();
-    await loadAdmin();
-  }
-
-  async function restoreRemovedOccurrence(item:RemovedOccurrence){
-    const label=`${item.class_name} on ${new Date(`${item.shift_date}T12:00:00`).toLocaleDateString("en-GB")}`;
-    if(!confirm(`Restore ${label}?\n\nThis puts the class back onto this date from the Master Timetable.`))return;
-    const{error}=await supabase.rpc("restore_schedule_occurrence",{p_class_id:item.class_id,p_shift_date:item.shift_date});
-    if(error){flash(error.message);return}
-    const{data:generated,error:generateError}=await supabase.rpc("generate_schedule_month",{p_month_start:`${month}-01`});
-    if(generateError){flash(generateError.message);return}
-    flash(`${item.class_name} restored${typeof generated==="number"?` · ${generated} staffing shifts regenerated`:""}.`);
-    await loadSchedule();
-    await loadAdmin();
-  }
-
-  function openAdminScheduleShift(s:ScheduledShift){
-    setCoachAssignmentSearch("");
-    setAdminScheduleShift(s);
+    flash(error?error.message:(cancelled?"Scheduled shift cancelled.":"Scheduled shift restored."));if(!error)await loadSchedule();
   }
 
   const scheduleHours=(s:ScheduledShift)=>shiftHours({coach_id:s.profile_id||"",shift_date:s.shift_date,start_time:s.start_time,finish_time:s.finish_time,break_minutes:s.break_minutes,session_location:s.class_name,notes:s.notes});
@@ -1335,62 +887,19 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     return total+slots.reduce((a,slot)=>a+occurrences*shiftHours({coach_id:slot.default_profile_id||"",shift_date:`${month}-01`,start_time:c.start_time,finish_time:c.finish_time,break_minutes:c.break_minutes,session_location:c.name,notes:null})*Number(profileById(slot.default_profile_id)?.hourly_rate||0),0);
   },0);
 
-  const additionalWorkScope=pendingExtraShifts.filter(s=>!scheduleFilter||s.venue_id===scheduleFilter);
-  const pendingAdditionalScope=additionalWorkScope.filter(s=>s.approval_status==="pending");
-  const approvedAdditionalScope=additionalWorkScope.filter(s=>s.approval_status==="approved");
-  const pendingAdditionalCount=pendingAdditionalScope.length;
-  const today=localDateKey();
-  const scheduleDateAfter=(date:string,days:number)=>{const[y,m,d]=date.split("-").map(Number);const next=new Date(y,m-1,d,12);next.setDate(next.getDate()+days);return localDateKey(next)};
-  const tomorrow=scheduleDateAfter(today,1);
-  const staffingWindowEnd=scheduleDateAfter(today,7);
-  const pendingLeaveCount=timeAwayRequests.filter(r=>r.status==="pending").length;
-  type SchedulingIssue={id:string;severity:"critical"|"warning"|"reminder";coach:string;description:string;date:string;startTime:string;finishTime:string;venueId:string|null;className:string;shift:ScheduledShift|null};
-  const schedulingIssues:SchedulingIssue[]=plannedSchedule.flatMap<SchedulingIssue>(s=>{
-    const coach=profileById(s.profile_id)?.full_name||"Unassigned";
-    const base={date:s.shift_date,startTime:s.start_time,finishTime:s.finish_time,venueId:s.venue_id,className:s.class_name,shift:s};
-    const issues:SchedulingIssue[]=[];
-    if(s.shift_date>staffingWindowEnd&&!profileById(s.profile_id)){
-      issues.push({...base,id:`${s.id}-future-staffing`,severity:"reminder",coach,description:"Staffing still required"});
-      return issues;
-    }
-    if(!s.profile_id){
-      if(s.shift_date>=today&&s.shift_date<=staffingWindowEnd)issues.push({...base,id:`${s.id}-unassigned`,severity:"critical",coach,description:s.shift_date===today?"Today's shift has no required coach assigned":s.shift_date===tomorrow?"Tomorrow's shift has no required coach assigned":"Shift within 7 days has no required coach assigned"});
-      return issues;
-    }
-    if(approvedConflictsForCoach(s.profile_id,s.shift_date,s.start_time,s.finish_time).length)issues.push({...base,id:`${s.id}-away`,severity:"critical",coach,description:"Coach assigned whilst on approved Leave"});
-    if(scheduledOverlapsForCoach(s.profile_id,s).length)issues.push({...base,id:`${s.id}-double`,severity:"critical",coach,description:"Coach double booked"});
-    if(pendingConflictsForCoach(s.profile_id,s.shift_date,s.start_time,s.finish_time).length)issues.push({...base,id:`${s.id}-pending-leave`,severity:"warning",coach,description:"Coach has a Pending Leave / Unavailable request"});
-    if(s.adjustment_status==="pending")issues.push({...base,id:`${s.id}-adjustment`,severity:"warning",coach,description:"Actual hours adjustment awaiting approval"});
-    return issues;
-  });
-  const representedUnstaffedIds=new Set(schedulingIssues.filter(issue=>issue.id.endsWith("-future-staffing")||issue.id.endsWith("-unassigned")).map(issue=>issue.shift?.id).filter(Boolean));
-  futureScheduledShifts.forEach(s=>{
-    if(!s.id||representedUnstaffedIds.has(s.id)||s.shift_date<=staffingWindowEnd||s.status==="cancelled"||profileById(s.profile_id))return;
-    schedulingIssues.push({id:`${s.id}-future-staffing`,severity:"reminder",coach:"Unassigned",description:"Staffing still required",date:s.shift_date,startTime:s.start_time,finishTime:s.finish_time,venueId:s.venue_id,className:s.class_name,shift:s});
-    representedUnstaffedIds.add(s.id);
-  });
-  if(classes.length>0&&plannedSchedule.length===0)schedulingIssues.push({id:`${month}-not-generated`,severity:"reminder",coach:"—",description:"Schedule generation reminder",date:`${month}-01`,startTime:"",finishTime:"",venueId:null,className:"Monthly schedule",shift:null});
-  const severityOrder={critical:0,warning:1,reminder:2};
-  schedulingIssues.sort((a,b)=>severityOrder[a.severity]-severityOrder[b.severity]||`${a.date}${a.startTime}`.localeCompare(`${b.date}${b.startTime}`));
-  const criticalSchedulingCount=schedulingIssues.filter(issue=>issue.severity==="critical").length;
-  const warningSchedulingCount=schedulingIssues.filter(issue=>issue.severity==="warning").length;
-  const reminderSchedulingCount=schedulingIssues.filter(issue=>issue.severity==="reminder").length;
-  const approvedLeaveCount=timeAwayRequests.filter(r=>r.status==="approved").length;
   const submittedCount=adminRows.filter(r=>r.timesheet?.status==="submitted"||r.timesheet?.status==="paid").length;
-  const unpaidTotal=unpaidInvoiceTotal;
+  const unpaidTotal=allInvoices.filter((i:any)=>i.status==="awaiting_payment").reduce((a:number,i:any)=>a+Number(i.total_amount||0),0);
   const adminHours=adminRows.reduce((a,r)=>a+r.hours,0);
   const filteredStaff=staff.filter(s=>`${s.full_name} ${s.email||""}`.toLowerCase().includes(search.toLowerCase()) && (!venueFilter||(staffVenueMap[s.id]||[]).includes(venueFilter)));
 
   const mobilePageMeta=(()=>{
     if(!isAdmin){
-      if(tab==="leave")return{eyebrow:"My availability",title:"Leave & Availability",sub:"Request leave and tell us when you cannot coach."};
       if(tab==="timesheets")return{eyebrow:"My work",title:"My Timesheet",sub:"Review confirmed coaching and submit your month when everything is correct."};
       if(tab==="invoices")return{eyebrow:"My pay",title:"My Payslips",sub:"Your payment history and completed monthly invoices."};
       if(tab==="profile")return{eyebrow:"My account",title:"My Profile",sub:"Keep your personal, payment and compliance details up to date."};
       return null;
     }
     if(tab==="dashboard")return{eyebrow:"Overview",title:"Club Operations",sub:"Today’s staffing, schedule and payroll position at a glance."};
-    if(tab==="leave")return{eyebrow:"People",title:"Leave Management",sub:"Review staff leave and availability requests."};
     if(tab==="timesheets")return{eyebrow:"Payroll",title:"Timesheets",sub:"Review hours, submissions and monthly payroll status."};
     if(tab==="invoices")return{eyebrow:"Payroll",title:"Invoices",sub:"Generated invoices, payment status and history."};
     if(tab==="staff")return{eyebrow:"People",title:"Staff",sub:"Manage coaches, access, rates and compliance."};
@@ -1403,7 +912,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   return <div className="portal">
     <Sidebar tab={tab} setTab={(t:any)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v4.2.1</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v3.0.3</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
         {tab!=="schedule"&&mobilePageMeta&&<div className="v303MobilePageHero">
           <span>{mobilePageMeta.eyebrow}</span>
@@ -1411,40 +920,26 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
           <p>{mobilePageMeta.sub}</p>
         </div>}
         {message&&<div className={`notice ${/(saved|sent|submitted|added|copied|reopened|created|paid)/i.test(message)?"success":""}`}>{message}</div>}
-        {tab!=="dashboard"&&(loadingTab===tab||!loadedTabs.current.has(tab))?TabLoadingSkeleton():<>
-          {tab==="dashboard"&&DashboardView()}
-          {tab==="schedule"&&ScheduleView()}
-          {tab==="leave"&&LeaveView()}
-          {tab==="timesheets"&&TimesheetView()}
-          {tab==="invoices"&&InvoicesView()}
-          {tab==="staff"&&isAdmin&&StaffView()}
-          {tab==="reports"&&isAdmin&&ReportsView()}
-          {tab==="settings"&&isAdmin&&SettingsView()}
-          {tab==="profile"&&ProfileView()}
-        </>}
+        {tab==="dashboard"&&DashboardView()}
+        {tab==="schedule"&&ScheduleView()}
+        {tab==="timesheets"&&TimesheetView()}
+        {tab==="invoices"&&InvoicesView()}
+        {tab==="staff"&&isAdmin&&StaffView()}
+        {tab==="reports"&&isAdmin&&ReportsView()}
+        {tab==="settings"&&isAdmin&&SettingsView()}
+        {tab==="profile"&&ProfileView()}
       </main>
     </div>
-    {timeAwayModal!==undefined&&TimeAwayModal()}
     {shiftModal&&ShiftModal()}
     {inviteOpen&&InviteModal()}
     {staffEdit&&StaffModal()}
     {templateOpen&&TemplateModal()}
     {classModal&&ClassModal()}
-    {adminScheduleShift&&AdminScheduleShiftModal()}
-    {confirmShift&&ConfirmShiftModal()}
     {adjustShift&&AdjustmentModal()}
     <MobileNav tab={tab} setTab={(t:any)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} role={initialProfile.role} name={initialProfile.full_name} open={mobileMoreOpen} setOpen={setMobileMoreOpen} onSignOut={signOut}/>
   </div>;
 
   function PageHead({title,sub,children}:{title:string;sub:string;children?:React.ReactNode}){return <div className="pageHead"><div><h1>{title}</h1><p>{sub}</p></div>{children}</div>}
-  function TabLoadingSkeleton(){
-    return <div className="v412Loading" role="status" aria-live="polite" aria-label="Loading page data">
-      <span className="srOnly">Loading page data</span>
-      <div className="v412SkeletonHead"><i/><i/></div>
-      <div className="v412SkeletonCards"><i/><i/><i/></div>
-      <div className="v412SkeletonPanel"><i/><i/><i/><i/></div>
-    </div>;
-  }
   function MonthSelect(){
     return <div className="monthNavigator">
       <button className="btn btnSecondary monthArrow" type="button" onClick={()=>changeMonth(-1)}>←</button>
@@ -1454,20 +949,8 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   }
 
   function DashboardView(){
-    const openSchedulingIssue=(issue:SchedulingIssue)=>{
-      setHighlightedScheduleShiftId(issue.shift?.id||null);
-      if(issue.shift)openAdminScheduleShift(issue.shift);
-    };
     if(isAdmin)return <><PageHead title={`Good ${new Date().getHours()<12?"morning":new Date().getHours()<18?"afternoon":"evening"}, ${initialProfile.full_name.split(" ")[0]}`} sub="Your current staffing, timesheet and invoice position."><div className="row"><button className="btn btnSecondary" onClick={()=>{setAdminPersonalRota(true);setTab("schedule")}}>My Schedule</button><MonthSelect/></div></PageHead>
-      <div className="grid grid4"><StatCard label="Active coaches" value={String(adminRows.length)} foot="Self-employed staff" icon={<UsersIcon/>}/><StatCard label="Hours this month" value={adminHours.toFixed(2)} foot={monthLabel(month)} icon={<ClockIcon/>}/><StatCard label="Submitted" value={`${submittedCount}/${adminRows.length}`} foot={`${Math.max(0,adminRows.length-submittedCount)} outstanding`} icon={<CheckIcon/>}/><StatCard label="Unpaid invoices" value={money(unpaidTotal)} foot="Awaiting payment" icon={<PoundIcon/>}/></div>{pendingLeaveCount>0&&<button className="v33DashboardAlert" onClick={()=>setTab("leave")}><div className="v33AlertIcon"><CalendarIcon/></div><div><strong>{pendingLeaveCount} leave / availability {pendingLeaveCount===1?"request":"requests"} awaiting review</strong><span>Open Leave Management to approve or decline.</span></div><span className="v33AlertCount">{pendingLeaveCount}</span></button>}{timeAwayRequests.filter(r=>r.status==="approved"&&r.start_date<=today&&r.end_date>=today).length>0&&<button className="v340AwayToday" onClick={()=>setTab("leave")}><div><span>Away today</span><strong>{timeAwayRequests.filter(r=>r.status==="approved"&&r.start_date<=today&&r.end_date>=today).length} staff unavailable</strong></div><div className="v340AwayNames">{timeAwayRequests.filter(r=>r.status==="approved"&&r.start_date<=today&&r.end_date>=today).slice(0,3).map(r=><span key={r.id}>{profileById(r.profile_id)?.full_name||"Staff"}</span>)}</div></button>}
-      <section className={`card v402ActionCentre ${criticalSchedulingCount||warningSchedulingCount?"hasIssues":"allClear"}`}>
-        <div className="v402ActionHead">
-          <div><span>Scheduling checks</span><h2>Scheduling Health</h2><p>{criticalSchedulingCount||warningSchedulingCount?"Review the priority items below.":"No action required."}</p></div>
-          <div className="v404HealthSummary" aria-label="Scheduling health summary"><span className="critical">Immediate <b>{criticalSchedulingCount}</b></span><span className="warning">Actions <b>{warningSchedulingCount}</b></span><span className="reminder">Planning <b>{reminderSchedulingCount}</b></span></div>
-        </div>
-        {criticalSchedulingCount===0&&warningSchedulingCount===0&&<div className="v402AllClear"><span aria-hidden="true">✓</span><div><strong>Schedule Healthy</strong><small>No immediate action is required.</small></div></div>}
-        {schedulingIssues.length>0&&<div className="v402IssueGroups">{(["critical","warning","reminder"] as const).map(severity=>{const allIssues=schedulingIssues.filter(issue=>issue.severity===severity);if(!allIssues.length)return null;const expanded=expandedSchedulingSections[severity];const issues=expanded?allIssues:severity==="warning"?allIssues.slice(0,1):[];const heading=severity==="critical"?"Needs Immediate Attention":severity==="warning"?"Actions":"Planning";return <div className={`v402IssueGroup v406IssueSection ${severity} ${expanded?"expanded":"collapsed"}`} key={severity}><button className="v402SeverityHead v406SectionToggle" type="button" aria-expanded={expanded} onClick={()=>setExpandedSchedulingSections({...expandedSchedulingSections,[severity]:!expanded})}><span aria-hidden="true">{severity==="critical"?"●":severity==="warning"?"▲":"●"}</span><strong>{heading}</strong><small>{allIssues.length}</small><b aria-hidden="true">{expanded?"⌃":"⌄"}</b></button>{issues.length>0&&<div className="v402IssueList">{issues.map(issue=><article className="v402Issue" key={issue.id}><span className="v402SeverityIcon" aria-label={`${heading} issue`}>{severity==="critical"?"!":severity==="warning"?"!":"i"}</span><div className="v402IssueMain"><strong>{issue.coach}</strong><span>{issue.description}</span><small>{new Date(`${issue.date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}{issue.startTime?` · ${issue.startTime.slice(0,5)}–${issue.finishTime.slice(0,5)}`:" · Not scheduled"}</small></div><div className="v402IssueContext"><span>{issue.venueId?venueName(issue.venueId):"All organisations"}</span><strong>{issue.className}</strong></div><button className="btn btnSecondary" type="button" onClick={()=>openSchedulingIssue(issue)}>Fix Now</button></article>)}</div>}{!expanded&&severity==="warning"&&allIssues.length>1&&<button className="v406PreviewMore" type="button" onClick={()=>setExpandedSchedulingSections({...expandedSchedulingSections,warning:true})}>+ {allIssues.length-1} more action{allIssues.length-1===1?"":"s"}</button>}</div>})}{(!expandedSchedulingSections.critical||!expandedSchedulingSections.warning||!expandedSchedulingSections.reminder)&&<button className="v402ViewAll" type="button" onClick={()=>setExpandedSchedulingSections({critical:true,warning:true,reminder:true})}>View all scheduling issues</button>}</div>}
-      </section>
+      <div className="grid grid4"><StatCard label="Active coaches" value={String(adminRows.length)} foot="Self-employed staff" icon={<UsersIcon/>}/><StatCard label="Hours this month" value={adminHours.toFixed(2)} foot={monthLabel(month)} icon={<ClockIcon/>}/><StatCard label="Submitted" value={`${submittedCount}/${adminRows.length}`} foot={`${Math.max(0,adminRows.length-submittedCount)} outstanding`} icon={<CheckIcon/>}/><StatCard label="Unpaid invoices" value={money(unpaidTotal)} foot="Awaiting payment" icon={<PoundIcon/>}/></div>
       <div className="grid grid4 section forecastCards"><StatCard label="Normal staffing cost" value={money(normalCost)} foot="Based on regular classes" icon={<CalendarIcon/>}/><StatCard label="Current forecast" value={money(forecastCost)} foot={`${unassignedScheduleCount} unassigned shifts`} icon={<PoundIcon/>}/><StatCard label="Actual cost so far" value={money(actualScheduleCost)} foot="Confirmed timesheet hours" icon={<CheckIcon/>}/><StatCard label="Forecast variance" value={money(forecastCost-normalCost)} foot={forecastCost>normalCost?"Above normal plan":"At / below normal plan"} icon={<ChartIcon/>}/></div>
       <div className="card section todayCoaching"><div className="sectionHeader"><div><h2>Today's coaching</h2><p>{new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</p></div><button className="btn btnSecondary" onClick={()=>setTab("schedule")}>Open schedule</button></div><div className="todayShiftGrid">{scheduledShifts.filter(s=>s.shift_date===new Date().toISOString().slice(0,10)&&s.status!=="cancelled").sort((a,b)=>a.start_time.localeCompare(b.start_time)).map(s=><div className="todayShiftCard" key={s.id}><div><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</strong><span>{s.class_name} · {venueName(s.venue_id)}</span></div><b>{profileById(s.profile_id)?.full_name||"Unassigned"}</b></div>)}{!scheduledShifts.some(s=>s.shift_date===new Date().toISOString().slice(0,10)&&s.status!=="cancelled")&&<div className="empty">No coaching scheduled today.</div>}</div></div>
       <div className="grid grid2 section"><div className="card"><div className="sectionHeader"><div><h2>Monthly status</h2><p>Open a coach to review or edit their shifts.</p></div><button className="btn btnSecondary" onClick={()=>setTab("timesheets")}>View all</button></div><div className="mobileDataList">{adminRows.slice(0,8).map(r=><button className="mobileDataCard" key={r.coach.id} onClick={()=>selectCoach(r.coach)}><div><strong>{r.coach.full_name}</strong><span>{r.hours.toFixed(2)} hours</span></div><StatusPill status={r.timesheet?.status}/></button>)}</div><div className="tableWrap desktopDataTable"><table><thead><tr><th>Coach</th><th className="num">Hours</th><th>Status</th><th></th></tr></thead><tbody>{adminRows.slice(0,8).map(r=><tr key={r.coach.id}><td><strong>{r.coach.full_name}</strong></td><td className="num">{r.hours.toFixed(2)}</td><td><StatusPill status={r.timesheet?.status}/></td><td><button className="btn btnSecondary" onClick={()=>selectCoach(r.coach)}>Open</button></td></tr>)}</tbody></table></div></div>
@@ -1524,10 +1007,9 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
             <p>{todayItems.length?`${todayItems.length} ${todayItems.length===1?"session":"sessions"} on your rota today.`:next?`Nothing today. Your next session is ${new Date(`${next.shift_date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"short"})}.`:"You're all caught up — no upcoming coaching on the rota."}</p>
           </div>
 
-          {next&&<div className={`v302NextSession v31NextSession ${venueColourClass(next.venue_id)}`}>
+          {next&&<div className={`v302NextSession ${venueColourClass(next.venue_id)}`}>
             <div className="v302NextTop"><span>Up next</span><small>{new Date(`${next.shift_date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}</small></div>
             <div className="v302NextBody"><div className="v302NextTime">{next.start_time.slice(0,5)}</div><div><strong>{next.class_name}</strong><span>{venueName(next.venue_id)} · {next.start_time.slice(0,5)}–{next.finish_time.slice(0,5)}</span></div></div>
-            {next.shift_date===today&&next.status==="scheduled"&&next.adjustment_status!=="pending"&&<button className="btn btnPrimary v31NextAction" onClick={()=>setConfirmShift(next)}>Confirm when finished</button>}
           </div>}
 
           <div className="rotaControls">
@@ -1547,34 +1029,18 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
           <div className="grid grid3 scheduleSummary v302DesktopStats"><StatCard label="Today" value={`${todayH.toFixed(2)}h`} foot={todayH?"Scheduled coaching":"No coaching today"} icon={<ClockIcon/>}/><StatCard label="This week" value={`${weekH.toFixed(2)}h`} foot="Planned rota hours" icon={<CalendarIcon/>}/><StatCard label="This month" value={`${monthH.toFixed(2)}h`} foot={`${allMine.filter(s=>s.status==="confirmed").length} sessions confirmed`} icon={<CheckIcon/>}/></div>
         </>;
       })()}
-        <div className="staffRotaList v31Timeline section">{Object.entries(groupedMine).map(([date,items])=><div className="staffRotaDay v31TimelineDay" key={date}><div className="staffRotaDate v31TimelineDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</strong><span>{items.length} {items.length===1?"session":"sessions"}</span></div><div className="v31TimelineItems">{items.map((s,index)=><div className="v31TimelineItem" key={s.id}><div className="v31TimelineRail"><span className={`v31TimelineDot ${s.status} ${s.adjustment_status==="pending"?"pending":""}`}/>{index<items.length-1&&<span className="v31TimelineLine"/>}</div><div className={`staffRotaCard v31RotaCard ${s.status} ${venueColourClass(s.venue_id)}`}><div className="staffRotaMain v31RotaMain"><div className="v31RotaTime"><strong>{s.start_time.slice(0,5)}</strong><small>{s.finish_time.slice(0,5)}</small></div><div className="v31RotaDetails"><span>{s.class_name}</span><small>{venueName(s.venue_id)} · {scheduleHours(s).toFixed(2)}h</small></div><span className={`scheduleStatus ${s.adjustment_status==="pending"?"scheduled":s.status}`}>{s.adjustment_status==="pending"?"Approval pending":s.status}</span></div><div className="staffRotaActions v31RotaActions">
-          {s.status==="scheduled"&&s.adjustment_status!=="pending"&&<><button className="btn btnPrimary" onClick={()=>setConfirmShift(s)}>Confirm as planned</button><button className="btn btnSecondary" onClick={()=>openAdjustment(s)}>Adjust actual time</button></>}
+        <div className="staffRotaList section">{Object.entries(groupedMine).map(([date,items])=><div className="staffRotaDay" key={date}><div className="staffRotaDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</strong></div>{items.map(s=><div className={`staffRotaCard ${s.status} ${venueColourClass(s.venue_id)}`} key={s.id}><div className="staffRotaMain"><div><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</strong><span>{s.class_name}</span><small>{venueName(s.venue_id)}</small></div><span className={`scheduleStatus ${s.adjustment_status==="pending"?"scheduled":s.status}`}>{s.adjustment_status==="pending"?"Approval pending":s.status}</span></div><div className="staffRotaActions">
+          {s.status==="scheduled"&&s.adjustment_status!=="pending"&&<><button className="btn btnPrimary" onClick={()=>confirmScheduled(s)}>Confirm as planned</button><button className="btn btnSecondary" onClick={()=>openAdjustment(s)}>Adjust actual time</button></>}
           {s.adjustment_status==="pending"&&<><span className="rotaPendingText">Extra time awaiting admin approval</span><button className="btn btnDanger" onClick={()=>undoOwnRota(s)}>Cancel request</button></>}
           {s.status==="confirmed"&&<><span className="rotaConfirmedText">Confirmed into timesheet</span><button className="btn btnSecondary" onClick={()=>undoOwnRota(s)}>Undo</button></>}
-        </div></div></div>)}</div></div>)}{!visible.length&&<div className="card empty v302EmptyState"><div className="v302EmptyMark"><CalendarIcon/></div><strong>You're all caught up</strong><span>No coaching is planned in this view.</span></div>}</div>
+        </div></div>)}</div>)}{!visible.length&&<div className="card empty v302EmptyState"><div className="v302EmptyMark"><CalendarIcon/></div><strong>You're all caught up</strong><span>No coaching is planned in this view.</span></div>}</div>
         <div className="card section rotaExtraCard"><div><strong>Need to record work that wasn't on your rota?</strong><p>Use Record Additional Work for cover, camps, competitions, meetings, admin or anything else that was not on your rota. It will be sent to an admin for approval.</p></div><button className="btn btnAccent" onClick={()=>{setTab("timesheets");setShiftModal({coach_id:initialProfile.id,shift_date:rotaDate,start_time:"16:30",finish_time:"18:00",break_minutes:0,venue_id:profileVenues(initialProfile.id)[0]?.id||null,session_location:"",notes:"",source:"extra",approval_status:"pending"})}}><PlusIcon/>Record Additional Work</button></div>
       </>;
     }
 
-    return <><PageHead title="Schedule & Staffing" sub="Build once, copy forward and only change the exceptions."><MonthSelect/></PageHead>
-      <div className="v313MonthActions">
-        <div className="v313MonthActionsText"><span>Month actions</span><strong>{monthLabel(month)}</strong></div>
-        <div className="v313MonthActionButtons">
-          <button className="btn btnPrimary" onClick={generateSchedule}>Generate missing shifts</button>
-          <button className="btn btnSecondary" onClick={clonePreviousScheduleMonth}>Duplicate previous month</button>
-          <div className="v313MoreWrap">
-            <button className="btn btnSecondary" onClick={()=>setMonthActionsOpen(!monthActionsOpen)}>More <span className="v313Chevron">⌄</span></button>
-            {monthActionsOpen&&<><button className="v313MenuScrim" aria-label="Close month actions" onClick={()=>setMonthActionsOpen(false)}/><div className="v313MoreMenu">
-              <button type="button" onClick={()=>{setMonthActionsOpen(false);void copyScheduleWeek()}}>Copy a week</button>
-              <div className="v313MenuDivider"/>
-              <button type="button" className="danger" onClick={()=>{setMonthActionsOpen(false);void clearScheduleMonth()}}>Clear this month</button>
-            </div></>}
-          </div>
-        </div>
-      </div>
+    return <><PageHead title="Schedule & Staffing" sub="Build once, copy forward and only change the exceptions."><div className="row"><MonthSelect/><button className="btn btnSecondary" onClick={clonePreviousScheduleMonth}>Copy previous month</button><button className="btn btnSecondary" onClick={copyScheduleWeek}>Copy week</button><button className="btn btnPrimary" onClick={generateSchedule}>Generate missing shifts</button></div></PageHead>
       <div className="scheduleToolbar"><select value={scheduleFilter} onChange={e=>setScheduleFilter(e.target.value)}><option value="">All organisations</option>{adminVenues().map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select><div className="row"><button className={`btn ${scheduleView==="calendar"?"btnPrimary":"btnSecondary"}`} onClick={()=>setScheduleView("calendar")}>Calendar</button><button className={`btn ${scheduleView==="agenda"?"btnPrimary":"btnSecondary"}`} onClick={()=>setScheduleView("agenda")}>Agenda</button><button className="btn btnAccent" onClick={()=>openNewClass()}><PlusIcon/>Add class</button></div></div>
       <div className="grid grid4 scheduleSummary"><StatCard label="Normal monthly cost" value={money(normalCost)} foot="Regular timetable" icon={<PoundIcon/>}/><StatCard label="Current forecast" value={money(forecastCost)} foot={`${plannedSchedule.length} scheduled staffing shifts`} icon={<CalendarIcon/>}/><StatCard label="Actual cost so far" value={money(actualScheduleCost)} foot={`${money(actualScheduleCost-forecastCost)} vs forecast`} icon={<CheckIcon/>}/><StatCard label="Unassigned shifts" value={String(unassignedScheduleCount)} foot={unassignedScheduleCount?"Needs a coach":"Fully staffed"} icon={<UsersIcon/>}/></div>
-      {pendingAdditionalCount>0&&<div className="v311ApprovalBanner"><div className="v311ApprovalIcon"><ClockIcon/></div><div><strong>{pendingAdditionalCount} additional work {pendingAdditionalCount===1?"request":"requests"} awaiting approval</strong><span>These were recorded by staff outside their rota. Review them below in the schedule.</span></div><span className="v311ApprovalCount">{pendingAdditionalCount}</span></div>}
       <div className="grid scheduleAdminGrid section"><div className="card"><div className="sectionHeader"><div><h2>Weekly master timetable</h2><p>Sunday–Saturday. Add as many different classes as you need on the same day or at the same time.</p></div><button className="btn btnSecondary" onClick={()=>openNewClass()}>Add class</button></div><div className="masterTimetable">{[1,2,3,4,5,6,0].map(day=>{const dayClasses=classes.filter(c=>(!scheduleFilter||c.venue_id===scheduleFilter)&&c.weekday===day).sort((a,b)=>a.start_time.localeCompare(b.start_time)||a.name.localeCompare(b.name));return <div className="masterDay" key={day}><div className="masterDayHead"><strong>{dayNames[day]}</strong><button className="btn btnSecondary" type="button" onClick={()=>openNewClass(day)}>+ Add to {dayNames[day]}</button></div><div className="masterDayClasses">{dayClasses.map(c=>{const slots=classSlots.filter(x=>x.class_id===c.id).sort((a,b)=>a.slot_number-b.slot_number);return <div className={`masterClassRow masterClassClickable ${venueColourClass(c.venue_id)}`} key={c.id} role="button" tabIndex={0} onClick={()=>openEditClass(c)} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openEditClass(c)}}}><div className="masterTime">{c.start_time.slice(0,5)}–{c.finish_time.slice(0,5)}</div><div className="masterClassInfo"><strong>{c.name}</strong><span>{venueName(c.venue_id)}</span><small>{slots.map(x=>profileById(x.default_profile_id)?.full_name||"Unassigned").join(" · ")}</small><em>Click to edit</em></div><div className="masterClassActions"><button className="btn btnPrimary" type="button" onClick={e=>{e.stopPropagation();openEditClass(c)}}>Edit</button><button className="btn btnSecondary" type="button" onClick={e=>{e.stopPropagation();duplicateClassGroup(c)}}>Duplicate</button><button className="btn btnDanger" type="button" onClick={e=>{e.stopPropagation();void archiveClass(c)}}>Archive</button></div></div>})}{!dayClasses.length&&<div className="masterEmpty">No regular classes</div>}</div></div>})}</div></div>
       <div className="card"><div className="sectionHeader"><div><h2>{monthLabel(month)} staffing</h2><p>Drag one staffing card onto another to swap coach assignments. Use Agenda for detailed editing.</p></div><div className="scheduleLegend"><span>Forecast {money(forecastCost)}</span><span>Confirmed {money(confirmedScheduleCost)}</span></div></div>
       {scheduleView==="calendar"?<div className="staffingBoard">{(()=>{
@@ -1582,15 +1048,12 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
         return Array.from({length:last},(_,i)=>{
           const d=i+1,date=`${month}-${String(d).padStart(2,"0")}`;
           const items=visibleScheduled.filter(s=>s.shift_date===date).sort((a,b)=>a.start_time.localeCompare(b.start_time)||a.class_name.localeCompare(b.class_name));
-          const extras=additionalWorkScope.filter(s=>s.shift_date===date).sort((a,b)=>a.start_time.localeCompare(b.start_time));
-          const removed=removedOccurrences.filter(r=>r.shift_date===date).sort((a,b)=>a.start_time.localeCompare(b.start_time));
-          const totalItems=items.length+extras.length;
-          return <div className={`staffingBoardDay ${totalItems||removed.length?"hasShifts":"emptyDay"}`} key={date}>
-            <div className="staffingBoardDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}</strong><span>{totalItems?`${totalItems} ${totalItems===1?"item":"items"}`:removed.length?`${removed.length} removed`:"No coaching"}</span></div>
-            <div className="staffingBoardShifts">{items.map(s=><div className={`staffingCalendarShift ${s.status} ${venueColourClass(s.venue_id)} ${highlightedScheduleShiftId===s.id?"v402HighlightedShift":""}`} key={s.id} draggable={s.status!=="cancelled"} onClick={()=>openAdminScheduleShift(s)} onDragStart={e=>{e.stopPropagation();setDragShiftId(s.id)}} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();e.stopPropagation();if(dragShiftId)void swapScheduledAssignments(dragShiftId,s.id);setDragShiftId(null)}}><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)} · {s.class_name}</strong><span>{profileById(s.profile_id)?.full_name||"Unassigned"}</span><small>{venueName(s.venue_id)} · Tap to manage</small>{s.profile_id&&coachAvailabilityState(s.profile_id,s.shift_date,s.start_time,s.finish_time).state!=="available"&&<span className={`v340ConflictBadge ${coachAvailabilityState(s.profile_id,s.shift_date,s.start_time,s.finish_time).state}`}>{coachAvailabilityState(s.profile_id,s.shift_date,s.start_time,s.finish_time).label}</span>}</div>)}{extras.map(s=><div className={`staffingCalendarShift ${s.approval_status==="pending"?"v311PendingExtra":"v313ApprovedExtra"}`} key={`extra-${s.id}`} onClick={()=>setShiftModal(s)}><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)} · {s.session_location||"Additional work"}</strong><span>{profileById(s.coach_id)?.full_name||"Staff member"}</span><small>{venueName(s.venue_id)} · Additional shift · {s.approval_status==="pending"?"Approval required":"Approved"}</small></div>)}{removed.map(r=><div className="staffingCalendarShift v314RemovedOccurrence" key={`removed-${r.class_id}-${r.shift_date}`}><strong>{r.start_time.slice(0,5)}–{r.finish_time.slice(0,5)} · {r.class_name}</strong><span>{venueName(r.venue_id)} · Removed from this date</span><button className="v314RestoreButton" type="button" onClick={e=>{e.stopPropagation();void restoreRemovedOccurrence(r)}}>Restore</button></div>)}</div>
+          return <div className={`staffingBoardDay ${items.length?"hasShifts":"emptyDay"}`} key={date}>
+            <div className="staffingBoardDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}</strong><span>{items.length?`${items.length} staffing ${items.length===1?"shift":"shifts"}`:"No coaching"}</span></div>
+            <div className="staffingBoardShifts">{items.map(s=><div className={`staffingCalendarShift ${s.status} ${venueColourClass(s.venue_id)}`} key={s.id} draggable={s.status!=="cancelled"} onDragStart={()=>setDragShiftId(s.id)} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();if(dragShiftId)void swapScheduledAssignments(dragShiftId,s.id);setDragShiftId(null)}}><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)} · {s.class_name}</strong><span>{profileById(s.profile_id)?.full_name||"Unassigned"}</span><small>{venueName(s.venue_id)}</small></div>)}</div>
           </div>
         });
-      })()}</div>:<div className="scheduleAgenda v311Agenda">{Array.from(new Set([...Object.keys(grouped),...additionalWorkScope.map(s=>s.shift_date),...removedOccurrences.map(r=>r.shift_date)])).sort().map(date=>{const items=(grouped[date]||[]) as ScheduledShift[];const extras=additionalWorkScope.filter(s=>s.shift_date===date);const removed=removedOccurrences.filter(r=>r.shift_date===date);return <div className="scheduleDay" key={date}><div className="scheduleDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}</strong><span>{items.length+extras.length} active{removed.length?` · ${removed.length} removed`:""}</span></div>{items.map(s=>{const allowed=staffOptionsForVenue(s.venue_id);return <div className={`scheduleShift v311ScheduleRow ${s.status} ${venueColourClass(s.venue_id)} ${highlightedScheduleShiftId===s.id?"v402HighlightedShift":""}`} key={s.id} onClick={()=>openAdminScheduleShift(s)}><div className="scheduleShiftMain"><div className="scheduleTime">{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</div><div><strong>{s.class_name}</strong><span>{venueName(s.venue_id)} · {scheduleHours(s).toFixed(2)}h</span></div></div><div className="v311RowCoach"><span>Coach</span><strong>{profileById(s.profile_id)?.full_name||"Unassigned"}</strong>{s.profile_id&&<small className={`v341CoachState ${coachAvailabilityState(s.profile_id,s.shift_date,s.start_time,s.finish_time).state}`}>{coachAvailabilityState(s.profile_id,s.shift_date,s.start_time,s.finish_time).label}</small>}</div><div className="v311RowStatus"><span className={`scheduleStatus ${s.status}`}>{s.adjustment_status==="pending"?"Approval pending":s.status}</span><button className="btn btnSecondary" type="button" onClick={e=>{e.stopPropagation();openAdminScheduleShift(s)}}>Manage</button></div></div>})}{extras.map(s=><div className={`scheduleShift v311ScheduleRow v311ExtraRow ${s.approval_status==="approved"?"v313ApprovedExtraRow":""}`} key={`extra-${s.id}`} onClick={()=>setShiftModal(s)}><div className="scheduleShiftMain"><div className="scheduleTime">{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</div><div><strong>{s.session_location||"Additional work"}</strong><span>{venueName(s.venue_id)} · {shiftHours(s).toFixed(2)}h</span></div></div><div className="v311RowCoach"><span>{s.approval_status==="pending"?"Submitted by":"Coach"}</span><strong>{profileById(s.coach_id)?.full_name||"Staff member"}</strong></div><div className="v311RowStatus"><span className={`scheduleStatus ${s.approval_status==="pending"?"v311PendingBadge":"v313ApprovedBadge"}`}>{s.approval_status==="pending"?"Approval required":"Additional shift · Approved"}</span><button className={`btn ${s.approval_status==="pending"?"btnAccent":"btnSecondary"}`} type="button" onClick={e=>{e.stopPropagation();setShiftModal(s)}}>{s.approval_status==="pending"?"Review":"View"}</button></div></div>)}{removed.map(r=><div className="scheduleShift v311ScheduleRow v314RemovedAgenda" key={`removed-${r.class_id}-${r.shift_date}`}><div className="scheduleShiftMain"><div className="scheduleTime">{r.start_time.slice(0,5)}–{r.finish_time.slice(0,5)}</div><div><strong>{r.class_name}</strong><span>{venueName(r.venue_id)} · Removed from this date</span></div></div><div className="v311RowCoach"><span>Status</span><strong>Removed occurrence</strong></div><div className="v311RowStatus"><span className="scheduleStatus v314RemovedBadge">Removed</span><button className="btn btnSecondary" type="button" onClick={()=>restoreRemovedOccurrence(r)}>Restore</button></div></div>)}</div>})}{!visibleScheduled.length&&!additionalWorkScope.length&&!removedOccurrences.length&&<div className="empty">Generate {monthLabel(month)} to create the staffing rota from your regular classes.</div>}</div>}</div></div></>;
+      })()}</div>:<div className="scheduleAgenda">{Object.entries(grouped).map(([date,items]:[string,ScheduledShift[]])=><div className="scheduleDay" key={date}><div className="scheduleDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}</strong></div>{items.map(s=>{const allowed=staffOptionsForVenue(s.venue_id);return <div className={`scheduleShift ${s.status} ${venueColourClass(s.venue_id)}`} key={s.id}><div className="scheduleShiftMain"><div className="scheduleTime">{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</div><div><strong>{s.class_name}</strong><span>{venueName(s.venue_id)} · {scheduleHours(s).toFixed(2)}h</span></div></div><div className="scheduleAssignment"><select value={s.profile_id||""} disabled={s.status==="cancelled"} onChange={e=>reassignScheduled(s,e.target.value)}><option value="">Unassigned</option>{allowed.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select><div className="row">{s.status==="scheduled"&&s.profile_id&&<button className="btn btnPrimary" type="button" onClick={(e)=>{e.preventDefault();void confirmScheduled(s)}}>Confirm</button>}{s.adjustment_status==="pending"&&<button className="btn btnAccent" type="button" onClick={()=>approveRotaAdjustment(s)}>Approve extra time</button>}{s.status==="confirmed"&&<button className="btn btnSecondary" type="button" onClick={(e)=>{e.preventDefault();void unconfirmScheduled(s)}}>Unconfirm</button>}{s.status!=="confirmed"&&<button className={`btn ${s.status==="cancelled"?"btnSecondary":"btnDanger"}`} type="button" onClick={()=>toggleScheduledCancelled(s)}>{s.status==="cancelled"?"Restore":"Cancel"}</button>}<span className={`scheduleStatus ${s.status}`}>{s.status}</span></div></div></div>})}</div>)}{!visibleScheduled.length&&<div className="empty">Generate {monthLabel(month)} to create the staffing rota from your regular classes.</div>}</div>}</div></div></>;
   }
 
   function TimesheetView(){
@@ -1626,94 +1089,9 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     </>
   }
 
-  function LeaveView(){
-    const today=new Date().toISOString().slice(0,10);
-    const typeLabel=(t:string)=>({holiday:"Leave",sickness:"Sickness",appointment:"Appointment",compassionate:"Compassionate leave",unavailable:"Unavailable",other:"Other"} as Record<string,string>)[t]||t;
-    const statusLabel=(s:string)=>s==="approved"?"Approved":s==="declined"?"Declined":s==="cancelled"?"Cancelled":"Pending";
-    const displayDate=(d:string)=>new Date(`${d}T12:00:00`).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"});
-    const person=(id:string)=>profileById(id)?.full_name||"Staff member";
-    const duration=(r:TimeAwayRequest)=>r.all_day
-      ? `${displayDate(r.start_date)}${r.end_date!==r.start_date?` – ${displayDate(r.end_date)}`:""} · Full day`
-      : `${displayDate(r.start_date)} · ${r.start_time?.slice(0,5)}–${r.end_time?.slice(0,5)}`;
-
-    if(isAdmin){
-      const leaveScope=timeAwayRequests.filter(r=>{
-        if(!scheduleFilter)return true;
-        const coachVenueIds=staffVenueMap[r.profile_id]||[];
-        return coachVenueIds.includes(scheduleFilter);
-      });
-      const pending=leaveScope.filter(r=>r.status==="pending");
-      const upcomingApproved=leaveScope.filter(r=>r.status==="approved"&&r.end_date>=today);
-      const monthStart=`${month}-01`;
-      const monthEnd=`${month}-${String(new Date(Number(month.slice(0,4)),Number(month.slice(5,7)),0).getDate()).padStart(2,"0")}`;
-      const calendarRequests=leaveScope.filter(r=>r.start_date<=monthEnd&&r.end_date>=monthStart&&r.status!=="cancelled"&&r.status!=="declined").sort((a,b)=>a.start_date.localeCompare(b.start_date)||a.created_at.localeCompare(b.created_at));
-      return <><PageHead title="Leave Management" sub="Review and manage staff leave and unavailable periods."/>
-        <div className="v401LeaveActionBar"><div><strong>Create time away</strong><span>Add leave or an unavailable period for any member of staff.</span></div><button className="btn btnPrimary" onClick={()=>openNewTimeAway()}>+ New Time Away</button></div>
-        <div className="v401LeaveControls"><label htmlFor="leave-organisation">Organisation</label><select id="leave-organisation" value={scheduleFilter} onChange={e=>setScheduleFilter(e.target.value)}><option value="">All organisations</option>{adminVenues().map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select></div>
-        <div className="grid grid3 v33Summary"><StatCard label="Awaiting review" value={String(pending.length)} foot="Needs an admin decision" icon={<ClockIcon/>}/><StatCard label="Approved upcoming" value={String(upcomingApproved.length)} foot="Leave & unavailable periods" icon={<CheckIcon/>}/><StatCard label="Unavailable" value={String(leaveScope.filter(r=>r.status==="approved"&&r.request_type==="unavailable"&&r.end_date>=today).length)} foot="Upcoming approved" icon={<CalendarIcon/>}/></div>
-
-        {pending.length>0&&<section className="card section v33ApprovalSection"><div className="sectionHeader"><div><h3>Awaiting approval</h3><p>Requests submitted by staff.</p></div><span className="v33CountBadge">{pending.length}</span></div><div className="v33RequestList">
-          {pending.map(r=><article className={`v33RequestCard pending v331Type-${r.request_type}`} key={r.id}><div className="v33RequestAvatar">{initials(person(r.profile_id))}</div><div className="v33RequestMain"><div className="v33RequestTitle"><strong>{person(r.profile_id)}</strong><span>{typeLabel(r.request_type)}</span></div><h4>{duration(r)}</h4>{r.notes&&<p>{r.notes}</p>}</div><div className="v33RequestActions"><button className="btn btnSecondary" onClick={()=>openEditTimeAway(r)}>Edit</button><button className="btn btnSecondary" onClick={()=>reviewLeave(r.id,"declined")}>Decline</button><button className="btn btnPrimary" onClick={()=>reviewLeave(r.id,"approved")}>Approve</button></div></article>)}
-        </div></section>}
-
-        <section className="card section v341LeaveCalendar v401LeaveCalendar"><div className="sectionHeader"><div><h3>Monthly leave calendar</h3><p>{monthLabel(month)} · approved and pending time away.</p></div><MonthSelect/></div><div className="v341CalendarGrid v401DesktopLeaveCalendar">{Array.from({length:new Date(Number(month.slice(0,4)),Number(month.slice(5,7)),0).getDate()},(_,i)=>`${month}-${String(i+1).padStart(2,"0")}`).map((date:string)=>{const items=leaveScope.filter(r=>date>=r.start_date&&date<=r.end_date&&r.status!=="cancelled"&&r.status!=="declined");return <div className={`v341CalendarDay ${items.length?"hasItems":""}`} key={date}><strong>{new Date(`${date}T12:00:00`).getDate()}</strong><span>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short"})}</span>{items.slice(0,3).map(r=><button key={r.id} className={`v341CalendarPill ${r.status} v331Type-${r.request_type}`} onClick={()=>openEditTimeAway(r)}><b>{profileById(r.profile_id)?.full_name?.split(" ")[0]||"Staff"}</b><small>{r.request_type==="unavailable"?"Unavailable":"Leave"}{!r.all_day?` ${r.start_time?.slice(0,5)}–${r.end_time?.slice(0,5)}`:""}</small></button>)}{items.length>3&&<em>+{items.length-3} more</em>}</div>})}</div><div className="v401MobileLeaveAgenda">{calendarRequests.map(r=><button className={`v401AgendaItem v331Type-${r.request_type}`} key={r.id} onClick={()=>openEditTimeAway(r)}><span className="v401AgendaDate"><strong>{new Date(`${r.start_date}T12:00:00`).toLocaleDateString("en-GB",{day:"numeric"})}</strong><small>{new Date(`${r.start_date}T12:00:00`).toLocaleDateString("en-GB",{month:"short"})}</small></span><span className="v401AgendaDetails"><strong>{person(r.profile_id)}</strong><small>{typeLabel(r.request_type)} · {duration(r)}</small>{r.notes&&<em>{r.notes}</em>}</span><span className={`v33Status ${r.status}`}>{statusLabel(r.status)}</span></button>)}{!calendarRequests.length&&<div className="v401AgendaEmpty"><CalendarIcon/><strong>No time away this month</strong><span>Approved and pending requests will appear here.</span></div>}</div></section>
-        <section className="card section"><div className="sectionHeader"><div><h3>Leave & availability history</h3><p>Approved, declined, pending and cancelled requests.</p></div></div><div className="v33History">
-          {leaveScope.map(r=><div className={`v33HistoryRow v331HistoryRow v331Type-${r.request_type}`} key={r.id}><div><strong>{person(r.profile_id)}</strong><span>{typeLabel(r.request_type)}</span></div><div><strong>{duration(r)}</strong>{r.notes&&<span>{r.notes}</span>}</div><div className="v331AdminHistoryActions"><span className={`v33Status ${r.status}`}>{statusLabel(r.status)}</span><button className="v3TextButton" onClick={()=>openEditTimeAway(r)}>Edit</button><button className="v3TextButton danger" onClick={()=>deleteTimeAway(r)}>Delete</button></div></div>)}
-          {!timeAwayRequests.length&&<div className="empty">No leave or availability requests yet.</div>}
-        </div></section>
-      </>
-    }
-
-    const mine=timeAwayRequests.filter(r=>r.profile_id===initialProfile.id);
-    const upcoming=mine.filter(r=>r.status==="approved"&&r.end_date>=today);
-    return <><PageHead title="Leave & Availability" sub="Request time away or tell us when you cannot coach."><button className="btn btnPrimary" onClick={()=>openNewTimeAway()}>Request time away</button></PageHead>
-      <div className="grid grid3 v33Summary"><StatCard label="Pending" value={String(mine.filter(r=>r.status==="pending").length)} foot="Awaiting admin review" icon={<ClockIcon/>}/><StatCard label="Upcoming approved" value={String(upcoming.length)} foot="Leave & unavailable periods" icon={<CheckIcon/>}/><StatCard label="Unavailable" value={String(upcoming.filter(r=>r.request_type==="unavailable").length)} foot="Upcoming approved" icon={<CalendarIcon/>}/></div>
-
-      <div className="grid grid2 section v33CoachCards"><button className="card v33ActionCard leave" onClick={()=>openNewTimeAway("holiday")}><div className="v33ActionIcon"><CalendarIcon/></div><div><span>Time away</span><strong>Request leave</strong><p>Leave, sickness, appointments, compassionate leave and other time away.</p></div><b>＋</b></button><button className="card v33ActionCard availability" onClick={()=>openNewTimeAway("unavailable")}><div className="v33ActionIcon"><ClockIcon/></div><div><span>Availability</span><strong>Tell us when you're unavailable</strong><p>Choose a full day or exact hours you cannot coach.</p></div><b>＋</b></button></div>
-
-      <section className="card section"><div className="sectionHeader"><div><h3>My requests</h3><p>Your leave and availability history.</p></div></div><div className="v33History">
-        {mine.map(r=><div className={`v33HistoryRow v33MyHistory v331Type-${r.request_type}`} key={r.id}><div><strong>{typeLabel(r.request_type)}</strong><span>{duration(r)}</span></div><div>{r.notes&&<span>{r.notes}</span>}</div><div className="v33MyStatus"><span className={`v33Status ${r.status}`}>{statusLabel(r.status)}</span>{r.status==="pending"&&<button className="v3TextButton danger" onClick={()=>cancelOwnLeave(r.id)}>Cancel</button>}</div></div>)}
-        {!mine.length&&<div className="empty">You haven't submitted any time-away requests yet.</div>}
-      </div></section>
-    </>
-  }
-
-  function TimeAwayModal(){
-    const editing=Boolean(timeAwayModal?.id);
-    const adminEditing=isAdmin&&editing;
-    return <div className="modalBackdrop"><div className="modal v33LeaveModal"><div className="modalHead"><div><h2>{editing?"Edit time away":"Request time away"}</h2><p className="muted" style={{fontSize:11,margin:"4px 0 0"}}>{adminEditing?"Changes apply immediately to this request.":isAdmin?"Create time away for any staff member.":"This will be sent to administrators for approval."}</p></div><button className="iconButton" onClick={()=>setTimeAwayModal(undefined)}>×</button></div><div className="modalBody">
-      {isAdmin&&<div className="grid grid2"><div className="field"><label>Staff member</label><select value={adminTimeAwayProfileId} onChange={e=>setAdminTimeAwayProfileId(e.target.value)}><option value="">Choose staff member</option>{staff.filter(p=>p.is_active).map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select></div><div className="field"><label>Status</label><select value={adminTimeAwayStatus} onChange={e=>setAdminTimeAwayStatus(e.target.value as any)}><option value="approved">Approved</option><option value="pending">Pending</option></select></div></div>}
-      <div className="field"><label>Type</label><select value={timeAwayDraft.request_type} onChange={e=>setTimeAwayDraft({...timeAwayDraft,request_type:e.target.value as any})}><option value="holiday">Leave</option><option value="sickness">Sickness</option><option value="appointment">Appointment</option><option value="compassionate">Compassionate leave</option><option value="unavailable">Unavailable</option><option value="other">Other</option></select></div>
-
-      <div className="field"><label>Duration</label><div className="v33Segmented v331Duration"><button type="button" className={timeAwayDraft.all_day?"active":""} onClick={()=>setTimeAwayDraft({...timeAwayDraft,all_day:true,start_time:"",end_time:""})}>Full day</button><button type="button" className={!timeAwayDraft.all_day?"active":""} onClick={()=>setTimeAwayDraft({...timeAwayDraft,all_day:false,end_date:timeAwayDraft.start_date})}>Specific hours</button></div></div>
-
-      {timeAwayDraft.all_day?<div className="grid grid2"><div className="field"><label>Start date</label><input type="date" value={timeAwayDraft.start_date} onChange={e=>setTimeAwayDraft({...timeAwayDraft,start_date:e.target.value,end_date:timeAwayDraft.end_date||e.target.value})}/></div><div className="field"><label>End date</label><input type="date" min={timeAwayDraft.start_date||undefined} value={timeAwayDraft.end_date} onChange={e=>setTimeAwayDraft({...timeAwayDraft,end_date:e.target.value})}/></div></div>:<>
-        <div className="field"><label>Date</label><input type="date" value={timeAwayDraft.start_date} onChange={e=>setTimeAwayDraft({...timeAwayDraft,start_date:e.target.value,end_date:e.target.value})}/></div>
-        <div className="grid grid2"><div className="field"><label>From</label><input type="time" value={timeAwayDraft.start_time} onChange={e=>setTimeAwayDraft({...timeAwayDraft,start_time:e.target.value})}/></div><div className="field"><label>Until</label><input type="time" value={timeAwayDraft.end_time} onChange={e=>setTimeAwayDraft({...timeAwayDraft,end_time:e.target.value})}/></div></div>
-      </>}
-
-      <div className="field"><label>Notes <span className="muted">(optional)</span></label><textarea value={timeAwayDraft.notes} onChange={e=>setTimeAwayDraft({...timeAwayDraft,notes:e.target.value})} placeholder="Anything the admin team should know?"/></div>
-    </div><div className="modalFoot"><button className="btn btnSecondary" onClick={()=>setTimeAwayModal(undefined)}>Cancel</button><button className="btn btnPrimary" disabled={leaveSaving} onClick={saveTimeAway}>{leaveSaving?"Saving…":editing?"Save changes":"Submit request"}</button></div></div></div>
-  }
-
-
   function StaffView(){
-    const activeCount=filteredStaff.filter(s=>s.is_active).length;
-    const portalCount=filteredStaff.filter(s=>Boolean(s.username)).length;
-    const recentCount=filteredStaff.filter(s=>s.last_login_at&&Date.now()-new Date(s.last_login_at).getTime()<30*86400000).length;
-    const roleLabel=(s:Profile)=>s.role==="admin"?"Super admin":s.role==="org_admin"?"Organisation admin":"Coach";
-    const lastLogin=(s:Profile)=>s.last_login_at?new Date(s.last_login_at).toLocaleString("en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):s.username?"Never":"No portal account";
-    return <><PageHead title="People" sub="Manage staff details, organisations, account access and security."><button className="btn btnPrimary" onClick={()=>setInviteOpen(true)}><PlusIcon/>Add staff</button></PageHead>
-      <div className="grid grid3 v32PeopleStats"><StatCard label="Active staff" value={String(activeCount)} foot={`${filteredStaff.length} total profiles`} icon={<UsersIcon/>}/><StatCard label="Portal access" value={String(portalCount)} foot={`${filteredStaff.length-portalCount} not invited yet`} icon={<CheckIcon/>}/><StatCard label="Recently signed in" value={String(recentCount)} foot="Within the last 30 days" icon={<ClockIcon/>}/></div>
-      <div className="card section"><div className="sectionHeader"><div className="staffFilters"><div className="searchBar"><SearchIcon/><input placeholder="Search staff…" value={search} onChange={e=>setSearch(e.target.value)}/></div><select value={venueFilter} onChange={e=>setVenueFilter(e.target.value)}><option value="">All organisations</option>{adminVenues().map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select></div><div className="muted" style={{fontSize:12}}>{filteredStaff.length} people</div></div>
-        <div className="v32PeopleGrid">{filteredStaff.map(s=><button className="v32PersonCard" key={s.id} onClick={()=>openStaffEdit(s)}>
-          <div className="v32PersonTop"><div className="v32PersonAvatar">{initials(s.full_name)}</div><div className="v32PersonIdentity"><strong>{s.full_name||"Unnamed coach"}</strong><span>{s.job_title||roleLabel(s)}</span></div><span className={`v32AccountDot ${s.is_active?"active":"inactive"}`}>{s.is_active?"Active":"Inactive"}</span></div>
-          <div className="venueBadges">{profileVenues(s.id).map(v=><span className="venueBadge" key={v.id}>{v.name}</span>)}{!profileVenues(s.id).length&&<span className="venueBadge mutedBadge">No organisation</span>}</div>
-          <div className="v32PersonMeta"><div><span>Account</span><strong>{s.username?`@${s.username}`:"No username"}</strong></div><div><span>Last sign in</span><strong>{lastLogin(s)}</strong></div></div>
-          <div className="v32PersonFooter"><span>{s.email||s.contact_email||"Recovery email optional"}</span><strong>Open profile →</strong></div>
-        </button>)}</div>
-        {!filteredStaff.length&&<div className="empty">No staff match these filters.</div>}
-      </div>
+    return <><PageHead title="Staff" sub="Build your staff list first, then invite people to the portal when you are ready."><button className="btn btnPrimary" onClick={()=>setInviteOpen(true)}><PlusIcon/>Add staff</button></PageHead>
+      <div className="card"><div className="sectionHeader"><div className="staffFilters"><div className="searchBar"><SearchIcon/><input placeholder="Search staff…" value={search} onChange={e=>setSearch(e.target.value)}/></div><select value={venueFilter} onChange={e=>setVenueFilter(e.target.value)}><option value="">All organisations</option>{adminVenues().map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select></div><div className="muted" style={{fontSize:12}}>{filteredStaff.length} staff</div></div><div className="mobileDataList">{filteredStaff.map(s=><div className="mobileAdminCard" key={s.id}><div className="mobileAdminHead"><div className="row"><div className="avatar" style={{background:"#eef1f4",color:"#344054"}}>{initials(s.full_name)}</div><div><strong>{s.full_name||"Unnamed coach"}</strong><span>{s.email||"No portal access yet"}</span></div></div><span className={`pill ${s.is_active?"pillSubmitted":"pillDraft"}`}><span className="dot"/>{s.is_active?"Active":"Inactive"}</span></div><div className="venueBadges">{profileVenues(s.id).map(v=><span className="venueBadge" key={v.id}>{v.name}</span>)}{!profileVenues(s.id).length&&<span className="venueBadge mutedBadge">No organisation</span>}</div><div className="mobileAdminStats"><span><small>Rate</small><strong>{money(s.hourly_rate)}</strong></span><span><small>Bank</small><strong>{s.account_number?"Supplied":"Missing"}</strong></span></div><div className="mobileAdminActions"><button className="btn btnSecondary" onClick={()=>openStaffEdit(s)}>Edit profile</button><button className="btn btnSecondary" onClick={()=>selectCoach(s)}>Timesheet</button></div></div>)}</div><div className="tableWrap desktopDataTable"><table><thead><tr><th>Coach & venues</th><th className="num">Rate</th><th>Bank</th><th>DBS</th><th>First aid</th><th>Status</th><th></th></tr></thead><tbody>{filteredStaff.map(s=><tr key={s.id}><td><div className="row"><div className="avatar" style={{background:"#eef1f4",color:"#344054"}}>{initials(s.full_name)}</div><div><strong>{s.full_name||"Unnamed coach"}</strong><div className="muted" style={{fontSize:11}}>{s.email||"No portal access yet"}</div><div className="venueBadges">{profileVenues(s.id).map(v=><span className="venueBadge" key={v.id}>{v.name}</span>)}{!profileVenues(s.id).length&&<span className="venueBadge mutedBadge">No venue</span>}</div></div></div></td><td className="num">{money(s.hourly_rate)}</td><td>{s.account_number?"Supplied":"Missing"}</td><td>{dateText(s.dbs_expiry)}</td><td>{dateText(s.first_aid_expiry)}</td><td><span className={`pill ${s.is_active?"pillSubmitted":"pillDraft"}`}><span className="dot"/>{s.is_active?"Active":"Inactive"}</span></td><td><div className="row"><button className="btn btnSecondary" onClick={()=>openStaffEdit(s)}>Edit profile</button><button className="btn btnSecondary" onClick={()=>selectCoach(s)}>Timesheet</button></div></td></tr>)}</tbody></table></div></div>
     </>
   }
 
@@ -1755,101 +1133,19 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     return <>{isGlobalAdmin&&<><PageHead title="Portal settings" sub="Workspace settings for AV Gymnastics."/><div className="card" style={{maxWidth:780}}>
       <div className="formSection"><div className="formSectionTitle"><h3>Organisation</h3><p>Shown on generated invoices.</p></div><div className="field"><label>Business name</label><input value={business.business_name} onChange={e=>setBusiness({...business,business_name:e.target.value})}/></div><div className="field"><label>Business address</label><textarea value={business.business_address||""} onChange={e=>setBusiness({...business,business_address:e.target.value})}/></div></div>
       <div className="formSection"><div className="formSectionTitle"><h3>Timesheets & payment</h3><p>Submission is due on this day of the following month.</p></div><div className="grid grid2"><div className="field"><label>Cut-off day</label><select value={business.cutoff_day} onChange={e=>setBusiness({...business,cutoff_day:Number(e.target.value)})}>{Array.from({length:7},(_,i)=>i+1).map(d=><option value={d} key={d}>{d}{d===1?"st":d===2?"nd":d===3?"rd":"th"} of following month</option>)}</select></div><div className="field"><label>Payment note</label><input value={business.payment_note||""} onChange={e=>setBusiness({...business,payment_note:e.target.value})}/></div></div><button className="btn btnPrimary" onClick={saveBusiness} disabled={saving}>{saving?"Saving…":"Save settings"}</button></div>
-    </div></>}
-    <div className="section"><PageHead title="Organisation invoice settings" sub="Each organisation gets its own legal name and invoice address. A coach working at both gets separate invoices automatically."/><div className="grid grid2">{editableOrgs.map(v=>{const d=venueDrafts[v.id]||v;return <div className="card" key={v.id}><div className="formSection"><div className="formSectionTitle"><h3>{v.name}</h3><p>Used only for shifts/invoices belonging to this organisation.</p></div><div className="field"><label>Legal / invoice name</label><input value={d.legal_name||""} onChange={e=>setVenueDrafts({...venueDrafts,[v.id]:{...d,legal_name:e.target.value}})}/></div><div className="field"><label>Invoice address</label><textarea value={d.invoice_address||""} onChange={e=>setVenueDrafts({...venueDrafts,[v.id]:{...d,invoice_address:e.target.value}})}/></div><div className="grid grid2"><div className="field"><label>Invoice prefix</label><input value={d.invoice_prefix||""} onChange={e=>setVenueDrafts({...venueDrafts,[v.id]:{...d,invoice_prefix:e.target.value.toUpperCase()}})}/></div><div className="field"><label>Payment note</label><input value={d.payment_note||""} onChange={e=>setVenueDrafts({...venueDrafts,[v.id]:{...d,payment_note:e.target.value}})}/></div></div><button className="btn btnPrimary" onClick={()=>saveOrganisation(d)}>Save {v.name}</button></div></div>})}</div></div></>
+    </div></>}<div className="section"><PageHead title="Organisation invoice settings" sub="Each organisation gets its own legal name and invoice address. A coach working at both gets separate invoices automatically."/><div className="grid grid2">{editableOrgs.map(v=>{const d=venueDrafts[v.id]||v;return <div className="card" key={v.id}><div className="formSection"><div className="formSectionTitle"><h3>{v.name}</h3><p>Used only for shifts/invoices belonging to this organisation.</p></div><div className="field"><label>Legal / invoice name</label><input value={d.legal_name||""} onChange={e=>setVenueDrafts({...venueDrafts,[v.id]:{...d,legal_name:e.target.value}})}/></div><div className="field"><label>Invoice address</label><textarea value={d.invoice_address||""} onChange={e=>setVenueDrafts({...venueDrafts,[v.id]:{...d,invoice_address:e.target.value}})}/></div><div className="grid grid2"><div className="field"><label>Invoice prefix</label><input value={d.invoice_prefix||""} onChange={e=>setVenueDrafts({...venueDrafts,[v.id]:{...d,invoice_prefix:e.target.value.toUpperCase()}})}/></div><div className="field"><label>Payment note</label><input value={d.payment_note||""} onChange={e=>setVenueDrafts({...venueDrafts,[v.id]:{...d,payment_note:e.target.value}})}/></div></div><button className="btn btnPrimary" onClick={()=>saveOrganisation(d)}>Save {v.name}</button></div></div>})}</div></div></>
   }
 
   function ProfileView(){
     const p=ownProfile,fields=[p.full_name,p.email,p.phone,p.address,p.account_name,p.sort_code,p.account_number,p.invoice_prefix,p.emergency_contact_name,p.emergency_contact_phone],complete=Math.round(fields.filter(Boolean).length/fields.length*100);
-    return <><PageHead title="My profile" sub="Personal, payment and security information."/><div className="card profileHero"><div className="profileAvatar">{initials(p.full_name)}</div><div><div className="profileName">{p.full_name}</div><div className="profileMeta">@{p.username||"username"} · {p.job_title||p.role}</div></div><div className="completion"><strong>{complete}% complete</strong><div className="progress"><span style={{width:`${complete}%`}}/></div></div></div>
-      <div className="grid grid2 section">
-        <div className="card"><div className="formSection"><div className="formSectionTitle"><h3>Personal details</h3></div><div className="field"><label>Name / trading name</label><input value={p.full_name} onChange={e=>setOwnProfile({...p,full_name:e.target.value})}/></div><div className="field"><label>Recovery email <span className="muted">(optional)</span></label><input type="email" value={p.email||p.contact_email||""} onChange={e=>setOwnProfile({...p,email:e.target.value,contact_email:e.target.value})}/><div className="fieldHint">Used for password recovery only. Your username stays the same.</div></div><div className="field"><label>Mobile</label><input value={p.phone||""} onChange={e=>setOwnProfile({...p,phone:e.target.value})}/></div><div className="field"><label>Address</label><textarea value={p.address||""} onChange={e=>setOwnProfile({...p,address:e.target.value})}/></div><div className="grid grid2"><div className="field"><label>Emergency contact</label><input value={p.emergency_contact_name||""} onChange={e=>setOwnProfile({...p,emergency_contact_name:e.target.value})}/></div><div className="field"><label>Emergency phone</label><input value={p.emergency_contact_phone||""} onChange={e=>setOwnProfile({...p,emergency_contact_phone:e.target.value})}/></div></div></div></div>
-        <div className="card v32SecurityCard"><div className="formSection"><div className="formSectionTitle"><h3>Security</h3><p>Change the password you use to access AV Gymnastics.</p></div>{p.force_password_reset&&<div className="notice">An administrator has requested that you change your password.</div>}<div className="field"><label>New password</label><input type="password" autoComplete="new-password" value={newPassword} onChange={e=>setNewPassword(e.target.value)} placeholder="Minimum 8 characters"/></div><div className="field"><label>Confirm new password</label><input type="password" autoComplete="new-password" value={confirmNewPassword} onChange={e=>setConfirmNewPassword(e.target.value)}/></div><button className="btn btnPrimary" onClick={changeOwnPassword} disabled={passwordBusy}>{passwordBusy?"Updating…":"Change password"}</button><div className="v32SecurityMeta"><span>Last sign in</span><strong>{p.last_login_at?new Date(p.last_login_at).toLocaleString("en-GB"):"Not recorded yet"}</strong></div></div></div>
-        <div className="card"><div className="formSection"><div className="formSectionTitle"><h3>Payment details</h3><p>Used on self-employed invoices.</p></div><div className="field"><label>Account name</label><input value={p.account_name||""} onChange={e=>setOwnProfile({...p,account_name:e.target.value})}/></div><div className="grid grid2"><div className="field"><label>Sort code</label><input value={p.sort_code||""} onChange={e=>setOwnProfile({...p,sort_code:e.target.value})}/></div><div className="field"><label>Account number</label><input value={p.account_number||""} onChange={e=>setOwnProfile({...p,account_number:e.target.value})}/></div></div><div className="grid grid2"><div className="field"><label>UTR</label><input value={p.utr||""} onChange={e=>setOwnProfile({...p,utr:e.target.value})}/></div><div className="field"><label>Invoice prefix</label><input value={p.invoice_prefix||""} onChange={e=>setOwnProfile({...p,invoice_prefix:e.target.value.toUpperCase()})}/></div></div></div></div>
-        <div className="card"><div className="formSection"><div className="formSectionTitle"><h3>Compliance</h3></div><div className="grid grid2"><div className="field"><label>DBS expiry</label><input type="date" value={p.dbs_expiry||""} onChange={e=>setOwnProfile({...p,dbs_expiry:e.target.value})}/></div><div className="field"><label>First Aid expiry</label><input type="date" value={p.first_aid_expiry||""} onChange={e=>setOwnProfile({...p,first_aid_expiry:e.target.value})}/></div></div><div className="field"><label>Safeguarding expiry</label><input type="date" value={p.safeguarding_expiry||""} onChange={e=>setOwnProfile({...p,safeguarding_expiry:e.target.value})}/></div><div className="field"><label>Qualifications</label><textarea placeholder="e.g. Level 2 Trampoline, DMT Module..." value={p.qualifications||""} onChange={e=>setOwnProfile({...p,qualifications:e.target.value})}/></div></div></div>
-      </div>
+    return <><PageHead title="My profile" sub="Personal, payment, emergency and compliance information."/><div className="card profileHero"><div className="profileAvatar">{initials(p.full_name)}</div><div><div className="profileName">{p.full_name}</div><div className="profileMeta">{p.email} · {p.role}</div></div><div className="completion"><strong>{complete}% complete</strong><div className="progress"><span style={{width:`${complete}%`}}/></div></div></div>
+      <div className="grid grid2 section"><div className="card"><div className="formSection"><div className="formSectionTitle"><h3>Personal details</h3></div><div className="field"><label>Name / trading name</label><input value={p.full_name} onChange={e=>setOwnProfile({...p,full_name:e.target.value})}/></div><div className="field"><label>Email</label><input value={p.email||""} disabled/></div><div className="field"><label>Mobile</label><input value={p.phone||""} onChange={e=>setOwnProfile({...p,phone:e.target.value})}/></div><div className="field"><label>Address</label><textarea value={p.address||""} onChange={e=>setOwnProfile({...p,address:e.target.value})}/></div><div className="grid grid2"><div className="field"><label>Emergency contact</label><input value={p.emergency_contact_name||""} onChange={e=>setOwnProfile({...p,emergency_contact_name:e.target.value})}/></div><div className="field"><label>Emergency phone</label><input value={p.emergency_contact_phone||""} onChange={e=>setOwnProfile({...p,emergency_contact_phone:e.target.value})}/></div></div></div></div>
+      <div className="card"><div className="formSection"><div className="formSectionTitle"><h3>Payment details</h3><p>Used on self-employed invoices.</p></div><div className="field"><label>Account name</label><input value={p.account_name||""} onChange={e=>setOwnProfile({...p,account_name:e.target.value})}/></div><div className="grid grid2"><div className="field"><label>Sort code</label><input value={p.sort_code||""} onChange={e=>setOwnProfile({...p,sort_code:e.target.value})}/></div><div className="field"><label>Account number</label><input value={p.account_number||""} onChange={e=>setOwnProfile({...p,account_number:e.target.value})}/></div></div><div className="grid grid2"><div className="field"><label>UTR</label><input value={p.utr||""} onChange={e=>setOwnProfile({...p,utr:e.target.value})}/></div><div className="field"><label>Invoice prefix</label><input value={p.invoice_prefix||""} onChange={e=>setOwnProfile({...p,invoice_prefix:e.target.value.toUpperCase()})}/></div></div></div></div>
+      <div className="card"><div className="formSection"><div className="formSectionTitle"><h3>Where I work</h3><p>{initialProfile.role==="coach"?"Select every venue/organisation you coach for.":"Your organisation access is controlled by the Super Admin."}</p></div><div className="checkGrid">{venues.map(v=><label className="checkCard" key={v.id}><input type="checkbox" checked={ownVenueIds.includes(v.id)} disabled={initialProfile.role!=="coach"} onChange={e=>setOwnVenueIds(e.target.checked?[...ownVenueIds,v.id]:ownVenueIds.filter(x=>x!==v.id))}/><span><strong>{v.name}</strong><small>{initialProfile.role==="coach"?"Available for shift entry":managedVenueIds.includes(v.id)?"Admin access":"Staff access"}</small></span></label>)}</div></div></div>
+      <div className="card"><div className="formSection"><div className="formSectionTitle"><h3>Compliance</h3></div><div className="grid grid2"><div className="field"><label>DBS expiry</label><input type="date" value={p.dbs_expiry||""} onChange={e=>setOwnProfile({...p,dbs_expiry:e.target.value})}/></div><div className="field"><label>First Aid expiry</label><input type="date" value={p.first_aid_expiry||""} onChange={e=>setOwnProfile({...p,first_aid_expiry:e.target.value})}/></div></div><div className="field"><label>Safeguarding expiry</label><input type="date" value={p.safeguarding_expiry||""} onChange={e=>setOwnProfile({...p,safeguarding_expiry:e.target.value})}/></div><div className="field"><label>Qualifications</label><textarea placeholder="e.g. Level 2 Trampoline, DMT Module..." value={p.qualifications||""} onChange={e=>setOwnProfile({...p,qualifications:e.target.value})}/></div></div></div>
+      <div className="card"><div className="formSection"><div className="formSectionTitle"><h3>Rate</h3><p>Your agreed hourly rate is controlled by admin.</p></div><div className="statValue">{money(p.hourly_rate)}</div></div></div></div>
       <div className="section"><button className="btn btnPrimary" onClick={saveOwnProfile} disabled={saving}>{saving?"Saving…":"Save profile"}</button></div>
     </>
-  }
-
-  function AdminScheduleShiftModal(){
-    const s=adminScheduleShift!;
-    const allowed=staffOptionsForVenue(s.venue_id);
-    const now=new Date();
-    const todayKey=localDateKey(now);
-    const monday=new Date(now.getFullYear(),now.getMonth(),now.getDate()-((now.getDay()+6)%7),12);
-    const sunday=new Date(monday);sunday.setDate(monday.getDate()+6);
-    const weekStart=localDateKey(monday),weekEnd=localDateKey(sunday);
-    const assignedHours=(profileId:string,from:string,to:string)=>scheduledShifts.filter(item=>item.profile_id===profileId&&item.status!=="cancelled"&&item.shift_date>=from&&item.shift_date<=to).reduce((total,item)=>total+scheduleHours(item),0);
-    const coachChoices=allowed.map(p=>{
-      const state=coachAssignmentState(p.id,s);
-      const conflict=state.state==="working"?scheduledOverlapsForCoach(p.id,s)[0]:null;
-      return{p,state,conflict,todayHours:assignedHours(p.id,todayKey,todayKey),weekHours:assignedHours(p.id,weekStart,weekEnd)};
-    });
-    const query=coachAssignmentSearch.trim().toLowerCase();
-    const visibleChoices=coachChoices.filter(item=>!query||`${item.p.full_name} ${item.state.label} ${item.conflict?.class_name||""} ${item.conflict?venueName(item.conflict.venue_id):venueName(s.venue_id)}`.toLowerCase().includes(query));
-    const groups=([
-      {key:"available",label:"🟢 Available",items:visibleChoices.filter(item=>item.state.state==="available")},
-      {key:"working",label:"⚫ Already Coaching",items:visibleChoices.filter(item=>item.state.state==="working")},
-      {key:"pending",label:"🟠 Pending Time Away",items:visibleChoices.filter(item=>item.state.state==="pending")},
-      {key:"away",label:"🔴 Unavailable",items:visibleChoices.filter(item=>item.state.state==="away")}
-    ] as const);
-    const assignCoach=async(profileId:string)=>{
-      const changed=await reassignScheduledWithAvailability(s,profileId);
-      if(!changed)return;
-      if(tab==="dashboard"){
-        setAdminScheduleShift(null);
-        await Promise.all([loadSchedule(),loadFutureUnstaffedShifts()]);
-      }else setAdminScheduleShift({...s,profile_id:profileId});
-    };
-    return <div className="modalBackdrop"><div className="modal v311AdminShiftModal v405ScheduleControlModal">
-      <div className={`v311AdminShiftHero ${venueColourClass(s.venue_id)}`}>
-        <div><span>Schedule control</span><h2>{s.class_name}</h2><p>{new Date(`${s.shift_date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})} · {s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</p></div>
-        <button className="iconButton" onClick={()=>setAdminScheduleShift(null)}>×</button>
-      </div>
-      <div className="modalBody v405ScheduleControlBody">
-        <div className="v311ShiftSummary"><div><span>Organisation</span><strong>{venueName(s.venue_id)}</strong></div><div><span>Planned hours</span><strong>{scheduleHours(s).toFixed(2)}h</strong></div><div><span>Status</span><strong className={`scheduleStatus ${s.status}`}>{s.adjustment_status==="pending"?"Approval pending":s.status}</strong></div></div>
-        <div className="field"><label>Assigned coach</label><div className="v400AssignmentPanel v420AssignmentPanel">
-          <div className="v420CoachSearch"><span aria-hidden="true">⌕</span><input type="search" value={coachAssignmentSearch} onChange={e=>setCoachAssignmentSearch(e.target.value)} placeholder="Search coaches..." aria-label="Search coaches"/></div>
-          {groups.map(group=>{if(!group.items.length)return null;return <div className={`v400AssignGroup v420AssignGroup ${group.key}`} key={group.key}><span>{group.label} <b>{group.items.length}</b></span><div>{group.items.map(({p,state,conflict,todayHours,weekHours})=><article className={`v420CoachCard ${s.profile_id===p.id?"selected":""}`} key={p.id}>
-            <div className="v420CoachCardHead"><div><strong>{p.full_name}</strong><small>{state.label}</small></div><button type="button" disabled={s.status==="cancelled"||s.status==="confirmed"} onClick={()=>assignCoach(p.id)}>Assign →</button></div>
-            <div className="v420CoachHours"><span><small>Today</small><b>{todayHours.toFixed(2)}h</b></span><span><small>This week</small><b>{weekHours.toFixed(2)}h</b></span></div>
-            {conflict?<div className="v420CoachContext"><span>Currently coaching</span><strong>{conflict.class_name}</strong><small>{conflict.start_time.slice(0,5)}–{conflict.finish_time.slice(0,5)} · {venueName(conflict.venue_id)}</small></div>:<div className="v420CoachContext"><span>Assignment</span><strong>{s.class_name}</strong><small>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)} · {venueName(s.venue_id)}</small></div>}
-          </article>)}</div></div>})}
-          {!groups.some(group=>group.items.length)&&<div className="v420NoCoaches">No coaches match “{coachAssignmentSearch}”.</div>}
-          <button type="button" className="v400Unassign" disabled={!s.profile_id||s.status==="cancelled"||s.status==="confirmed"} onClick={async()=>{await reassignScheduledWithAvailability(s,"");setAdminScheduleShift({...s,profile_id:null})}}>Set unassigned</button>
-        </div></div>
-        <div className="v311RemoveOccurrence">
-          <strong>Remove from this date</strong>
-          <p>Completely removes this class occurrence from this day only. It will not change the Master Timetable, previous months or future months.</p>
-          <button className="btn btnDanger" disabled={s.status==="confirmed"} onClick={()=>removeScheduledOccurrence(s)}>Remove this occurrence</button>
-          {s.status==="confirmed"&&<small>Unconfirm the shift before removing it.</small>}
-        </div>
-      </div>
-      <div className="modalFoot v405ScheduleControlFoot"><div className="v311AdminActions">
-        {s.adjustment_status==="pending"&&<button className="btn btnAccent" onClick={async()=>{await approveRotaAdjustment(s);setAdminScheduleShift(null)}}>Approve extra time</button>}
-        {s.status==="scheduled"&&s.profile_id&&<button className="btn btnPrimary" onClick={async()=>{await confirmScheduled(s);setAdminScheduleShift(null)}}>Confirm worked</button>}
-        {s.status==="confirmed"&&<button className="btn btnSecondary" onClick={async()=>{await unconfirmScheduled(s);setAdminScheduleShift(null)}}>Unconfirm</button>}
-        {s.status!=="confirmed"&&<button className={`btn ${s.status==="cancelled"?"btnSecondary":"btnDanger"}`} onClick={()=>toggleScheduledCancelled(s)}>{s.status==="cancelled"?"Restore session":"Cancel session"}</button>}
-        {s.status!=="confirmed"&&<button className="btn btnSecondary" onClick={()=>{setAdminScheduleShift(null);openAdjustment(s)}}>Edit actual time</button>}
-      </div></div>
-    </div></div>
-  }
-
-  function ConfirmShiftModal(){
-    const s=confirmShift!;
-    return <div className="modalBackdrop"><div className="modal v31ConfirmModal">
-      <div className="v31ConfirmHero"><div className="v31ConfirmIcon"><CheckIcon/></div><span>Confirm session</span><h2>{s.class_name}</h2><p>{venueName(s.venue_id)}</p></div>
-      <div className="modalBody v31ConfirmBody">
-        <div className="v31ConfirmFacts">
-          <div><span>Planned time</span><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</strong></div>
-          <div><span>Hours</span><strong>{scheduleHours(s).toFixed(2)}h</strong></div>
-          <div><span>Date</span><strong>{new Date(`${s.shift_date}T12:00:00`).toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</strong></div>
-        </div>
-        <div className="v31ConfirmPrompt"><strong>Did you work this session as planned?</strong><span>If the time changed, adjust it before confirming.</span></div>
-      </div>
-      <div className="modalFoot v31ConfirmFoot"><button className="btn btnSecondary" onClick={()=>setConfirmShift(null)}>Not yet</button><button className="btn btnSecondary" onClick={()=>{setConfirmShift(null);openAdjustment(s)}}>Adjust time</button><button className="btn btnPrimary" onClick={async()=>{setConfirmShift(null);await confirmScheduled(s)}}>Confirm shift</button></div>
-    </div></div>
   }
 
   function AdjustmentModal(){
@@ -1938,33 +1234,22 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   }
 
   function InviteModal(){
-    return <div className="modalBackdrop"><form className="modal v323CreateAccount" onSubmit={sendInvite}><div className="modalHead"><div><h2>Create staff account</h2><p className="muted" style={{margin:"4px 0 0",fontSize:11}}>Create their login now. Email can be added later.</p></div><button type="button" className="iconButton" onClick={()=>setInviteOpen(false)}>×</button></div><div className="modalBody">
-      <div className="field"><label>Full name</label><input value={invite.name} onChange={e=>setInvite({...invite,name:e.target.value})} required/></div>
-      <div className="field"><label>Username</label><div className="v323UsernameInput"><span>@</span><input autoCapitalize="none" autoCorrect="off" value={invite.username} onChange={e=>setInvite({...invite,username:e.target.value.toLowerCase().replace(/\s+/g,"")})} placeholder="e.g. gabby" required/></div><div className="fieldHint">3–32 characters. Letters, numbers, dots, dashes and underscores.</div></div>
-      <div className="field"><div className="v323FieldAction"><label>Initial password</label><button className="v3TextButton" type="button" onClick={generateInvitePassword}>Generate password</button></div><input type="text" autoComplete="off" value={invite.password} onChange={e=>setInvite({...invite,password:e.target.value})} placeholder="Minimum 8 characters" required/><div className="fieldHint">They will be asked to choose their own password after first login.</div></div>
-      <div className="field"><label>Recovery email <span className="muted">(optional)</span></label><input type="email" value={invite.email} onChange={e=>setInvite({...invite,email:e.target.value})} placeholder="Can be added later"/><div className="fieldHint">Only used for password recovery and contact. It is not their username.</div></div>
-      <div className="grid grid2"><div className="field"><label>Account type</label><select value={inviteRole} onChange={e=>setInviteRole(e.target.value as any)} disabled={!isGlobalAdmin}><option value="coach">Coach</option>{isGlobalAdmin&&<option value="org_admin">Organisation admin</option>}</select></div><div className="field"><label>Hourly rate</label><input type="number" min={0} step="0.01" value={invite.rate} onChange={e=>setInvite({...invite,rate:e.target.value})} required/></div></div>
-      <div className="field"><label>Works at</label><div className="checkGrid">{adminVenues().map(v=><label className="checkCard" key={v.id}><input type="checkbox" checked={inviteVenueIds.includes(v.id)} onChange={e=>setInviteVenueIds(e.target.checked?[...inviteVenueIds,v.id]:inviteVenueIds.filter(x=>x!==v.id))}/><span><strong>{v.name}</strong></span></label>)}</div></div>
-    </div><div className="modalFoot"><span/><button className="btn btnPrimary" disabled={saving||!invite.name.trim()||!invite.username.trim()||invite.password.length<8}>{saving?"Creating…":"Create account"}</button></div></form></div>
+    return <div className="modalBackdrop"><form className="modal" onSubmit={sendInvite}><div className="modalHead"><h2>Add staff member</h2><button type="button" className="iconButton" onClick={()=>setInviteOpen(false)}>×</button></div><div className="modalBody"><div className="field"><label>Full name</label><input value={invite.name} onChange={e=>setInvite({...invite,name:e.target.value})} required/></div><div className="field"><label>Email <span className="muted">(optional)</span></label><input type="email" value={invite.email} onChange={e=>setInvite({...invite,email:e.target.value})} placeholder="Leave blank to add them without portal access"/><div className="fieldHint">You can add their email and invite them later. They can still be scheduled and included in payroll now.</div></div><div className="field"><label>Account type</label><select value={inviteRole} onChange={e=>setInviteRole(e.target.value as any)} disabled={!isGlobalAdmin}><option value="coach">Coach</option>{isGlobalAdmin&&<option value="org_admin">Organisation admin</option>}</select></div><div className="field"><label>Hourly rate</label><input type="number" min={0} step="0.01" value={invite.rate} onChange={e=>setInvite({...invite,rate:e.target.value})} required/></div><div className="field"><label>Works at</label><div className="checkGrid">{adminVenues().map(v=><label className="checkCard" key={v.id}><input type="checkbox" checked={inviteVenueIds.includes(v.id)} onChange={e=>setInviteVenueIds(e.target.checked?[...inviteVenueIds,v.id]:inviteVenueIds.filter(x=>x!==v.id))}/><span><strong>{v.name}</strong></span></label>)}</div></div></div><div className="modalFoot"><span/><button className="btn btnPrimary" disabled={saving}>{saving?"Saving…":invite.email.trim()?"Add & send invitation":"Add staff without login"}</button></div></form></div>
   }
 
   function StaffModal(){
     const s=staffEdit!;
-    const roleLabel=s.role==="admin"?"Super admin":s.role==="org_admin"?"Organisation admin":"Coach";
-    const hasPortal=Boolean(s.username);
-    return <div className="modalBackdrop"><div className="modal modalWide v32StaffModal v322StaffModalShell">
-      <div className="v32StaffHero"><div className="v32StaffHeroIdentity"><div className="v32StaffHeroAvatar">{initials(s.full_name)}</div><div><span>{s.job_title||roleLabel}</span><h2>{s.full_name}</h2><p>@{s.username||"username"}{(s.email||s.contact_email)?` · ${s.email||s.contact_email}`:""}</p></div></div><button className="iconButton" onClick={()=>setStaffEdit(null)}>×</button></div>
-      <div className="v32ProfileTabs"><button className={staffPanel==="profile"?"active":""} onClick={()=>setStaffPanel("profile")}>Profile</button><button className={staffPanel==="employment"?"active":""} onClick={()=>setStaffPanel("employment")}>Employment</button><button className={staffPanel==="security"?"active":""} onClick={()=>setStaffPanel("security")}>Security</button><button className={staffPanel==="notes"?"active":""} onClick={()=>setStaffPanel("notes")}>Notes</button></div>
-      <div className="modalBody v32StaffBody v322StaffModalBody">
-        {staffPanel==="profile"&&<><div className="grid grid2"><div className="field"><label>Name</label><input value={s.full_name} onChange={e=>setStaffEdit({...s,full_name:e.target.value})}/></div><div className="field"><label>Username</label><div className="v323UsernameInput"><span>@</span><input value={s.username||""} autoCapitalize="none" onChange={e=>setStaffEdit({...s,username:e.target.value.toLowerCase().replace(/\s+/g,"")})}/></div></div></div><div className="grid grid2"><div className="field"><label>Recovery email <span className="muted">(optional)</span></label><input type="email" value={s.email||s.contact_email||""} onChange={e=>setStaffEdit({...s,email:e.target.value,contact_email:e.target.value})}/></div><div className="field"><label>Phone</label><input value={s.phone||""} onChange={e=>setStaffEdit({...s,phone:e.target.value})}/></div></div><div className="field"><label>Address</label><textarea value={s.address||""} onChange={e=>setStaffEdit({...s,address:e.target.value})}/></div><div className="grid grid2"><div className="field"><label>Emergency contact</label><input value={s.emergency_contact_name||""} onChange={e=>setStaffEdit({...s,emergency_contact_name:e.target.value})}/></div><div className="field"><label>Emergency phone</label><input value={s.emergency_contact_phone||""} onChange={e=>setStaffEdit({...s,emergency_contact_phone:e.target.value})}/></div></div><div className="grid grid3"><div className="field"><label>DBS expiry</label><input type="date" value={s.dbs_expiry||""} onChange={e=>setStaffEdit({...s,dbs_expiry:e.target.value})}/></div><div className="field"><label>First Aid</label><input type="date" value={s.first_aid_expiry||""} onChange={e=>setStaffEdit({...s,first_aid_expiry:e.target.value})}/></div><div className="field"><label>Safeguarding</label><input type="date" value={s.safeguarding_expiry||""} onChange={e=>setStaffEdit({...s,safeguarding_expiry:e.target.value})}/></div></div></>}
-        {staffPanel==="employment"&&<><div className="grid grid2"><div className="field"><label>Job title</label><input value={s.job_title||""} onChange={e=>setStaffEdit({...s,job_title:e.target.value})} placeholder="e.g. Head Coach"/></div><div className="field"><label>Employment status</label><select value={s.employment_status||"active"} onChange={e=>setStaffEdit({...s,employment_status:e.target.value})}><option value="active">Active</option><option value="casual">Casual</option><option value="contractor">Contractor</option><option value="leaver">Leaver</option></select></div></div><div className="grid grid2"><div className="field"><label>Start date</label><input type="date" value={s.start_date||""} onChange={e=>setStaffEdit({...s,start_date:e.target.value})}/></div><div className="field"><label>Payroll ID</label><input value={s.payroll_id||""} onChange={e=>setStaffEdit({...s,payroll_id:e.target.value})}/></div></div><div className="grid grid2"><div className="field"><label>Hourly rate</label><input type="number" step="0.01" value={s.hourly_rate} onChange={e=>setStaffEdit({...s,hourly_rate:Number(e.target.value)})}/></div>{isGlobalAdmin&&<div className="field"><label>Account type</label><select value={s.role} onChange={e=>setStaffEdit({...s,role:e.target.value as any})}><option value="coach">Coach</option><option value="org_admin">Organisation admin</option><option value="admin">Super admin</option></select></div>}</div><div className="field"><label>Works at</label><div className="checkGrid">{adminVenues().map(v=><label className="checkCard" key={v.id}><input type="checkbox" checked={staffEditVenueIds.includes(v.id)} onChange={e=>{const ids=e.target.checked?[...staffEditVenueIds,v.id]:staffEditVenueIds.filter(x=>x!==v.id);setStaffEditVenueIds(ids);if(!ids.includes(v.id))setStaffEditAdminVenueIds(staffEditAdminVenueIds.filter(x=>x!==v.id))}}/><span><strong>{v.name}</strong>{s.role==="org_admin"&&isGlobalAdmin&&<small><input type="checkbox" checked={staffEditAdminVenueIds.includes(v.id)} onChange={e=>setStaffEditAdminVenueIds(e.target.checked?[...new Set([...staffEditAdminVenueIds,v.id])]:staffEditAdminVenueIds.filter(x=>x!==v.id))}/> Admin for this organisation</small>}</span></label>)}</div></div><div className="grid grid2"><div className="field"><label>Account name</label><input value={s.account_name||""} onChange={e=>setStaffEdit({...s,account_name:e.target.value})}/></div><div className="field"><label>UTR</label><input value={s.utr||""} onChange={e=>setStaffEdit({...s,utr:e.target.value})}/></div></div></>}
-        {staffPanel==="security"&&<><div className="v32SecurityOverview"><div><span>Username</span><strong>@{s.username||"Not set"}</strong></div><div><span>Account status</span><strong>{s.is_active?"Active":"Inactive"}</strong></div><div><span>Last sign in</span><strong>{s.last_login_at?new Date(s.last_login_at).toLocaleString("en-GB"):"Never"}</strong></div></div>
-        {hasPortal?<><div className="v321Credentials"><div className="v321CredentialsHead"><div><span>Credentials</span><strong>Set a temporary password</strong><p>Useful when onboarding a coach in person. They can still change their password themselves at any time.</p></div><button className="btn btnSecondary" type="button" onClick={generateTemporaryPassword}>Generate</button></div><div className="grid grid2"><div className="field"><label>Temporary password</label><input type="text" autoComplete="off" value={temporaryPassword} onChange={e=>setTemporaryPassword(e.target.value)} placeholder="Minimum 8 characters"/></div><div className="field"><label>Confirm password</label><input type="text" autoComplete="off" value={temporaryPasswordConfirm} onChange={e=>setTemporaryPasswordConfirm(e.target.value)}/></div></div><label className="v321ForceCheck"><input type="checkbox" checked={forceTempPasswordChange} onChange={e=>setForceTempPasswordChange(e.target.checked)}/><span><strong>Require password change after login</strong><small>Recommended for temporary passwords.</small></span></label><div className="v321CredentialButtons"><button className="btn btnSecondary" type="button" disabled={!temporaryPassword} onClick={copyTemporaryPassword}>Copy password</button><button className="btn btnPrimary" type="button" disabled={temporaryPasswordBusy} onClick={()=>setStaffTemporaryPassword(s)}>{temporaryPasswordBusy?"Setting…":"Set password"}</button></div></div>
-        <div className="v321SecurityDivider"><span>Other access options</span></div><div className="v32SecurityActions"><button className="btn btnSecondary" disabled={securityActionBusy||(!s.email&&!s.contact_email)} onClick={()=>sendPasswordResetEmail(s)}>{securityActionBusy?"Working…":"Send password reset email"}</button><button className="btn btnSecondary" onClick={()=>toggleForcePasswordReset(s)}>{s.force_password_reset?"Remove forced password change":"Require password change"}</button><button className={`btn ${s.is_active?"btnDanger":"btnAccent"}`} onClick={()=>setStaffEdit({...s,is_active:!s.is_active})}>{s.is_active?"Disable account":"Enable account"}</button></div>{securityActionMessage&&<div className={`v325SecurityMessage ${/sent|copied/i.test(securityActionMessage)?"success":/sending|creating/i.test(securityActionMessage)?"working":"error"}`}>{securityActionMessage}</div>}</>:<div className="v321NoPortal"><strong>This legacy staff profile needs a username.</strong><span>Add a username in the Profile tab, save it, then manage their password here.</span></div>}
-        <div className="v321PasswordMeta"><div><span>Password last changed</span><strong>{s.password_changed_at?new Date(s.password_changed_at).toLocaleString("en-GB"):"Not recorded"}</strong></div><div><span>Next login</span><strong>{s.force_password_reset?"Password change required":"Normal access"}</strong></div></div><div className="notice">Account status changes are applied when you press <strong>Save staff</strong>. Password and reset actions are applied immediately.</div></>}
-        {staffPanel==="notes"&&<><div className="field"><label>Private admin notes</label><textarea className="v32Notes" value={s.admin_notes||""} onChange={e=>setStaffEdit({...s,admin_notes:e.target.value})} placeholder="Notes visible to administrators only."/></div><div className="notice">Documents and qualification uploads will build on this profile in v3.5.</div></>}
-      </div>
-      <div className="modalFoot staffModalFoot v322StaffModalFoot"><div className="row"><button className="btn btnDanger" onClick={()=>deleteStaffAccount(s)}>Delete account</button></div><div className="row"><button className="btn btnSecondary" onClick={()=>setStaffEdit(null)}>Cancel</button><button className="btn btnPrimary" onClick={saveStaff} disabled={saving}>{saving?"Saving…":"Save staff"}</button></div></div>
-    </div></div>
+    return <div className="modalBackdrop"><div className="modal modalWide"><div className="modalHead"><h2>Edit {s.full_name}</h2><button className="iconButton" onClick={()=>setStaffEdit(null)}>×</button></div><div className="modalBody">
+      <div className="grid grid2"><div className="field"><label>Name</label><input value={s.full_name} onChange={e=>setStaffEdit({...s,full_name:e.target.value})}/></div><div className="field"><label>Hourly rate</label><input type="number" step="0.01" value={s.hourly_rate} onChange={e=>setStaffEdit({...s,hourly_rate:Number(e.target.value)})}/></div></div>
+      {isGlobalAdmin&&<div className="field"><label>Account type</label><select value={s.role} onChange={e=>setStaffEdit({...s,role:e.target.value as any})}><option value="coach">Coach</option><option value="org_admin">Organisation admin</option><option value="admin">Super admin</option></select></div>}
+      <div className="grid grid2"><div className="field"><label>Phone</label><input value={s.phone||""} onChange={e=>setStaffEdit({...s,phone:e.target.value})}/></div><div className="field"><label>Status</label><select value={s.is_active?"active":"inactive"} onChange={e=>setStaffEdit({...s,is_active:e.target.value==="active"})}><option value="active">Active</option><option value="inactive">Inactive</option></select></div></div>
+      <div className="field"><label>Works at</label><div className="checkGrid">{adminVenues().map(v=><label className="checkCard" key={v.id}><input type="checkbox" checked={staffEditVenueIds.includes(v.id)} onChange={e=>{const ids=e.target.checked?[...staffEditVenueIds,v.id]:staffEditVenueIds.filter(x=>x!==v.id);setStaffEditVenueIds(ids);if(!ids.includes(v.id))setStaffEditAdminVenueIds(staffEditAdminVenueIds.filter(x=>x!==v.id))}}/><span><strong>{v.name}</strong>{s.role==="org_admin"&&isGlobalAdmin&&<small><input type="checkbox" checked={staffEditAdminVenueIds.includes(v.id)} onChange={e=>setStaffEditAdminVenueIds(e.target.checked?[...new Set([...staffEditAdminVenueIds,v.id])]:staffEditAdminVenueIds.filter(x=>x!==v.id))}/> Admin for this organisation</small>}</span></label>)}</div></div>
+      <div className="field"><label>Address</label><textarea value={s.address||""} onChange={e=>setStaffEdit({...s,address:e.target.value})}/></div>
+      <div className="grid grid2"><div className="field"><label>Emergency contact</label><input value={s.emergency_contact_name||""} onChange={e=>setStaffEdit({...s,emergency_contact_name:e.target.value})}/></div><div className="field"><label>Emergency phone</label><input value={s.emergency_contact_phone||""} onChange={e=>setStaffEdit({...s,emergency_contact_phone:e.target.value})}/></div></div>
+      <div className="grid grid2"><div className="field"><label>Account name</label><input value={s.account_name||""} onChange={e=>setStaffEdit({...s,account_name:e.target.value})}/></div><div className="field"><label>UTR</label><input value={s.utr||""} onChange={e=>setStaffEdit({...s,utr:e.target.value})}/></div></div>
+      <div className="grid grid2"><div className="field"><label>Sort code</label><input value={s.sort_code||""} onChange={e=>setStaffEdit({...s,sort_code:e.target.value})}/></div><div className="field"><label>Account number</label><input value={s.account_number||""} onChange={e=>setStaffEdit({...s,account_number:e.target.value})}/></div></div>
+      <div className="grid grid3"><div className="field"><label>DBS expiry</label><input type="date" value={s.dbs_expiry||""} onChange={e=>setStaffEdit({...s,dbs_expiry:e.target.value})}/></div><div className="field"><label>First Aid</label><input type="date" value={s.first_aid_expiry||""} onChange={e=>setStaffEdit({...s,first_aid_expiry:e.target.value})}/></div><div className="field"><label>Safeguarding</label><input type="date" value={s.safeguarding_expiry||""} onChange={e=>setStaffEdit({...s,safeguarding_expiry:e.target.value})}/></div></div>
+      <div className="field"><label>Qualifications</label><textarea value={s.qualifications||""} onChange={e=>setStaffEdit({...s,qualifications:e.target.value})}/></div>
+    </div><div className="modalFoot staffModalFoot"><div className="row">{s.email?<button className="btn btnSecondary" onClick={()=>createSetupLink(s)}>Copy setup/reset link</button>:<button className="btn btnAccent" onClick={()=>inviteExistingStaff(s)}>Invite to portal</button>}<button className="btn btnDanger" onClick={()=>deleteStaffAccount(s)}>Delete account</button></div><div className="row"><button className="btn btnSecondary" onClick={()=>setStaffEdit(null)}>Cancel</button><button className="btn btnPrimary" onClick={saveStaff} disabled={saving}>{saving?"Saving…":"Save staff"}</button></div></div></div></div>
   }
 }
