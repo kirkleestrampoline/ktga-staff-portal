@@ -7,9 +7,9 @@ import MobileNav from "@/components/mobile-nav";
 import StatCard from "@/components/stat-card";
 import StatusPill from "@/components/status-pill";
 import AvLogo from "@/components/av-logo";
-import { CalendarIcon, ChartIcon, CheckIcon, ClockIcon, InvoiceIcon, MenuIcon, PlusIcon, PoundIcon, SearchIcon, UsersIcon } from "@/components/icons";
+import { CalendarIcon, ChartIcon, CheckIcon, ClockIcon, InvoiceIcon, MenuIcon, PlusIcon, PoundIcon, SearchIcon, UserIcon, UsersIcon } from "@/components/icons";
 
-type Tab="dashboard"|"schedule"|"leave"|"timesheets"|"invoices"|"staff"|"reports"|"settings"|"profile";
+type Tab="dashboard"|"availability"|"schedule"|"leave"|"timesheets"|"invoices"|"staff"|"reports"|"settings"|"profile";
 type Profile={
   id:string;full_name:string;email:string|null;phone:string|null;address:string|null;role:"coach"|"org_admin"|"admin";
   hourly_rate:number;account_name:string|null;sort_code:string|null;account_number:string|null;utr:string|null;
@@ -131,6 +131,9 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const [adminTimeAwayProfileId,setAdminTimeAwayProfileId]=useState("");
   const [adminTimeAwayStatus,setAdminTimeAwayStatus]=useState<"pending"|"approved">("approved");
   const [coachAssignmentSearch,setCoachAssignmentSearch]=useState("");
+  const [availabilityPeriod,setAvailabilityPeriod]=useState<"today"|"tomorrow"|"week">("today");
+  const [availabilitySearch,setAvailabilitySearch]=useState("");
+  const [availabilityVenue,setAvailabilityVenue]=useState("");
   const [loadingTab,setLoadingTab]=useState<Tab|null>(null);
   const loadedTabs=useRef<Set<Tab>>(new Set(isAdmin?["dashboard"]:[]));
 
@@ -859,10 +862,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   }
 
   async function loadFutureUnstaffedShifts(){
-    const cutoff=new Date();
-    cutoff.setHours(12,0,0,0);
-    cutoff.setDate(cutoff.getDate()+7);
-    const{data,error}=await supabase.from("scheduled_shifts").select("*").neq("status","cancelled").gt("shift_date",localDateKey(cutoff)).order("shift_date").order("start_time");
+    const{data,error}=await supabase.from("scheduled_shifts").select("*").neq("status","cancelled").gte("shift_date",localDateKey()).order("shift_date").order("start_time");
     if(error){console.error(error);return}
     setFutureScheduledShifts((data||[]) as ScheduledShift[]);
   }
@@ -1390,6 +1390,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       return null;
     }
     if(tab==="dashboard")return{eyebrow:"Overview",title:"Club Operations",sub:"Today’s staffing, schedule and payroll position at a glance."};
+    if(tab==="availability")return{eyebrow:"People",title:"Staff Availability",sub:"A live operational view of who is available to coach."};
     if(tab==="leave")return{eyebrow:"People",title:"Leave Management",sub:"Review staff leave and availability requests."};
     if(tab==="timesheets")return{eyebrow:"Payroll",title:"Timesheets",sub:"Review hours, submissions and monthly payroll status."};
     if(tab==="invoices")return{eyebrow:"Payroll",title:"Invoices",sub:"Generated invoices, payment status and history."};
@@ -1403,7 +1404,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   return <div className="portal">
     <Sidebar tab={tab} setTab={(t:any)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v4.2.1</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v4.3.1</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
         {tab!=="schedule"&&mobilePageMeta&&<div className="v303MobilePageHero">
           <span>{mobilePageMeta.eyebrow}</span>
@@ -1413,6 +1414,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
         {message&&<div className={`notice ${/(saved|sent|submitted|added|copied|reopened|created|paid)/i.test(message)?"success":""}`}>{message}</div>}
         {tab!=="dashboard"&&(loadingTab===tab||!loadedTabs.current.has(tab))?TabLoadingSkeleton():<>
           {tab==="dashboard"&&DashboardView()}
+          {tab==="availability"&&isAdmin&&StaffAvailabilityView()}
           {tab==="schedule"&&ScheduleView()}
           {tab==="leave"&&LeaveView()}
           {tab==="timesheets"&&TimesheetView()}
@@ -1694,6 +1696,51 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
 
       <div className="field"><label>Notes <span className="muted">(optional)</span></label><textarea value={timeAwayDraft.notes} onChange={e=>setTimeAwayDraft({...timeAwayDraft,notes:e.target.value})} placeholder="Anything the admin team should know?"/></div>
     </div><div className="modalFoot"><button className="btn btnSecondary" onClick={()=>setTimeAwayModal(undefined)}>Cancel</button><button className="btn btnPrimary" disabled={leaveSaving} onClick={saveTimeAway}>{leaveSaving?"Saving…":editing?"Save changes":"Submit request"}</button></div></div></div>
+  }
+
+  function StaffAvailabilityView(){
+    const now=new Date(),todayKey=localDateKey(now);
+    const updatedTime=now.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
+    const currentTime=`${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
+    const tomorrowDate=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1,12),tomorrowKey=localDateKey(tomorrowDate);
+    const monday=new Date(now.getFullYear(),now.getMonth(),now.getDate()-((now.getDay()+6)%7),12);
+    const sunday=new Date(monday);sunday.setDate(monday.getDate()+6);
+    const weekStart=localDateKey(monday),weekEnd=localDateKey(sunday);
+    const range=availabilityPeriod==="today"?{from:todayKey,to:todayKey,label:"Today"}:availabilityPeriod==="tomorrow"?{from:tomorrowKey,to:tomorrowKey,label:"Tomorrow"}:{from:weekStart,to:weekEnd,label:"This week"};
+    const scheduleMap=new Map<string,ScheduledShift>();
+    [...scheduledShifts,...futureScheduledShifts].forEach(item=>{if(item.id&&!scheduleMap.has(item.id))scheduleMap.set(item.id,item)});
+    const scheduleData=[...scheduleMap.values()].filter(item=>item.status!=="cancelled");
+    const hoursBetween=(profileId:string,from:string,to:string)=>scheduleData.filter(item=>item.profile_id===profileId&&item.shift_date>=from&&item.shift_date<=to).reduce((total,item)=>total+scheduleHours(item),0);
+    const returnDate=(request:TimeAwayRequest)=>{const[y,m,d]=request.end_date.split("-").map(Number),date=new Date(y,m-1,d+1,12);return date.toLocaleDateString("en-GB",{day:"numeric",month:"short"})};
+    const reasonLabel=(request:TimeAwayRequest)=>`${request.request_type==="holiday"?"Leave":request.request_type==="unavailable"?"Unavailable":request.request_type.charAt(0).toUpperCase()+request.request_type.slice(1)}${request.notes?` · Returns ${returnDate(request)}`:""}`;
+    const coaches=staff.filter(person=>person.role==="coach"&&person.is_active&&(!availabilityVenue||(staffVenueMap[person.id]||[]).includes(availabilityVenue))&&`${person.full_name} ${profileVenues(person.id).map(v=>v.name).join(" ")}`.toLowerCase().includes(availabilitySearch.trim().toLowerCase())).map(person=>{
+      const coaching=scheduleData.filter(item=>item.profile_id===person.id&&item.shift_date>=range.from&&item.shift_date<=range.to).sort((a,b)=>`${a.shift_date}${a.start_time}`.localeCompare(`${b.shift_date}${b.start_time}`));
+      const nextClass=scheduleData.filter(item=>item.profile_id===person.id&&item.shift_date===todayKey&&item.start_time.slice(0,5)>currentTime).sort((a,b)=>a.start_time.localeCompare(b.start_time))[0]||null;
+      const approved=timeAwayRequests.filter(request=>request.profile_id===person.id&&request.status==="approved"&&request.start_date<=range.to&&request.end_date>=range.from).sort((a,b)=>a.start_date.localeCompare(b.start_date))[0];
+      const pending=timeAwayRequests.filter(request=>request.profile_id===person.id&&request.status==="pending"&&request.start_date<=range.to&&request.end_date>=range.from).sort((a,b)=>a.start_date.localeCompare(b.start_date))[0];
+      const group=approved?"unavailable":coaching.length?"coaching":pending?"pending":"available";
+      return{person,group,coaching,nextClass,approved,pending,todayHours:hoursBetween(person.id,todayKey,todayKey),weekHours:hoursBetween(person.id,weekStart,weekEnd)};
+    });
+    const groups=([
+      {key:"available",title:"🟢 Available",empty:"Everyone is currently assigned, away, or awaiting a leave decision."},
+      {key:"coaching",title:"🟠 Currently Coaching",empty:"No coaching assignments fall within this period."},
+      {key:"pending",title:"🟣 Pending Leave",empty:"There are no pending Time Away requests for this period."},
+      {key:"unavailable",title:"🔴 Unavailable",empty:"No staff are unavailable during this period."}
+    ] as const);
+    const openSchedule=(person:Profile)=>{setAdminPersonalRota(false);setRotaView("day");setRotaDate(range.from);setMonth(monthKey(new Date(`${range.from}T12:00:00`)));const ids=staffVenueMap[person.id]||[];setScheduleFilter(ids.length===1?ids[0]:"");setTab("schedule")};
+    return <><PageHead title="Staff Availability" sub="See who can coach across your organisations."><span className="v431Updated"><ClockIcon/>Updated {updatedTime}</span></PageHead>
+      <div className="grid grid4 v430AvailabilitySummary">{groups.map(group=><div className={`card ${group.key}`} key={group.key}><span>{group.title}</span><strong>{coaches.filter(item=>item.group===group.key).length}</strong><small>{range.label}</small></div>)}</div>
+      <div className="v430AvailabilityControls"><div className="v430PeriodTabs"><button className={availabilityPeriod==="today"?"active":""} onClick={()=>setAvailabilityPeriod("today")}>Today</button><button className={availabilityPeriod==="tomorrow"?"active":""} onClick={()=>setAvailabilityPeriod("tomorrow")}>Tomorrow</button><button className={availabilityPeriod==="week"?"active":""} onClick={()=>setAvailabilityPeriod("week")}>This Week</button></div><select aria-label="Filter by organisation" value={availabilityVenue} onChange={e=>setAvailabilityVenue(e.target.value)}><option value="">All organisations</option>{adminVenues().map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select><div className="searchBar"><SearchIcon/><input value={availabilitySearch} onChange={e=>setAvailabilitySearch(e.target.value)} placeholder="Search staff…"/></div></div>
+      <div className="v430AvailabilityBoard">{groups.map(group=>{const people=coaches.filter(item=>item.group===group.key);return <section className={`v430AvailabilityColumn ${group.key}`} key={group.key}><header><strong>{group.title}</strong><span>{people.length}</span></header><div>{people.map(item=>{const away=item.approved||item.pending,session=item.coaching[0];return <article className="v430AvailabilityCard" key={item.person.id}>
+        <div className="v430AvailabilityIdentity"><div>{initials(item.person.full_name)}</div><span><strong>{item.person.full_name}</strong><small>{group.key==="coaching"?"Coaching":group.key==="pending"?"Pending leave":group.key==="unavailable"?"Unavailable":"Available"}</small></span></div>
+        <div className="v430AvailabilityHours"><span><small>Today</small><b>{item.todayHours.toFixed(2)}h</b></span><span><small>This week</small><b>{item.weekHours.toFixed(2)}h</b></span></div>
+        <div className="v430AvailabilityOrgs">{profileVenues(item.person.id).map(v=><span key={v.id}>{v.name}</span>)}{!profileVenues(item.person.id).length&&<span>No organisation</span>}</div>
+        {session&&<div className="v430AvailabilityDetail"><span>Current class</span><strong>{session.class_name}</strong><small>{new Date(`${session.shift_date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})} · {session.start_time.slice(0,5)}–{session.finish_time.slice(0,5)} · {venueName(session.venue_id)}</small></div>}
+        {group.key==="available"&&(item.nextClass?<div className="v430AvailabilityDetail next"><span>Next Class</span><strong>{item.nextClass.class_name}</strong><small>{item.nextClass.start_time.slice(0,5)}–{item.nextClass.finish_time.slice(0,5)} · {venueName(item.nextClass.venue_id)}</small></div>:<div className="v431NoFurther"><CheckIcon/><span><strong>No further classes today</strong><small>Available for cover.</small></span></div>)}
+        {away&&<div className="v430AvailabilityDetail away"><span>Time away</span><strong>{reasonLabel(away)}</strong><small>{away.notes||`${away.all_day?"Full day":`${away.start_time?.slice(0,5)}–${away.end_time?.slice(0,5)}`} · Returns ${returnDate(away)}`}</small></div>}
+        <div className="v430AvailabilityActions"><button onClick={()=>openSchedule(item.person)}><CalendarIcon/><span>View Schedule</span></button><button onClick={()=>setTab("leave")}><ClockIcon/><span>View Time Away</span></button><button onClick={()=>void openStaffEdit(item.person)}><UserIcon/><span>View Profile</span></button></div>
+      </article>})}{!people.length&&<div className="v430AvailabilityEmpty"><span>{group.key==="available"?"✓":group.key==="coaching"?"○":group.key==="pending"?"◇":"✓"}</span><strong>{group.title.replace(/^[^ ]+ /,"")}</strong><small>{group.empty}</small></div>}</div></section>})}</div>
+    </>;
   }
 
 
