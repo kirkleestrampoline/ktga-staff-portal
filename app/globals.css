@@ -602,3 +602,24 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);box-shadow:0 0 
   .masterClassActions .btnDanger{grid-column:1/-1}
 }
 /* AV_V2_0_6_MASTER_FIX_END */
+
+/* AV_V2_1_STAFF_ROTA_START */
+/* AV v2.1.0 staff rota */
+.rotaControls{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+.rotaViewTabs{display:flex;gap:7px}
+.rotaDateInput{width:auto;min-width:155px}
+.staffRotaList{display:flex;flex-direction:column;gap:14px}
+.staffRotaDay{display:flex;flex-direction:column;gap:8px}
+.staffRotaDate{font-size:12px;color:var(--muted);padding:2px}
+.staffRotaCard{border:1px solid var(--line);border-left:5px solid var(--org-colour,#667085);border-radius:14px;background:#fff;padding:14px}
+.staffRotaMain{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.staffRotaMain>div{display:flex;flex-direction:column;gap:3px}.staffRotaMain strong{font-size:15px}.staffRotaMain span{font-size:13px;font-weight:800}.staffRotaMain small{font-size:11px;color:var(--muted)}
+.staffRotaActions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px;padding-top:11px;border-top:1px solid var(--line)}
+.rotaPendingText{font-size:12px;color:var(--warning);font-weight:750;margin-right:auto}.rotaConfirmedText{font-size:12px;color:var(--success);font-weight:750;margin-right:auto}
+.rotaExtraCard{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px}.rotaExtraCard p{margin:4px 0 0;color:var(--muted);font-size:12px}
+@media(max-width:760px){
+ .rotaControls{align-items:stretch;flex-direction:column}.rotaViewTabs{display:grid;grid-template-columns:repeat(3,1fr)}.rotaControls>.row{display:grid;grid-template-columns:auto 1fr auto}.rotaDateInput{width:100%;min-width:0}
+ .staffRotaActions{display:grid;grid-template-columns:1fr}.staffRotaActions .btn{width:100%}
+ .rotaExtraCard{align-items:stretch;flex-direction:column}.rotaExtraCard .btn{width:100%}
+}
+/* AV_V2_1_STAFF_ROTA_END */

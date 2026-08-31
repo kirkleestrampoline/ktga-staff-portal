@@ -18,7 +18,7 @@ type Profile={
 };
 type Venue={id:string;name:string;slug:string;active:boolean;brand_color:string|null;legal_name?:string|null;invoice_address?:string|null;invoice_prefix?:string|null;payment_note?:string|null};
 type ShiftTemplate={id:string;profile_id:string;venue_id:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;session_location:string|null;notes:string|null;active:boolean};
-type Shift={id?:string;coach_id:string;shift_date:string;start_time:string;finish_time:string;break_minutes:number;venue_id?:string|null;session_location:string|null;notes:string|null};
+type Shift={id?:string;coach_id:string;shift_date:string;start_time:string;finish_time:string;break_minutes:number;venue_id?:string|null;session_location:string|null;notes:string|null;source?:string|null;approval_status?:"pending"|"approved"|"rejected"|null;scheduled_shift_id?:string|null};
 type Timesheet={id:string;coach_id:string;month_start:string;status:"draft"|"submitted"|"paid";submitted_at:string|null;paid_at:string|null;submitted_by?:string|null};
 type Invoice={id:string;coach_id:string;timesheet_id:string;venue_id?:string|null;invoice_number:string;invoice_date:string;hours:number;hourly_rate:number;total_amount:number;status:"awaiting_payment"|"paid"|"cancelled";created_at?:string};
 type Business={id:number;business_name:string;business_address:string|null;payment_note:string|null;cutoff_day:number};
@@ -26,7 +26,7 @@ type AdminRow={coach:Profile;hours:number;value:number;timesheet:Timesheet|null;
 type Audit={id:string;actor_id:string|null;subject_id:string|null;action:string;entity_type:string;entity_id:string|null;details:any;created_at:string};
 type ClassTemplate={id:string;venue_id:string;name:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;active:boolean;notes:string|null};
 type ClassStaffingSlot={id:string;class_id:string;slot_number:number;default_profile_id:string|null};
-type ScheduledShift={id:string;class_id:string|null;staffing_slot_id:string|null;venue_id:string;profile_id:string|null;original_profile_id:string|null;shift_date:string;start_time:string;finish_time:string;break_minutes:number;class_name:string;status:"scheduled"|"confirmed"|"cancelled";actual_shift_id:string|null;notes:string|null};
+type ScheduledShift={id:string;class_id:string|null;staffing_slot_id:string|null;venue_id:string;profile_id:string|null;original_profile_id:string|null;shift_date:string;start_time:string;finish_time:string;break_minutes:number;class_name:string;status:"scheduled"|"confirmed"|"cancelled";actual_shift_id:string|null;notes:string|null;adjustment_status?:"none"|"pending"|null;requested_start_time?:string|null;requested_finish_time?:string|null;requested_break_minutes?:number|null;adjustment_reason?:string|null};
 type ClassOccurrenceDraft={key:string;id?:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;coach_ids:string[];notes:string};
 type ClassDraft={id?:string;original_ids?:string[];venue_id:string;name:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;notes:string;coach_ids:string[];occurrences?:ClassOccurrenceDraft[]};
 
@@ -89,8 +89,15 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const [resetBusy,setResetBusy]=useState(false);
   const [scheduleView,setScheduleView]=useState<"calendar"|"agenda">("calendar");
   const [dragShiftId,setDragShiftId]=useState<string|null>(null);
+  const [rotaView,setRotaView]=useState<"month"|"week"|"day">("month");
+  const [rotaDate,setRotaDate]=useState(new Date().toISOString().slice(0,10));
+  const [adjustShift,setAdjustShift]=useState<ScheduledShift|null>(null);
+  const [adjustStart,setAdjustStart]=useState("");
+  const [adjustFinish,setAdjustFinish]=useState("");
+  const [adjustBreak,setAdjustBreak]=useState(0);
+  const [adjustReason,setAdjustReason]=useState("");
 
-  const totalHours=useMemo(()=>shifts.reduce((a,s)=>a+shiftHours(s),0),[shifts]);
+  const totalHours=useMemo(()=>shifts.filter(s=>!s.approval_status||s.approval_status==="approved").reduce((a,s)=>a+shiftHours(s),0),[shifts]);
   const totalValue=totalHours*Number(activeCoach.hourly_rate||0);
   const changeMonth=(delta:number)=>{
     const [y,m]=month.split("-").map(Number);
@@ -289,12 +296,23 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     if(!shiftModal)return;
     if(locked&&!isAdmin){flash("Unsubmit the month before editing shifts.");return}
     if(timesheet?.status==="paid"){flash("Paid months are locked.");return}
-    const payload={coach_id:activeCoach.id,shift_date:shiftModal.shift_date,start_time:shiftModal.start_time,finish_time:shiftModal.finish_time,break_minutes:Number(shiftModal.break_minutes||0),venue_id:shiftModal.venue_id||null,session_location:shiftModal.session_location,notes:shiftModal.notes};
+    const payload={
+      coach_id:activeCoach.id,
+      shift_date:shiftModal.shift_date,
+      start_time:shiftModal.start_time,
+      finish_time:shiftModal.finish_time,
+      break_minutes:Number(shiftModal.break_minutes||0),
+      venue_id:shiftModal.venue_id||null,
+      session_location:shiftModal.session_location,
+      notes:shiftModal.notes,
+      source:shiftModal.source||"extra",
+      approval_status:isAdmin?"approved":(shiftModal.approval_status==="pending"?"pending":"pending")
+    };
     const result=shiftModal.id
       ? await supabase.from("shifts").update(payload).eq("id",shiftModal.id)
       : await supabase.from("shifts").insert(payload);
     if(result.error){flash(result.error.message);return}
-    setShiftModal(null);await loadCoachMonth(activeCoach.id);if(isAdmin){void loadAdmin();void loadAudits()}
+    setShiftModal(null);flash(isAdmin?"Extra shift saved.":"Extra shift sent to admin for approval.");await loadCoachMonth(activeCoach.id);if(isAdmin){void loadAdmin();void loadAudits()}
   }
 
   async function deleteShift(){
@@ -774,6 +792,58 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     if(isAdmin)await loadAdmin();
   }
 
+  function openAdjustment(sch:ScheduledShift){
+    setAdjustShift(sch);
+    setAdjustStart((sch.requested_start_time||sch.start_time).slice(0,5));
+    setAdjustFinish((sch.requested_finish_time||sch.finish_time).slice(0,5));
+    setAdjustBreak(Number(sch.requested_break_minutes??sch.break_minutes??0));
+    setAdjustReason(sch.adjustment_reason||"");
+  }
+
+  async function submitRotaActual(){
+    if(!adjustShift)return;
+    const scheduled=shiftHours({coach_id:adjustShift.profile_id||"",shift_date:adjustShift.shift_date,start_time:adjustShift.start_time,finish_time:adjustShift.finish_time,break_minutes:adjustShift.break_minutes,session_location:adjustShift.class_name,notes:null});
+    const actual=shiftHours({coach_id:adjustShift.profile_id||"",shift_date:adjustShift.shift_date,start_time:adjustStart,finish_time:adjustFinish,break_minutes:Number(adjustBreak||0),session_location:adjustShift.class_name,notes:null});
+    const fn=isAdmin||actual<=scheduled?"confirm_scheduled_shift_adjusted":"request_scheduled_overtime";
+    const args=fn==="confirm_scheduled_shift_adjusted"
+      ?{p_scheduled_id:adjustShift.id,p_start_time:adjustStart,p_finish_time:adjustFinish,p_break_minutes:Number(adjustBreak||0)}
+      :{p_scheduled_id:adjustShift.id,p_start_time:adjustStart,p_finish_time:adjustFinish,p_break_minutes:Number(adjustBreak||0),p_reason:adjustReason||null};
+    const{error}=await supabase.rpc(fn,args as any);
+    if(error){flash(error.message);return}
+    flash(fn==="request_scheduled_overtime"?"Extra time sent to admin for approval.":"Worked time confirmed.");
+    setAdjustShift(null);
+    await loadSchedule();
+    await loadCoachMonth(adjustShift.profile_id||initialProfile.id);
+    if(isAdmin)await loadAdmin();
+  }
+
+  async function undoOwnRota(sch:ScheduledShift){
+    const fn=sch.adjustment_status==="pending"?"cancel_scheduled_adjustment":isAdmin?"unconfirm_scheduled_shift":"undo_own_scheduled_confirmation";
+    const{error}=await supabase.rpc(fn,{p_scheduled_id:sch.id});
+    flash(error?error.message:(sch.adjustment_status==="pending"?"Approval request cancelled.":"Shift returned to scheduled."));
+    if(!error){await loadSchedule();if(sch.profile_id)await loadCoachMonth(sch.profile_id);if(isAdmin)await loadAdmin()}
+  }
+
+  async function approveRotaAdjustment(sch:ScheduledShift){
+    const{error}=await supabase.rpc("approve_scheduled_adjustment",{p_scheduled_id:sch.id});
+    flash(error?error.message:"Extra time approved and added to timesheet.");
+    if(!error){await loadSchedule();if(sch.profile_id)await loadCoachMonth(sch.profile_id);await loadAdmin()}
+  }
+
+  async function approveExtraShift(s:Shift){
+    if(!s.id)return;
+    const{error}=await supabase.rpc("approve_extra_shift",{p_shift_id:s.id});
+    flash(error?error.message:"Extra shift approved.");
+    if(!error){await loadCoachMonth(activeCoach.id);await loadAdmin()}
+  }
+
+  async function rejectExtraShift(s:Shift){
+    if(!s.id)return;
+    const{error}=await supabase.rpc("reject_extra_shift",{p_shift_id:s.id});
+    flash(error?error.message:"Extra shift rejected.");
+    if(!error){setShiftModal(null);await loadCoachMonth(activeCoach.id);await loadAdmin()}
+  }
+
   async function reassignScheduled(sch:ScheduledShift,profileId:string){
     const{error}=await supabase.rpc("reassign_scheduled_shift",{p_scheduled_id:sch.id,p_profile_id:profileId||null});
     flash(error?error.message:"Scheduled coach changed.");if(!error)await loadSchedule();
@@ -820,7 +890,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   return <div className="portal">
     <Sidebar tab={tab} setTab={(t:any)=>{setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="topBrandMark">AV</div><div className="topTitle">AV Gymnastics Solutions</div></div><div className="topActions"><span className="versionBadge">v2.0.6</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="topBrandMark">AV</div><div className="topTitle">AV Gymnastics Solutions</div></div><div className="topActions"><span className="versionBadge">v2.1.0</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
         {message&&<div className={`notice ${/(saved|sent|submitted|added|copied|reopened|created|paid)/i.test(message)?"success":""}`}>{message}</div>}
         {tab==="dashboard"&&DashboardView()}
@@ -838,6 +908,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     {staffEdit&&StaffModal()}
     {templateOpen&&TemplateModal()}
     {classModal&&ClassModal()}
+    {adjustShift&&AdjustmentModal()}
     <MobileNav tab={tab} setTab={(t:any)=>{setTab(t);if(t!=="timesheets")backToAdmin()}} role={initialProfile.role} name={initialProfile.full_name} open={mobileMoreOpen} setOpen={setMobileMoreOpen} onSignOut={signOut}/>
   </div>;
 
@@ -868,9 +939,36 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     const dayNames=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
     const visibleScheduled=isAdmin?scheduleScope:scheduleScope.filter(s=>s.profile_id===initialProfile.id);
     const grouped=visibleScheduled.reduce((m:Record<string,ScheduledShift[]>,s)=>{(m[s.shift_date]||=[]).push(s);return m},{});
-    if(!isAdmin)return <><PageHead title="My schedule" sub="Your planned coaching. Confirm each session after you work it so it flows into your timesheet."><MonthSelect/></PageHead>
-      <div className="grid grid3 scheduleSummary"><StatCard label="Scheduled hours" value={plannedSchedule.filter(s=>s.profile_id===initialProfile.id).reduce((a,s)=>a+scheduleHours(s),0).toFixed(2)} foot={monthLabel(month)} icon={<CalendarIcon/>}/><StatCard label="Confirmed" value={scheduledShifts.filter(s=>s.profile_id===initialProfile.id&&s.status==="confirmed").reduce((a,s)=>a+scheduleHours(s),0).toFixed(2)} foot="Already in your timesheet" icon={<CheckIcon/>}/><StatCard label="Remaining" value={String(scheduledShifts.filter(s=>s.profile_id===initialProfile.id&&s.status==="scheduled").length)} foot="Sessions to confirm" icon={<ClockIcon/>}/></div>
-      <div className="scheduleAgenda section">{Object.entries(grouped).map(([date,items]:[string,ScheduledShift[]])=><div className="scheduleDay" key={date}><div className="scheduleDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</strong></div>{items.map(s=><div className={`scheduleShift ${s.status} ${venueColourClass(s.venue_id)}`} key={s.id}><div className="scheduleShiftMain"><div className="scheduleTime">{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</div><div><strong>{s.class_name}</strong><span>{venueName(s.venue_id)} · {scheduleHours(s).toFixed(2)}h</span></div></div><div className="scheduleActions"><span className={`scheduleStatus ${s.status}`}>{s.status}</span>{s.status==="scheduled"&&<button className="btn btnPrimary" type="button" onClick={(e)=>{e.preventDefault();void confirmScheduled(s)}}>Confirm worked</button>}</div></div>)}</div>)}{!visibleScheduled.length&&<div className="card empty">No scheduled coaching for {monthLabel(month)} yet.</div>}</div></>;
+    if(!isAdmin){
+      const allMine=scheduleScope.filter(s=>s.profile_id===initialProfile.id);
+      const [ry,rm,rd]=rotaDate.split("-").map(Number);
+      const selected=new Date(ry,rm-1,rd,12);
+      const weekStart=new Date(selected);weekStart.setDate(selected.getDate()-((selected.getDay()+6)%7));
+      const weekEnd=new Date(weekStart);weekEnd.setDate(weekStart.getDate()+6);
+      const visible=allMine.filter(s=>{
+        if(rotaView==="month")return true;
+        const d=new Date(`${s.shift_date}T12:00:00`);
+        if(rotaView==="day")return s.shift_date===rotaDate;
+        return d>=weekStart&&d<=weekEnd;
+      }).sort((a,b)=>`${a.shift_date}${a.start_time}`.localeCompare(`${b.shift_date}${b.start_time}`));
+      const groupedMine=visible.reduce((m:Record<string,ScheduledShift[]>,s)=>{(m[s.shift_date]||=[]).push(s);return m},{});
+      const moveRota=(delta:number)=>{
+        const d=new Date(selected);
+        d.setDate(d.getDate()+delta*(rotaView==="day"?1:rotaView==="week"?7:30));
+        setRotaDate(d.toISOString().slice(0,10));
+        if(rotaView==="month")setMonth(monthKey(d));
+      };
+      return <><PageHead title="My Rota" sub="Your planned work. Confirm what you actually worked each day."><MonthSelect/></PageHead>
+        <div className="rotaControls"><div className="rotaViewTabs"><button className={`btn ${rotaView==="month"?"btnPrimary":"btnSecondary"}`} onClick={()=>setRotaView("month")}>Month</button><button className={`btn ${rotaView==="week"?"btnPrimary":"btnSecondary"}`} onClick={()=>setRotaView("week")}>Week</button><button className={`btn ${rotaView==="day"?"btnPrimary":"btnSecondary"}`} onClick={()=>setRotaView("day")}>Day</button></div><div className="row"><button className="btn btnSecondary" onClick={()=>moveRota(-1)}>←</button><input className="rotaDateInput" type="date" value={rotaDate} onChange={e=>setRotaDate(e.target.value)}/><button className="btn btnSecondary" onClick={()=>moveRota(1)}>→</button></div></div>
+        <div className="grid grid3 scheduleSummary"><StatCard label="Rota hours" value={allMine.filter(s=>s.status!=="cancelled").reduce((a,s)=>a+scheduleHours(s),0).toFixed(2)} foot={monthLabel(month)} icon={<CalendarIcon/>}/><StatCard label="Confirmed" value={allMine.filter(s=>s.status==="confirmed").reduce((a,s)=>a+scheduleHours(s),0).toFixed(2)} foot="In your timesheet" icon={<CheckIcon/>}/><StatCard label="To action" value={String(allMine.filter(s=>s.status==="scheduled"||s.adjustment_status==="pending").length)} foot="Confirm or awaiting approval" icon={<ClockIcon/>}/></div>
+        <div className="staffRotaList section">{Object.entries(groupedMine).map(([date,items])=><div className="staffRotaDay" key={date}><div className="staffRotaDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</strong></div>{items.map(s=><div className={`staffRotaCard ${s.status} ${venueColourClass(s.venue_id)}`} key={s.id}><div className="staffRotaMain"><div><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</strong><span>{s.class_name}</span><small>{venueName(s.venue_id)}</small></div><span className={`scheduleStatus ${s.adjustment_status==="pending"?"scheduled":s.status}`}>{s.adjustment_status==="pending"?"Approval pending":s.status}</span></div><div className="staffRotaActions">
+          {s.status==="scheduled"&&s.adjustment_status!=="pending"&&<><button className="btn btnPrimary" onClick={()=>confirmScheduled(s)}>Confirm as planned</button><button className="btn btnSecondary" onClick={()=>openAdjustment(s)}>Adjust actual time</button></>}
+          {s.adjustment_status==="pending"&&<><span className="rotaPendingText">Extra time awaiting admin approval</span><button className="btn btnDanger" onClick={()=>undoOwnRota(s)}>Cancel request</button></>}
+          {s.status==="confirmed"&&<><span className="rotaConfirmedText">Confirmed into timesheet</span><button className="btn btnSecondary" onClick={()=>undoOwnRota(s)}>Undo</button></>}
+        </div></div>)}</div>)}{!visible.length&&<div className="card empty">No rota sessions in this view.</div>}</div>
+        <div className="card section rotaExtraCard"><div><strong>Worked something that wasn't on your rota?</strong><p>Use Add extra shift for cover, camps, meetings or other unscheduled work. It will be sent to an admin for approval.</p></div><button className="btn btnAccent" onClick={()=>{setTab("timesheets");setShiftModal({coach_id:initialProfile.id,shift_date:rotaDate,start_time:"16:30",finish_time:"18:00",break_minutes:0,venue_id:profileVenues(initialProfile.id)[0]?.id||null,session_location:"",notes:"",source:"extra",approval_status:"pending"})}}><PlusIcon/>Add extra shift</button></div>
+      </>;
+    }
 
     return <><PageHead title="Schedule & Staffing" sub="Build once, copy forward and only change the exceptions."><div className="row"><MonthSelect/><button className="btn btnSecondary" onClick={clonePreviousScheduleMonth}>Copy previous month</button><button className="btn btnSecondary" onClick={copyScheduleWeek}>Copy week</button><button className="btn btnPrimary" onClick={generateSchedule}>Generate missing shifts</button></div></PageHead>
       <div className="scheduleToolbar"><select value={scheduleFilter} onChange={e=>setScheduleFilter(e.target.value)}><option value="">All organisations</option>{adminVenues().map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select><div className="row"><button className={`btn ${scheduleView==="calendar"?"btnPrimary":"btnSecondary"}`} onClick={()=>setScheduleView("calendar")}>Calendar</button><button className={`btn ${scheduleView==="agenda"?"btnPrimary":"btnSecondary"}`} onClick={()=>setScheduleView("agenda")}>Agenda</button><button className="btn btnAccent" onClick={()=>openNewClass()}><PlusIcon/>Add class</button></div></div>
@@ -887,7 +985,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
             <div className="staffingBoardShifts">{items.map(s=><div className={`staffingCalendarShift ${s.status} ${venueColourClass(s.venue_id)}`} key={s.id} draggable={s.status!=="cancelled"} onDragStart={()=>setDragShiftId(s.id)} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();if(dragShiftId)void swapScheduledAssignments(dragShiftId,s.id);setDragShiftId(null)}}><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)} · {s.class_name}</strong><span>{profileById(s.profile_id)?.full_name||"Unassigned"}</span><small>{venueName(s.venue_id)}</small></div>)}</div>
           </div>
         });
-      })()}</div>:<div className="scheduleAgenda">{Object.entries(grouped).map(([date,items]:[string,ScheduledShift[]])=><div className="scheduleDay" key={date}><div className="scheduleDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}</strong></div>{items.map(s=>{const allowed=staffOptionsForVenue(s.venue_id);return <div className={`scheduleShift ${s.status} ${venueColourClass(s.venue_id)}`} key={s.id}><div className="scheduleShiftMain"><div className="scheduleTime">{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</div><div><strong>{s.class_name}</strong><span>{venueName(s.venue_id)} · {scheduleHours(s).toFixed(2)}h</span></div></div><div className="scheduleAssignment"><select value={s.profile_id||""} disabled={s.status==="cancelled"} onChange={e=>reassignScheduled(s,e.target.value)}><option value="">Unassigned</option>{allowed.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select><div className="row">{s.status==="scheduled"&&s.profile_id&&<button className="btn btnPrimary" type="button" onClick={(e)=>{e.preventDefault();void confirmScheduled(s)}}>Confirm</button>}{s.status==="confirmed"&&<button className="btn btnSecondary" type="button" onClick={(e)=>{e.preventDefault();void unconfirmScheduled(s)}}>Unconfirm</button>}{s.status!=="confirmed"&&<button className={`btn ${s.status==="cancelled"?"btnSecondary":"btnDanger"}`} type="button" onClick={()=>toggleScheduledCancelled(s)}>{s.status==="cancelled"?"Restore":"Cancel"}</button>}<span className={`scheduleStatus ${s.status}`}>{s.status}</span></div></div></div>})}</div>)}{!visibleScheduled.length&&<div className="empty">Generate {monthLabel(month)} to create the staffing rota from your regular classes.</div>}</div>}</div></div></>;
+      })()}</div>:<div className="scheduleAgenda">{Object.entries(grouped).map(([date,items]:[string,ScheduledShift[]])=><div className="scheduleDay" key={date}><div className="scheduleDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}</strong></div>{items.map(s=>{const allowed=staffOptionsForVenue(s.venue_id);return <div className={`scheduleShift ${s.status} ${venueColourClass(s.venue_id)}`} key={s.id}><div className="scheduleShiftMain"><div className="scheduleTime">{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</div><div><strong>{s.class_name}</strong><span>{venueName(s.venue_id)} · {scheduleHours(s).toFixed(2)}h</span></div></div><div className="scheduleAssignment"><select value={s.profile_id||""} disabled={s.status==="cancelled"} onChange={e=>reassignScheduled(s,e.target.value)}><option value="">Unassigned</option>{allowed.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select><div className="row">{s.status==="scheduled"&&s.profile_id&&<button className="btn btnPrimary" type="button" onClick={(e)=>{e.preventDefault();void confirmScheduled(s)}}>Confirm</button>}{s.adjustment_status==="pending"&&<button className="btn btnAccent" type="button" onClick={()=>approveRotaAdjustment(s)}>Approve extra time</button>}{s.status==="confirmed"&&<button className="btn btnSecondary" type="button" onClick={(e)=>{e.preventDefault();void unconfirmScheduled(s)}}>Unconfirm</button>}{s.status!=="confirmed"&&<button className={`btn ${s.status==="cancelled"?"btnSecondary":"btnDanger"}`} type="button" onClick={()=>toggleScheduledCancelled(s)}>{s.status==="cancelled"?"Restore":"Cancel"}</button>}<span className={`scheduleStatus ${s.status}`}>{s.status}</span></div></div></div>})}</div>)}{!visibleScheduled.length&&<div className="empty">Generate {monthLabel(month)} to create the staffing rota from your regular classes.</div>}</div>}</div></div></>;
   }
 
   function TimesheetView(){
@@ -904,7 +1002,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     const sorted=[...shifts].sort((a,b)=>`${a.shift_date}${a.start_time}`.localeCompare(`${b.shift_date}${b.start_time}`));
     return <div className="card timesheetCard"><div className="calendarToolbar"><div><strong>{monthLabel(month)}</strong><div className="muted" style={{fontSize:11,marginTop:3}}>{viewingOther?`Viewing ${activeCoach.full_name}`:locked?"Submitted months are locked until unsubmitted.":"Scheduled classes flow in when confirmed. Use Add extra shift only for unscheduled work."}{timesheet?.submitted_by&&timesheet.submitted_by!==activeCoach.id?" · Submitted by an administrator":""}</div></div><div className="row">{canEdit&&<><button className="btn btnAccent mobilePrimaryAdd" onClick={()=>newShift()}><PlusIcon/>Add extra shift</button><button className="btn btnSecondary" onClick={()=>setTemplateOpen(true)}>Regular shifts</button>{templates.length>0&&<button className="btn btnSecondary" onClick={fillMonthFromTemplates}>Fill month</button>}<button className="btn btnSecondary" onClick={copyPrevious}>Copy previous month</button></>}</div></div>
       <div className="mobileShiftList">
-        {sorted.length===0?<div className="mobileEmpty"><ClockIcon/><strong>No shifts added yet</strong><span>No unscheduled work added for {monthLabel(month)}.</span>{canEdit&&<button className="btn btnAccent" onClick={()=>newShift()}><PlusIcon/>Add extra shift</button>}</div>:sorted.map(s=><button className="mobileShiftCard" key={s.id} onClick={()=>canEdit&&setShiftModal(s)}><div className="mobileShiftDate"><strong>{new Date(`${s.shift_date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric"})}</strong><span>{venueName(s.venue_id)}</span></div><div className="mobileShiftMain"><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</strong><span>{s.session_location||"Coaching"}</span></div><div className="mobileShiftHours">{shiftHours(s).toFixed(2)}h</div></button>)}
+        {sorted.length===0?<div className="mobileEmpty"><ClockIcon/><strong>No shifts added yet</strong><span>No unscheduled work added for {monthLabel(month)}.</span>{canEdit&&<button className="btn btnAccent" onClick={()=>newShift()}><PlusIcon/>Add extra shift</button>}</div>:sorted.map(s=><button className="mobileShiftCard" key={s.id} onClick={()=>canEdit&&setShiftModal(s)}><div className="mobileShiftDate"><strong>{new Date(`${s.shift_date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric"})}</strong><span>{venueName(s.venue_id)}</span></div><div className="mobileShiftMain"><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</strong><span>{s.session_location||"Coaching"}</span></div><div className="mobileShiftHours">{s.approval_status==="pending"?"Pending":`${shiftHours(s).toFixed(2)}h`}</div></button>)}
       </div>
       <div className="calendarScroll desktopCalendar"><div className="calendar">{["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d=><div className="dow" key={d}>{d}</div>)}{Array.from({length:start},(_,i)=><div className="day dayBlank" key={`b${i}`}/>) }
         {Array.from({length:last},(_,i)=>{const d=i+1,date=`${month}-${String(d).padStart(2,"0")}`,items=shifts.filter(s=>s.shift_date===date);return <div className="day" key={date}><div className="dayNum">{d}</div>{canEdit&&<button className="dayAdd" onClick={()=>newShift(date)}>+</button>}{items.map(s=><div className="shiftChip" key={s.id} onClick={()=>canEdit&&setShiftModal(s)}><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</strong><br/><span className="venueDot"/>{venueName(s.venue_id)}<br/>{s.session_location||"Coaching"}<br/><span className="muted">{shiftHours(s).toFixed(2)}h</span></div>)}</div>})}</div></div>
@@ -976,6 +1074,14 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       <div className="card"><div className="formSection"><div className="formSectionTitle"><h3>Rate</h3><p>Your agreed hourly rate is controlled by admin.</p></div><div className="statValue">{money(p.hourly_rate)}</div></div></div></div>
       <div className="section"><button className="btn btnPrimary" onClick={saveOwnProfile} disabled={saving}>{saving?"Saving…":"Save profile"}</button></div>
     </>
+  }
+
+  function AdjustmentModal(){
+    const s=adjustShift!;
+    const planned=scheduleHours(s);
+    const actual=shiftHours({coach_id:s.profile_id||"",shift_date:s.shift_date,start_time:adjustStart,finish_time:adjustFinish,break_minutes:adjustBreak,session_location:s.class_name,notes:null});
+    const more=actual>planned+0.001;
+    return <div className="modalBackdrop"><div className="modal"><div className="modalHead"><h2>Confirm actual time</h2><button className="iconButton" onClick={()=>setAdjustShift(null)}>×</button></div><div className="modalBody"><div className="notice">Scheduled: <strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</strong> · {planned.toFixed(2)} hours</div><div className="grid grid2"><div className="field"><label>Actual start</label><input type="time" value={adjustStart} onChange={e=>setAdjustStart(e.target.value)}/></div><div className="field"><label>Actual finish</label><input type="time" value={adjustFinish} onChange={e=>setAdjustFinish(e.target.value)}/></div></div><div className="field"><label>Break minutes</label><input type="number" min={0} value={adjustBreak} onChange={e=>setAdjustBreak(Number(e.target.value))}/></div>{more&&!isAdmin&&<><div className="notice">This is <strong>more</strong> than the scheduled time, so it will be sent to an admin for approval.</div><div className="field"><label>Reason for extra time</label><textarea value={adjustReason} onChange={e=>setAdjustReason(e.target.value)} placeholder="e.g. class ran late, parent discussion, extra cover"/></div></>}{!more&&<div className="notice success">This is the same or less than scheduled, so you can confirm it immediately.</div>}</div><div className="modalFoot"><span/><div className="row"><button className="btn btnSecondary" onClick={()=>setAdjustShift(null)}>Cancel</button><button className="btn btnPrimary" onClick={submitRotaActual}>{more&&!isAdmin?"Send for approval":"Confirm actual time"}</button></div></div></div></div>
   }
 
   function ClassModal(){
@@ -1052,7 +1158,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   }
 
   function ShiftModal(){
-    return <div className="modalBackdrop"><div className="modal"><div className="modalHead"><h2>{shiftModal?.id?"Edit shift":"Add extra shift"}</h2><button className="iconButton" onClick={()=>setShiftModal(null)}>×</button></div><div className="modalBody"><div className="field"><label>Date</label><input type="date" value={shiftModal!.shift_date} onChange={e=>setShiftModal({...shiftModal!,shift_date:e.target.value})}/></div><div className="grid grid2"><div className="field"><label>Start</label><input type="time" value={shiftModal!.start_time.slice(0,5)} onChange={e=>setShiftModal({...shiftModal!,start_time:e.target.value})}/></div><div className="field"><label>Finish</label><input type="time" value={shiftModal!.finish_time.slice(0,5)} onChange={e=>setShiftModal({...shiftModal!,finish_time:e.target.value})}/></div></div><div className="field"><label>Break (minutes)</label><input type="number" min={0} value={shiftModal!.break_minutes} onChange={e=>setShiftModal({...shiftModal!,break_minutes:Number(e.target.value)})}/></div><div className="field"><label>Venue</label><select value={shiftModal!.venue_id||""} onChange={e=>setShiftModal({...shiftModal!,venue_id:e.target.value||null})}><option value="">Select venue…</option>{(isAdmin?adminVenues():profileVenues(activeCoach.id)).map(v=><option value={v.id} key={v.id}>{v.name}</option>)}</select></div><div className="field"><label>Session / group</label><input value={shiftModal!.session_location||""} onChange={e=>setShiftModal({...shiftModal!,session_location:e.target.value})} placeholder="e.g. competition, camp, meeting, cover"/></div><div className="field"><label>Notes</label><textarea value={shiftModal!.notes||""} onChange={e=>setShiftModal({...shiftModal!,notes:e.target.value})}/></div></div><div className="modalFoot"><div>{shiftModal?.id&&<button className="btn btnDanger" onClick={deleteShift}>Delete shift</button>}</div><div className="row"><button className="btn btnSecondary" onClick={()=>setShiftModal(null)}>Cancel</button><button className="btn btnPrimary" onClick={saveShift}>Save shift</button></div></div></div></div>
+    return <div className="modalBackdrop"><div className="modal"><div className="modalHead"><h2>{shiftModal?.id?(shiftModal.approval_status==="pending"?"Review extra shift":"Edit shift"):"Add extra shift"}</h2><button className="iconButton" onClick={()=>setShiftModal(null)}>×</button></div><div className="modalBody"><div className="field"><label>Date</label><input type="date" value={shiftModal!.shift_date} onChange={e=>setShiftModal({...shiftModal!,shift_date:e.target.value})}/></div><div className="grid grid2"><div className="field"><label>Start</label><input type="time" value={shiftModal!.start_time.slice(0,5)} onChange={e=>setShiftModal({...shiftModal!,start_time:e.target.value})}/></div><div className="field"><label>Finish</label><input type="time" value={shiftModal!.finish_time.slice(0,5)} onChange={e=>setShiftModal({...shiftModal!,finish_time:e.target.value})}/></div></div><div className="field"><label>Break (minutes)</label><input type="number" min={0} value={shiftModal!.break_minutes} onChange={e=>setShiftModal({...shiftModal!,break_minutes:Number(e.target.value)})}/></div><div className="field"><label>Venue</label><select value={shiftModal!.venue_id||""} onChange={e=>setShiftModal({...shiftModal!,venue_id:e.target.value||null})}><option value="">Select venue…</option>{(isAdmin?adminVenues():profileVenues(activeCoach.id)).map(v=><option value={v.id} key={v.id}>{v.name}</option>)}</select></div><div className="field"><label>Session / group</label><input value={shiftModal!.session_location||""} onChange={e=>setShiftModal({...shiftModal!,session_location:e.target.value})} placeholder="e.g. competition, camp, meeting, cover"/></div><div className="field"><label>Notes</label><textarea value={shiftModal!.notes||""} onChange={e=>setShiftModal({...shiftModal!,notes:e.target.value})}/></div></div><div className="modalFoot"><div>{shiftModal?.id&&<button className="btn btnDanger" onClick={deleteShift}>Delete shift</button>}</div><div className="row">{isAdmin&&shiftModal?.id&&shiftModal.approval_status==="pending"&&<><button className="btn btnDanger" onClick={()=>rejectExtraShift(shiftModal)}>Reject</button><button className="btn btnAccent" onClick={()=>approveExtraShift(shiftModal)}>Approve</button></>}<button className="btn btnSecondary" onClick={()=>setShiftModal(null)}>Cancel</button>{(!isAdmin||shiftModal?.approval_status!=="pending")&&<button className="btn btnPrimary" onClick={saveShift}>{isAdmin?"Save shift":"Send for approval"}</button>}</div></div></div></div>
   }
 
   function InviteModal(){
