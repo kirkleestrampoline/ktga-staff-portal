@@ -142,6 +142,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const loadedTabsRef=useRef<Set<Tab>>(initialLoadedTabs.current);
   const tabLoadsInFlight=useRef<Set<Tab>>(new Set());
   const sharedDataLoads=useRef<Record<string,Promise<void>>>({});
+  const rotaDatePickerRef=useRef<HTMLInputElement|null>(null);
 
   const totalHours=useMemo(()=>shifts.filter(s=>!s.approval_status||s.approval_status==="approved").reduce((a,s)=>a+shiftHours(s),0),[shifts]);
   const totalValue=totalHours*Number(activeCoach.hourly_rate||0);
@@ -1441,6 +1442,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
 
   const mobilePageMeta=(()=>{
     if(!isAdmin){
+      if(tab==="schedule")return null;
       if(tab==="leave")return{eyebrow:"My availability",title:"Leave & Availability",sub:"Request leave and tell us when you cannot coach."};
       if(tab==="timesheets")return{eyebrow:"My work",title:"My Timesheet",sub:"Review confirmed coaching and submit your month when everything is correct."};
       if(tab==="invoices")return{eyebrow:"My pay",title:"My Payslips",sub:"Your payment history and completed monthly invoices."};
@@ -1448,6 +1450,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       return null;
     }
     if(tab==="dashboard")return{eyebrow:"Overview",title:"Club Operations",sub:"Today’s staffing, schedule and payroll position at a glance."};
+    if(tab==="schedule"&&!adminPersonalRota)return{eyebrow:"Planning",title:"Schedule & Staffing",sub:"Build once, copy forward and only change the exceptions."};
     if(tab==="availability")return{eyebrow:"People",title:"Staff Availability",sub:"A live operational view of who is available to coach."};
     if(tab==="leave")return{eyebrow:"People",title:"Leave Management",sub:"Review staff leave and availability requests."};
     if(tab==="timesheets")return{eyebrow:"Payroll",title:"Timesheets",sub:"Review hours, submissions and monthly payroll status."};
@@ -1462,9 +1465,9 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   return <div className="portal">
     <Sidebar tab={tab} setTab={(t:Tab)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v4.3.3</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v4.3.5</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
-        {tab!=="schedule"&&mobilePageMeta&&<div className="v303MobilePageHero">
+        {mobilePageMeta&&<div className="v303MobilePageHero">
           <span>{mobilePageMeta.eyebrow}</span>
           <h1>{mobilePageMeta.title}</h1>
           <p>{mobilePageMeta.sub}</p>
@@ -1496,7 +1499,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     <MobileNav tab={tab} setTab={(t:Tab)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} role={initialProfile.role} name={initialProfile.full_name} open={mobileMoreOpen} setOpen={setMobileMoreOpen} onSignOut={signOut}/>
   </div>;
 
-  function PageHead({title,sub,children}:{title:string;sub:string;children?:React.ReactNode}){return <div className="pageHead"><div><h1>{title}</h1><p>{sub}</p></div>{children}</div>}
+  function PageHead({title,sub,children,centered=false,dashboard=false}:{title:string;sub:string;children?:React.ReactNode;centered?:boolean;dashboard?:boolean}){return <div className={`pageHead ${centered?"v434CenteredPageHead":""} ${dashboard?"v435DashboardHead":""}`}><div><h1>{title}</h1><p>{sub}</p></div>{children}</div>}
   function TabLoadingSkeleton(){
     return <div className={`v412Loading v432Skeleton-${tab}`} role="status" aria-live="polite" aria-label="Loading page data">
       <span className="srOnly">Loading page data</span>
@@ -1521,7 +1524,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       setHighlightedScheduleShiftId(issue.shift?.id||null);
       if(issue.shift)openAdminScheduleShift(issue.shift);
     };
-    if(isAdmin)return <><PageHead title={`Good ${new Date().getHours()<12?"morning":new Date().getHours()<18?"afternoon":"evening"}, ${initialProfile.full_name.split(" ")[0]}`} sub="Your current staffing, timesheet and invoice position."><div className="row"><button className="btn btnSecondary" onClick={()=>{setAdminPersonalRota(true);setTab("schedule")}}>My Schedule</button><MonthSelect/></div></PageHead>
+    if(isAdmin)return <><PageHead centered dashboard title={`Good ${new Date().getHours()<12?"morning":new Date().getHours()<18?"afternoon":"evening"}, ${initialProfile.full_name.split(" ")[0]}`} sub="Your current staffing, timesheet and invoice position."><div className="v434OverviewHeadControls"><MonthSelect/><button className="btn btnSecondary" onClick={()=>{setAdminPersonalRota(true);setTab("schedule")}}>My Schedule</button></div></PageHead>
       <div className="grid grid4"><StatCard label="Active coaches" value={String(adminRows.length)} foot="Self-employed staff" icon={<UsersIcon/>}/><StatCard label="Hours this month" value={adminHours.toFixed(2)} foot={monthLabel(month)} icon={<ClockIcon/>}/><StatCard label="Submitted" value={`${submittedCount}/${adminRows.length}`} foot={`${Math.max(0,adminRows.length-submittedCount)} outstanding`} icon={<CheckIcon/>}/><StatCard label="Unpaid invoices" value={money(unpaidTotal)} foot="Awaiting payment" icon={<PoundIcon/>}/></div>{pendingLeaveCount>0&&<button className="v33DashboardAlert" onClick={()=>setTab("leave")}><div className="v33AlertIcon"><CalendarIcon/></div><div><strong>{pendingLeaveCount} leave / availability {pendingLeaveCount===1?"request":"requests"} awaiting review</strong><span>Open Leave Management to approve or decline.</span></div><span className="v33AlertCount">{pendingLeaveCount}</span></button>}{timeAwayRequests.filter(r=>r.status==="approved"&&r.start_date<=today&&r.end_date>=today).length>0&&<button className="v340AwayToday" onClick={()=>setTab("leave")}><div><span>Away today</span><strong>{timeAwayRequests.filter(r=>r.status==="approved"&&r.start_date<=today&&r.end_date>=today).length} staff unavailable</strong></div><div className="v340AwayNames">{timeAwayRequests.filter(r=>r.status==="approved"&&r.start_date<=today&&r.end_date>=today).slice(0,3).map(r=><span key={r.id}>{profileById(r.profile_id)?.full_name||"Staff"}</span>)}</div></button>}
       <section className={`card v402ActionCentre ${criticalSchedulingCount||warningSchedulingCount?"hasIssues":"allClear"}`}>
         <div className="v402ActionHead">
@@ -1536,7 +1539,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       <div className="grid grid2 section"><div className="card"><div className="sectionHeader"><div><h2>Monthly status</h2><p>Open a coach to review or edit their shifts.</p></div><button className="btn btnSecondary" onClick={()=>setTab("timesheets")}>View all</button></div><div className="mobileDataList">{adminRows.slice(0,8).map(r=><button className="mobileDataCard" key={r.coach.id} onClick={()=>selectCoach(r.coach)}><div><strong>{r.coach.full_name}</strong><span>{r.hours.toFixed(2)} hours</span></div><StatusPill status={r.timesheet?.status}/></button>)}</div><div className="tableWrap desktopDataTable"><table><thead><tr><th>Coach</th><th className="num">Hours</th><th>Status</th><th></th></tr></thead><tbody>{adminRows.slice(0,8).map(r=><tr key={r.coach.id}><td><strong>{r.coach.full_name}</strong></td><td className="num">{r.hours.toFixed(2)}</td><td><StatusPill status={r.timesheet?.status}/></td><td><button className="btn btnSecondary" onClick={()=>selectCoach(r.coach)}>Open</button></td></tr>)}</tbody></table></div></div>
       <div className="card v432OrganisationSection"><div className="sectionHeader"><div><h2>By organisation</h2><p>Hours and estimated staffing cost this month.</p></div></div><div className="v432OrganisationGrid">{adminVenues().map(v=>{const vs=adminMonthShifts.filter(s=>s.venue_id===v.id),h=vs.reduce((a,s)=>a+shiftHours(s),0),cost=vs.reduce((a,s)=>a+shiftHours(s)*Number(staff.find(p=>p.id===s.coach_id)?.hourly_rate||0),0);return <article className={venueColourClass(v.id)} key={v.id} style={{"--org-accent":v.brand_color||"#6f4a8e"} as React.CSSProperties}><span className="venueDot" style={{background:v.brand_color||"#6f4a8e"}}/><strong>{v.name}</strong><div><span><small>Monthly hours</small><b>{h.toFixed(2)}h</b></span><span><small>Estimated cost</small><b>{money(cost)}</b></span></div></article>})}</div></div></div></>;
 
-    return <><PageHead title={`Good ${new Date().getHours()<12?"morning":new Date().getHours()<18?"afternoon":"evening"}, ${ownProfile.full_name.split(" ")[0]}`} sub="Your hours and invoice for this month."><MonthSelect/></PageHead>
+    return <><PageHead centered title={`Good ${new Date().getHours()<12?"morning":new Date().getHours()<18?"afternoon":"evening"}, ${ownProfile.full_name.split(" ")[0]}`} sub="Your hours and invoice for this month."><MonthSelect/></PageHead>
       {overdue&&<div className="notice danger">The normal submission deadline for {monthLabel(month)} has passed. Please submit your hours as soon as possible.</div>}
       <div className="grid grid4"><StatCard label="Hours logged" value={totalHours.toFixed(2)} foot={monthLabel(month)} icon={<ClockIcon/>}/><StatCard label="Hourly rate" value={money(ownProfile.hourly_rate)} foot="Set by admin" icon={<PoundIcon/>}/><StatCard label="Estimated invoice" value={money(totalValue)} foot="Based on logged hours" icon={<InvoiceIcon/>}/><StatCard label="Timesheet status" value={(timesheet?.status||"Draft").replace(/^./,x=>x.toUpperCase())} foot={`Due ${business.cutoff_day||1} ${new Date(Number(month.slice(0,4)),Number(month.slice(5,7)),1).toLocaleDateString("en-GB",{month:"long"})}`} icon={<CalendarIcon/>}/></div>
       <div className="section">{TimesheetCalendar({compact:true})}</div></>
@@ -1597,9 +1600,9 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
           <div className="rotaControls">
             <div className="rotaViewTabs"><button className={`btn ${rotaView==="day"?"btnPrimary":"btnSecondary"}`} onClick={()=>setRotaView("day")}>Day</button><button className={`btn ${rotaView==="week"?"btnPrimary":"btnSecondary"}`} onClick={()=>setRotaView("week")}>Week</button><button className={`btn ${rotaView==="month"?"btnPrimary":"btnSecondary"}`} onClick={()=>setRotaView("month")}>Month</button></div>
             <div className="v302DateNavigator">
-              <button className="v302DateArrow" aria-label="Previous" onClick={()=>moveRota(-1)}>←</button>
-              <label className="v302DateCentre"><span>{new Date(`${rotaDate}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"short",year:"numeric"})}</span><input type="date" value={rotaDate} onChange={e=>{setRotaDate(e.target.value);if(rotaView==="month")setMonth(e.target.value.slice(0,7))}}/></label>
-              <button className="v302DateArrow" aria-label="Next" onClick={()=>moveRota(1)}>→</button>
+              <button type="button" className="v302DateArrow" aria-label={rotaView==="day"?"Previous day":rotaView==="week"?"Previous week":"Previous month"} onClick={()=>moveRota(-1)}>←</button>
+              <div className="v302DateCentre"><button type="button" onClick={()=>{const picker=rotaDatePickerRef.current as (HTMLInputElement&{showPicker?:()=>void})|null;if(!picker)return;if(picker.showPicker)picker.showPicker();else picker.click()}}><span>{new Date(`${rotaDate}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"short",year:"numeric"})}</span></button><input ref={rotaDatePickerRef} aria-label="Choose schedule date" type="date" value={rotaDate} onChange={e=>{setRotaDate(e.target.value);if(rotaView==="month")setMonth(e.target.value.slice(0,7))}}/></div>
+              <button type="button" className="v302DateArrow" aria-label={rotaView==="day"?"Next day":rotaView==="week"?"Next week":"Next month"} onClick={()=>moveRota(1)}>→</button>
             </div>
           </div>
 
@@ -1620,7 +1623,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       </>;
     }
 
-    return <><PageHead title="Schedule & Staffing" sub="Build once, copy forward and only change the exceptions."><MonthSelect/></PageHead>
+    return <><PageHead centered title="Schedule & Staffing" sub="Build once, copy forward and only change the exceptions."><MonthSelect/></PageHead>
       <div className="v313MonthActions">
         <div className="v313MonthActionsText"><span>Month actions</span><strong>{monthLabel(month)}</strong></div>
         <div className="v313MonthActionButtons">

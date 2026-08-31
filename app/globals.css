@@ -1671,3 +1671,75 @@ table{background:#fff}th{background:#fafbfc;color:#858e9c;letter-spacing:.07em}t
  .btn,.iconButton,.v3TextButton{touch-action:manipulation}.v430AvailabilityCard,.v432SessionCard,.v432OrganisationGrid article{scroll-margin-top:12px}
 }
 @media(max-width:390px){.v401LeaveCalendar .monthNavigator{grid-template-columns:44px minmax(0,1fr) 44px;gap:6px}.v401LeaveCalendar .monthNavigator .monthArrow{width:44px!important;min-width:44px!important}.v401LeaveCalendar .monthNavigator .monthCurrent{font-size:11px!important}.v432SessionCard time{min-width:50px}}
+
+/* v4.3.4 — consistent headers and centred schedule navigation */
+.v434CenteredPageHead{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center}
+.v434CenteredPageHead>div:first-child{grid-column:1}
+.v434CenteredPageHead>.monthNavigator{grid-column:2;justify-self:center}
+.v434OverviewHeadControls{grid-column:2/4;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:18px}
+.v434OverviewHeadControls .monthNavigator{justify-self:start}
+.v302DateCentre{overflow:hidden}
+.v302DateCentre>button{appearance:none;width:100%;height:100%;min-height:44px;padding:0 12px;border:0;background:transparent;display:grid;place-items:center;cursor:pointer}
+.v302DateCentre>input{position:absolute;width:1px!important;height:1px!important;inset:auto!important;opacity:0;pointer-events:none}
+@media(max-width:820px){
+ .v434CenteredPageHead{display:flex;align-items:stretch}
+ .v434CenteredPageHead>.monthNavigator{width:100%;display:grid;grid-template-columns:48px minmax(0,1fr) 48px;gap:9px}
+ .v434CenteredPageHead .monthArrow{width:48px;min-width:48px;min-height:48px;padding:0}
+ .v434CenteredPageHead .monthCurrent{min-width:0;min-height:48px;display:flex;align-items:center;justify-content:center;white-space:nowrap}
+ .v434OverviewHeadControls{width:100%;display:flex;flex-direction:column;gap:10px}
+ .v434OverviewHeadControls .monthNavigator{width:100%}
+ .v434OverviewHeadControls>.btn{width:100%;min-height:44px}
+ .v302DateCentre>button{min-height:48px;padding:0 5px}
+}
+@media(max-width:390px){
+ .v434CenteredPageHead>.monthNavigator{grid-template-columns:44px minmax(0,1fr) 44px;gap:6px}
+ .v434CenteredPageHead .monthArrow{width:44px;min-width:44px}
+ .v434CenteredPageHead .monthCurrent{font-size:12px}
+}
+
+/* v4.3.5 — integrated Overview header */
+.v435DashboardHead{
+ display:flex;
+ flex-direction:column;
+ align-items:center;
+ gap:13px;
+ margin:0 0 17px;
+ padding:3px 0 2px;
+ text-align:center;
+}
+.v435DashboardHead>div:first-child{display:block;max-width:720px}
+.v435DashboardHead>div:first-child p{margin-top:5px}
+.v435DashboardHead .v434OverviewHeadControls{
+ display:flex;
+ flex-direction:column;
+ align-items:center;
+ width:auto;
+ gap:9px;
+}
+.v435DashboardHead .monthNavigator{
+ display:grid;
+ grid-template-columns:48px minmax(170px,220px) 48px;
+ align-items:center;
+ justify-content:center;
+ gap:7px;
+ width:auto;
+ padding:4px;
+ border:1px solid #e7e1ec;
+ border-radius:15px;
+ background:rgba(255,255,255,.88);
+ box-shadow:0 8px 24px rgba(40,25,58,.055);
+}
+.v435DashboardHead .monthArrow{width:48px;min-width:48px;min-height:46px;padding:0;border-color:transparent;background:transparent;box-shadow:none}
+.v435DashboardHead .monthCurrent{min-width:0;min-height:46px;padding:8px 12px;display:flex;align-items:center;justify-content:center;white-space:nowrap;font-size:15px}
+.v435DashboardHead .v434OverviewHeadControls>.btn{min-height:42px;padding:8px 18px}
+@media(max-width:820px){
+ .v435DashboardHead{gap:10px;margin-bottom:14px;padding:0;text-align:left}
+ .v435DashboardHead .v434OverviewHeadControls{width:100%;gap:9px}
+ .v435DashboardHead .monthNavigator{grid-template-columns:48px minmax(0,1fr) 48px;width:100%;gap:7px}
+ .v435DashboardHead .v434OverviewHeadControls>.btn{width:100%;min-height:46px}
+}
+@media(max-width:390px){
+ .v435DashboardHead .monthNavigator{grid-template-columns:44px minmax(0,1fr) 44px;gap:5px}
+ .v435DashboardHead .monthArrow{width:44px;min-width:44px}
+ .v435DashboardHead .monthCurrent{font-size:13px;padding-inline:5px}
+}
