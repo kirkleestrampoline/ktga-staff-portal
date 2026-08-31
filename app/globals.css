@@ -1895,3 +1895,37 @@ td .btn{min-height:36px;padding:7px 11px;font-size:11.5px}
  .v436MasterTimetableCard .masterClassActions .btnDanger{grid-column:auto!important}
  .v436MasterTimetableCard .masterEmpty{padding:22px 14px;border:1px dashed #dfe1e7;border-radius:14px;background:#fff;text-align:center}
 }
+
+/* v5.0.2 — AV-branded timetable card polish */
+@media(max-width:820px){
+ .v436MasterTimetableCard .masterDay{position:relative}
+ .v436MasterTimetableCard .masterDay:before{content:"";position:absolute;z-index:2;inset:0 0 auto;height:3px;background:linear-gradient(90deg,#6736a5 0%,#8b61c7 54%,#36a861 100%)}
+ .v436MasterTimetableCard .masterDayHead{background:radial-gradient(circle at 100% 0,rgba(54,168,97,.09),transparent 40%),linear-gradient(145deg,#fff,#f8f4fc)}
+ .v436MasterTimetableCard .v436MasterDayToggle{padding-top:17px}
+ .v436MasterTimetableCard .v436MasterDayToggle strong{color:#3f2461}
+ .v436MasterTimetableCard .v436MasterDayToggle span{justify-self:start;padding:4px 8px;border:1px solid #e5d9f1;border-radius:999px;background:#f4eef9;color:#6a4397;font-size:10.5px;font-weight:800}
+ .v436MasterTimetableCard .v436MasterDayToggle b{border:1px solid #dfd0ee;background:linear-gradient(145deg,#f4edf9,#edf7f0);color:#643995;box-shadow:0 4px 12px rgba(79,45,113,.08)}
+ .v436MasterTimetableCard .masterDay.expanded .v436MasterDayToggle b{background:linear-gradient(145deg,#eaddf5,#e8f5ec);color:#4e2b79}
+ .v436MasterTimetableCard .masterDayClasses{background:linear-gradient(180deg,#f8f5fb,#f7f9f8)}
+ .v436MasterTimetableCard .masterClassRow{grid-template-columns:minmax(0,1fr)!important;gap:9px!important;position:relative;overflow:hidden}
+ .v436MasterTimetableCard .masterClassRow:after{content:"";position:absolute;right:-24px;top:-28px;width:82px;height:82px;border-radius:50%;background:radial-gradient(circle,rgba(111,60,195,.055),transparent 70%);pointer-events:none}
+ .v436MasterTimetableCard .masterTime{justify-self:start;max-width:100%;padding:7px 10px;border:1px solid #e1d5ee;background:linear-gradient(145deg,#f3ebfa,#f8f4fc);color:#572c8a;white-space:nowrap;font-size:12.5px;letter-spacing:.01em}
+ .v436MasterTimetableCard .masterClassInfo{min-width:0;width:100%}
+ .v436MasterTimetableCard .masterClassInfo strong{overflow-wrap:anywhere;word-break:normal;font-size:16px;line-height:1.3;color:#292334}
+ .v436MasterTimetableCard .masterClassInfo span{align-self:flex-start;display:inline-flex;padding:4px 8px;border:1px solid #e3d8ed;border-radius:999px;background:#f7f1fa;color:#643b8c;font-size:10.5px;font-weight:800}
+ .v436MasterTimetableCard .masterClassInfo small{align-self:flex-start;display:inline-flex;margin-top:3px;padding:5px 8px;border-radius:8px;font-size:10.5px;font-weight:760}
+ .v436MasterTimetableCard .masterClassRow.assigned .masterClassInfo small{border:1px solid #cfe8d7;background:#edf8f0;color:#267747}
+ .v436MasterTimetableCard .masterClassRow.unassigned .masterClassInfo small{border:1px solid #eadbb7;background:#fff8e8;color:#8a6419}
+ .v436MasterTimetableCard .masterClassRow.assigned{border-left-color:#35a860!important}
+ .v436MasterTimetableCard .masterClassRow.unassigned{border-left-color:#c69231!important}
+ .v436MasterTimetableCard .masterClassActions{grid-column:1!important}
+ .v436MasterTimetableCard .masterClassActions .btnPrimary{background:linear-gradient(135deg,#5b2d91,#7545b6);box-shadow:0 6px 15px rgba(91,45,145,.14)}
+ .v436MasterTimetableCard .masterClassActions .btnSecondary{background:#fff}
+ .v436MasterTimetableCard .masterClassActions .btnDanger{background:#fff7f5;color:#a83a31;border-color:#efd8d4}
+ .v501MobileDayAdd{background:linear-gradient(110deg,#5d2f96,#7042ad 68%,#398e59 145%)}
+}
+@media(max-width:390px){
+ .v436MasterTimetableCard .masterClassRow{padding:13px!important}
+ .v436MasterTimetableCard .masterTime{font-size:12px}
+ .v436MasterTimetableCard .masterClassInfo strong{font-size:15px}
+}
