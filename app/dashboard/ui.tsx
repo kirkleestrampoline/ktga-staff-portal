@@ -123,6 +123,8 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const [timeAwayModal,setTimeAwayModal]=useState<TimeAwayRequest|null|undefined>(undefined);
   const [timeAwayDraft,setTimeAwayDraft]=useState({request_type:"holiday" as TimeAwayRequest["request_type"],start_date:"",end_date:"",all_day:true,start_time:"",end_time:"",notes:""});
   const [leaveSaving,setLeaveSaving]=useState(false);
+  const [adminTimeAwayProfileId,setAdminTimeAwayProfileId]=useState("");
+  const [adminTimeAwayStatus,setAdminTimeAwayStatus]=useState<"pending"|"approved">("approved");
 
   const totalHours=useMemo(()=>shifts.filter(s=>!s.approval_status||s.approval_status==="approved").reduce((a,s)=>a+shiftHours(s),0),[shifts]);
   const totalValue=totalHours*Number(activeCoach.hourly_rate||0);
@@ -146,8 +148,10 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     setTimeAwayRequests((data||[]) as TimeAwayRequest[]);
   }
 
-  function openNewTimeAway(type:TimeAwayRequest["request_type"]="holiday"){
+  function openNewTimeAway(type:TimeAwayRequest["request_type"]="holiday",profileId?:string){
     setTimeAwayDraft({request_type:type,start_date:"",end_date:"",all_day:true,start_time:"",end_time:"",notes:""});
+    setAdminTimeAwayProfileId(profileId||"");
+    setAdminTimeAwayStatus("approved");
     setTimeAwayModal(null);
   }
 
@@ -161,6 +165,8 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       end_time:r.end_time?.slice(0,5)||"",
       notes:r.notes||""
     });
+    setAdminTimeAwayProfileId(r.profile_id);
+    setAdminTimeAwayStatus(r.status==="approved"?"approved":"pending");
     setTimeAwayModal(r);
   }
 
@@ -172,8 +178,10 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     if(!timeAwayDraft.all_day&&timeAwayDraft.end_time<=timeAwayDraft.start_time){flash("Finish time must be after start time.");return}
 
     setLeaveSaving(true);
+    const targetProfileId=isAdmin?(adminTimeAwayProfileId||timeAwayModal?.profile_id||""):initialProfile.id;
+    if(isAdmin&&!targetProfileId){flash("Choose a staff member.");setLeaveSaving(false);return}
     const payload={
-      profile_id:timeAwayModal?.profile_id||initialProfile.id,
+      profile_id:targetProfileId,
       request_type:timeAwayDraft.request_type,
       start_date:timeAwayDraft.start_date,
       end_date:end,
@@ -185,9 +193,10 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
 
     let error:any=null;
     if(timeAwayModal?.id){
-      ({error}=await supabase.from("time_away_requests").update(payload).eq("id",timeAwayModal.id));
+      ({error}=await supabase.from("time_away_requests").update({...payload,...(isAdmin?{status:adminTimeAwayStatus,reviewed_by:adminTimeAwayStatus==="approved"?initialProfile.id:null,reviewed_at:adminTimeAwayStatus==="approved"?new Date().toISOString():null}:{})}).eq("id",timeAwayModal.id));
     }else{
-      ({error}=await supabase.from("time_away_requests").insert({...payload,status:"pending"}));
+      const status=isAdmin?adminTimeAwayStatus:"pending";
+      ({error}=await supabase.from("time_away_requests").insert({...payload,status,reviewed_by:isAdmin&&status==="approved"?initialProfile.id:null,reviewed_at:isAdmin&&status==="approved"?new Date().toISOString():null}));
     }
     setLeaveSaving(false);
     if(error){flash(error.message);return}
@@ -267,19 +276,32 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     return {state:"available" as const,label:"Available"};
   }
 
-  async function reassignScheduledWithAvailability(s:ScheduledShift,profileId:string){
-    if(!profileId){await reassignScheduled(s,profileId);return}
-    const conflicts=approvedConflictsForCoach(profileId,s.shift_date,s.start_time,s.finish_time);
-    if(conflicts.length){
-      const c=conflicts[0];
-      const label=c.request_type==="unavailable"?"unavailable":"on leave";
-      const detail=c.all_day?"for the full day":`${c.start_time?.slice(0,5)}–${c.end_time?.slice(0,5)}`;
-      const ok=confirm(`${profileById(profileId)?.full_name||"This coach"} is ${label} ${detail} on this date.\n\nAssign anyway?`);
-      if(!ok)return;
-    }
-    await reassignScheduled(s,profileId);
+  function scheduledOverlapsForCoach(profileId:string,shift:ScheduledShift){
+    const start=shift.start_time.slice(0,5),finish=shift.finish_time.slice(0,5);
+    return scheduledShifts.filter(x=>x.id!==shift.id&&x.profile_id===profileId&&x.shift_date===shift.shift_date&&x.status!=="cancelled"&&start<x.finish_time.slice(0,5)&&finish>x.start_time.slice(0,5));
   }
 
+  function coachAssignmentState(profileId:string,shift:ScheduledShift){
+    const away=approvedConflictsForCoach(profileId,shift.shift_date,shift.start_time,shift.finish_time);
+    if(away.length){const r=away[0];return{state:"away" as const,label:r.all_day?(r.request_type==="unavailable"?"Unavailable · full day":"Leave · full day"):`${r.request_type==="unavailable"?"Unavailable":"Leave"} · ${r.start_time?.slice(0,5)}–${r.end_time?.slice(0,5)}`}}
+    const working=scheduledOverlapsForCoach(profileId,shift);
+    if(working.length)return{state:"working" as const,label:`Already coaching · ${working[0].start_time.slice(0,5)}–${working[0].finish_time.slice(0,5)} ${working[0].class_name}`};
+    const pending=pendingConflictsForCoach(profileId,shift.shift_date,shift.start_time,shift.finish_time);
+    if(pending.length){const r=pending[0];return{state:"pending" as const,label:r.all_day?"Pending time-away request":`Pending request · ${r.start_time?.slice(0,5)}–${r.end_time?.slice(0,5)}`}}
+    return{state:"available" as const,label:"Available"};
+  }
+
+  async function reassignScheduledWithAvailability(s:ScheduledShift,profileId:string){
+    if(!profileId){await reassignScheduled(s,profileId);return true}
+    const state=coachAssignmentState(profileId,s);
+    if(state.state!=="available"){
+      const name=profileById(profileId)?.full_name||"This coach";
+      const title=state.state==="away"?"has approved time away":state.state==="working"?"is already coaching another overlapping session":"has a pending time-away request";
+      const ok=confirm(`${name} ${title}.\n\n${state.label}\n\nAssign anyway?`);
+      if(!ok)return false;
+    }
+    await reassignScheduled(s,profileId);return true;
+  }
 
 
   async function loadCoachMonth(coachId:string){
@@ -1254,6 +1276,16 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const pendingAdditionalCount=pendingAdditionalScope.length;
   const today=new Date().toISOString().slice(0,10);
   const pendingLeaveCount=timeAwayRequests.filter(r=>r.status==="pending").length;
+  const schedulingWarnings=plannedSchedule.flatMap<{shift:ScheduledShift;type:"away"|"working"|"pending";label:string}>(s=>{
+    if(!s.profile_id)return[];
+    const a=approvedConflictsForCoach(s.profile_id,s.shift_date,s.start_time,s.finish_time);
+    const d=scheduledOverlapsForCoach(s.profile_id,s);
+    const p=pendingConflictsForCoach(s.profile_id,s.shift_date,s.start_time,s.finish_time);
+    if(a.length)return[{shift:s,type:"away" as const,label:`${profileById(s.profile_id)?.full_name||"Coach"} has approved time away`}];
+    if(d.length)return[{shift:s,type:"working" as const,label:`${profileById(s.profile_id)?.full_name||"Coach"} is double booked`}];
+    if(p.length)return[{shift:s,type:"pending" as const,label:`${profileById(s.profile_id)?.full_name||"Coach"} has a pending time-away request`}];
+    return[];
+  });
   const approvedLeaveCount=timeAwayRequests.filter(r=>r.status==="approved").length;
   const submittedCount=adminRows.filter(r=>r.timesheet?.status==="submitted"||r.timesheet?.status==="paid").length;
   const unpaidTotal=allInvoices.filter((i:any)=>i.status==="awaiting_payment").reduce((a:number,i:any)=>a+Number(i.total_amount||0),0);
@@ -1282,7 +1314,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   return <div className="portal">
     <Sidebar tab={tab} setTab={(t:any)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v3.4.1</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v4.0.0</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
         {tab!=="schedule"&&mobilePageMeta&&<div className="v303MobilePageHero">
           <span>{mobilePageMeta.eyebrow}</span>
@@ -1324,7 +1356,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
 
   function DashboardView(){
     if(isAdmin)return <><PageHead title={`Good ${new Date().getHours()<12?"morning":new Date().getHours()<18?"afternoon":"evening"}, ${initialProfile.full_name.split(" ")[0]}`} sub="Your current staffing, timesheet and invoice position."><div className="row"><button className="btn btnSecondary" onClick={()=>{setAdminPersonalRota(true);setTab("schedule")}}>My Schedule</button><MonthSelect/></div></PageHead>
-      <div className="grid grid4"><StatCard label="Active coaches" value={String(adminRows.length)} foot="Self-employed staff" icon={<UsersIcon/>}/><StatCard label="Hours this month" value={adminHours.toFixed(2)} foot={monthLabel(month)} icon={<ClockIcon/>}/><StatCard label="Submitted" value={`${submittedCount}/${adminRows.length}`} foot={`${Math.max(0,adminRows.length-submittedCount)} outstanding`} icon={<CheckIcon/>}/><StatCard label="Unpaid invoices" value={money(unpaidTotal)} foot="Awaiting payment" icon={<PoundIcon/>}/></div>{pendingLeaveCount>0&&<button className="v33DashboardAlert" onClick={()=>setTab("leave")}><div className="v33AlertIcon"><CalendarIcon/></div><div><strong>{pendingLeaveCount} leave / availability {pendingLeaveCount===1?"request":"requests"} awaiting review</strong><span>Open Leave Management to approve or decline.</span></div><span className="v33AlertCount">{pendingLeaveCount}</span></button>}{timeAwayRequests.filter(r=>r.status==="approved"&&r.start_date<=today&&r.end_date>=today).length>0&&<button className="v340AwayToday" onClick={()=>setTab("leave")}><div><span>Away today</span><strong>{timeAwayRequests.filter(r=>r.status==="approved"&&r.start_date<=today&&r.end_date>=today).length} staff unavailable</strong></div><div className="v340AwayNames">{timeAwayRequests.filter(r=>r.status==="approved"&&r.start_date<=today&&r.end_date>=today).slice(0,3).map(r=><span key={r.id}>{profileById(r.profile_id)?.full_name||"Staff"}</span>)}</div></button>}
+      <div className="grid grid4"><StatCard label="Active coaches" value={String(adminRows.length)} foot="Self-employed staff" icon={<UsersIcon/>}/><StatCard label="Hours this month" value={adminHours.toFixed(2)} foot={monthLabel(month)} icon={<ClockIcon/>}/><StatCard label="Submitted" value={`${submittedCount}/${adminRows.length}`} foot={`${Math.max(0,adminRows.length-submittedCount)} outstanding`} icon={<CheckIcon/>}/><StatCard label="Unpaid invoices" value={money(unpaidTotal)} foot="Awaiting payment" icon={<PoundIcon/>}/></div>{pendingLeaveCount>0&&<button className="v33DashboardAlert" onClick={()=>setTab("leave")}><div className="v33AlertIcon"><CalendarIcon/></div><div><strong>{pendingLeaveCount} leave / availability {pendingLeaveCount===1?"request":"requests"} awaiting review</strong><span>Open Leave Management to approve or decline.</span></div><span className="v33AlertCount">{pendingLeaveCount}</span></button>}{timeAwayRequests.filter(r=>r.status==="approved"&&r.start_date<=today&&r.end_date>=today).length>0&&<button className="v340AwayToday" onClick={()=>setTab("leave")}><div><span>Away today</span><strong>{timeAwayRequests.filter(r=>r.status==="approved"&&r.start_date<=today&&r.end_date>=today).length} staff unavailable</strong></div><div className="v340AwayNames">{timeAwayRequests.filter(r=>r.status==="approved"&&r.start_date<=today&&r.end_date>=today).slice(0,3).map(r=><span key={r.id}>{profileById(r.profile_id)?.full_name||"Staff"}</span>)}</div></button>}{schedulingWarnings.length>0&&<button className="v400Warnings" onClick={()=>setTab("schedule")}><div><span>Scheduling warnings</span><strong>{schedulingWarnings.length} issue{schedulingWarnings.length===1?"":"s"} need attention</strong><small>{schedulingWarnings.slice(0,3).map(w=>w.label).join(" · ")}</small></div><b>{schedulingWarnings.length}</b></button>}
       <div className="grid grid4 section forecastCards"><StatCard label="Normal staffing cost" value={money(normalCost)} foot="Based on regular classes" icon={<CalendarIcon/>}/><StatCard label="Current forecast" value={money(forecastCost)} foot={`${unassignedScheduleCount} unassigned shifts`} icon={<PoundIcon/>}/><StatCard label="Actual cost so far" value={money(actualScheduleCost)} foot="Confirmed timesheet hours" icon={<CheckIcon/>}/><StatCard label="Forecast variance" value={money(forecastCost-normalCost)} foot={forecastCost>normalCost?"Above normal plan":"At / below normal plan"} icon={<ChartIcon/>}/></div>
       <div className="card section todayCoaching"><div className="sectionHeader"><div><h2>Today's coaching</h2><p>{new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</p></div><button className="btn btnSecondary" onClick={()=>setTab("schedule")}>Open schedule</button></div><div className="todayShiftGrid">{scheduledShifts.filter(s=>s.shift_date===new Date().toISOString().slice(0,10)&&s.status!=="cancelled").sort((a,b)=>a.start_time.localeCompare(b.start_time)).map(s=><div className="todayShiftCard" key={s.id}><div><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</strong><span>{s.class_name} · {venueName(s.venue_id)}</span></div><b>{profileById(s.profile_id)?.full_name||"Unassigned"}</b></div>)}{!scheduledShifts.some(s=>s.shift_date===new Date().toISOString().slice(0,10)&&s.status!=="cancelled")&&<div className="empty">No coaching scheduled today.</div>}</div></div>
       <div className="grid grid2 section"><div className="card"><div className="sectionHeader"><div><h2>Monthly status</h2><p>Open a coach to review or edit their shifts.</p></div><button className="btn btnSecondary" onClick={()=>setTab("timesheets")}>View all</button></div><div className="mobileDataList">{adminRows.slice(0,8).map(r=><button className="mobileDataCard" key={r.coach.id} onClick={()=>selectCoach(r.coach)}><div><strong>{r.coach.full_name}</strong><span>{r.hours.toFixed(2)} hours</span></div><StatusPill status={r.timesheet?.status}/></button>)}</div><div className="tableWrap desktopDataTable"><table><thead><tr><th>Coach</th><th className="num">Hours</th><th>Status</th><th></th></tr></thead><tbody>{adminRows.slice(0,8).map(r=><tr key={r.coach.id}><td><strong>{r.coach.full_name}</strong></td><td className="num">{r.hours.toFixed(2)}</td><td><StatusPill status={r.timesheet?.status}/></td><td><button className="btn btnSecondary" onClick={()=>selectCoach(r.coach)}>Open</button></td></tr>)}</tbody></table></div></div>
@@ -1501,7 +1533,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       });
       const pending=leaveScope.filter(r=>r.status==="pending");
       const upcomingApproved=leaveScope.filter(r=>r.status==="approved"&&r.end_date>=today);
-      return <><PageHead title="Leave Management" sub="Review and manage staff leave and unavailable periods."><select value={scheduleFilter} onChange={e=>setScheduleFilter(e.target.value)}><option value="">All organisations</option>{adminVenues().map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select></PageHead>
+      return <><PageHead title="Leave Management" sub="Review and manage staff leave and unavailable periods."><div className="row"><select value={scheduleFilter} onChange={e=>setScheduleFilter(e.target.value)}><option value="">All organisations</option>{adminVenues().map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select><button className="btn btnPrimary" onClick={()=>openNewTimeAway()}>+ New Time Away</button></div></PageHead>
         <div className="grid grid3 v33Summary"><StatCard label="Awaiting review" value={String(pending.length)} foot="Needs an admin decision" icon={<ClockIcon/>}/><StatCard label="Approved upcoming" value={String(upcomingApproved.length)} foot="Leave & unavailable periods" icon={<CheckIcon/>}/><StatCard label="Unavailable" value={String(leaveScope.filter(r=>r.status==="approved"&&r.request_type==="unavailable"&&r.end_date>=today).length)} foot="Upcoming approved" icon={<CalendarIcon/>}/></div>
 
         {pending.length>0&&<section className="card section v33ApprovalSection"><div className="sectionHeader"><div><h3>Awaiting approval</h3><p>Requests submitted by staff.</p></div><span className="v33CountBadge">{pending.length}</span></div><div className="v33RequestList">
@@ -1533,7 +1565,8 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   function TimeAwayModal(){
     const editing=Boolean(timeAwayModal?.id);
     const adminEditing=isAdmin&&editing;
-    return <div className="modalBackdrop"><div className="modal v33LeaveModal"><div className="modalHead"><div><h2>{editing?"Edit time away":"Request time away"}</h2><p className="muted" style={{fontSize:11,margin:"4px 0 0"}}>{adminEditing?"Changes apply immediately to this request.":"This will be sent to administrators for approval."}</p></div><button className="iconButton" onClick={()=>setTimeAwayModal(undefined)}>×</button></div><div className="modalBody">
+    return <div className="modalBackdrop"><div className="modal v33LeaveModal"><div className="modalHead"><div><h2>{editing?"Edit time away":"Request time away"}</h2><p className="muted" style={{fontSize:11,margin:"4px 0 0"}}>{adminEditing?"Changes apply immediately to this request.":isAdmin?"Create time away for any staff member.":"This will be sent to administrators for approval."}</p></div><button className="iconButton" onClick={()=>setTimeAwayModal(undefined)}>×</button></div><div className="modalBody">
+      {isAdmin&&<div className="grid grid2"><div className="field"><label>Staff member</label><select value={adminTimeAwayProfileId} onChange={e=>setAdminTimeAwayProfileId(e.target.value)}><option value="">Choose staff member</option>{staff.filter(p=>p.is_active).map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select></div><div className="field"><label>Status</label><select value={adminTimeAwayStatus} onChange={e=>setAdminTimeAwayStatus(e.target.value as any)}><option value="approved">Approved</option><option value="pending">Pending</option></select></div></div>}
       <div className="field"><label>Type</label><select value={timeAwayDraft.request_type} onChange={e=>setTimeAwayDraft({...timeAwayDraft,request_type:e.target.value as any})}><option value="holiday">Leave</option><option value="sickness">Sickness</option><option value="appointment">Appointment</option><option value="compassionate">Compassionate leave</option><option value="unavailable">Unavailable</option><option value="other">Other</option></select></div>
 
       <div className="field"><label>Duration</label><div className="v33Segmented v331Duration"><button type="button" className={timeAwayDraft.all_day?"active":""} onClick={()=>setTimeAwayDraft({...timeAwayDraft,all_day:true,start_time:"",end_time:""})}>Full day</button><button type="button" className={!timeAwayDraft.all_day?"active":""} onClick={()=>setTimeAwayDraft({...timeAwayDraft,all_day:false,end_date:timeAwayDraft.start_date})}>Specific hours</button></div></div>
@@ -1632,7 +1665,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       </div>
       <div className="modalBody">
         <div className="v311ShiftSummary"><div><span>Organisation</span><strong>{venueName(s.venue_id)}</strong></div><div><span>Planned hours</span><strong>{scheduleHours(s).toFixed(2)}h</strong></div><div><span>Status</span><strong className={`scheduleStatus ${s.status}`}>{s.adjustment_status==="pending"?"Approval pending":s.status}</strong></div></div>
-        <div className="field"><label>Assigned coach</label><select value={s.profile_id||""} disabled={s.status==="cancelled"||s.status==="confirmed"} onChange={async e=>{const value=e.target.value;await reassignScheduledWithAvailability(s,value);setAdminScheduleShift({...s,profile_id:value||null})}}><option value="">Unassigned</option>{allowed.map(p=>{const availability=coachAvailabilityState(p.id,s.shift_date,s.start_time,s.finish_time);return <option key={p.id} value={p.id}>{p.full_name} — {availability.state==="away"?"NOT AVAILABLE":availability.state==="pending"?"PENDING REQUEST":"Available"}{availability.state!=="available"?` · ${availability.label}`:""}</option>})}</select>{s.profile_id&&coachAvailabilityState(s.profile_id,s.shift_date,s.start_time,s.finish_time).state!=="available"&&<div className={`v341AvailabilityNotice ${coachAvailabilityState(s.profile_id,s.shift_date,s.start_time,s.finish_time).state}`}><strong>{coachAvailabilityState(s.profile_id,s.shift_date,s.start_time,s.finish_time).state==="away"?"Approved time away":"Pending time-away request"}</strong><span>{coachAvailabilityState(s.profile_id,s.shift_date,s.start_time,s.finish_time).label}</span></div>}</div>
+        <div className="field"><label>Assigned coach</label><div className="v400AssignmentPanel">{(["available","pending","away","working"] as const).map(group=>{const people=allowed.map(p=>({p,state:coachAssignmentState(p.id,s)})).filter(x=>x.state.state===group);if(!people.length)return null;return <div className={`v400AssignGroup ${group}`} key={group}><span>{group==="available"?"Available":group==="pending"?"Pending request":group==="away"?"Away":"Already coaching"}</span><div>{people.map(({p,state})=><button type="button" disabled={s.status==="cancelled"||s.status==="confirmed"} className={s.profile_id===p.id?"selected":""} key={p.id} onClick={async()=>{const changed=await reassignScheduledWithAvailability(s,p.id);if(changed)setAdminScheduleShift({...s,profile_id:p.id})}}><strong>{p.full_name}</strong><small>{state.label}</small></button>)}</div></div>})}<button type="button" className="v400Unassign" disabled={!s.profile_id||s.status==="cancelled"||s.status==="confirmed"} onClick={async()=>{await reassignScheduledWithAvailability(s,"");setAdminScheduleShift({...s,profile_id:null})}}>Set unassigned</button></div></div>
         <div className="v311AdminActions">
           {s.adjustment_status==="pending"&&<button className="btn btnAccent" onClick={async()=>{await approveRotaAdjustment(s);setAdminScheduleShift(null)}}>Approve extra time</button>}
           {s.status==="scheduled"&&s.profile_id&&<button className="btn btnPrimary" onClick={async()=>{await confirmScheduled(s);setAdminScheduleShift(null)}}>Confirm worked</button>}
