@@ -20,11 +20,14 @@ export default function LoginPage(){
     event.preventDefault();setBusy(true);setMessage("");
     const{data,error}=await supabase.auth.signInWithPassword({email,password});
     if(error){setBusy(false);setMessage(error.message);return}
+    let forceReset=false;
     if(data.user){
       await supabase.from("profiles").update({last_login_at:new Date().toISOString()}).eq("id",data.user.id);
+      const{data:profile}=await supabase.from("profiles").select("force_password_reset").eq("id",data.user.id).single();
+      forceReset=Boolean(profile?.force_password_reset);
     }
     setBusy(false);
-    window.location.href="/dashboard";
+    window.location.href=forceReset?"/set-password?mode=forced":"/dashboard";
   }
 
   async function resetPassword(){

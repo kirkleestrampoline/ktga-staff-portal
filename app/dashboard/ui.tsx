@@ -17,7 +17,7 @@ type Profile={
   emergency_contact_name?:string|null;emergency_contact_phone?:string|null;
   dbs_expiry?:string|null;first_aid_expiry?:string|null;safeguarding_expiry?:string|null;qualifications?:string|null;
   job_title?:string|null;employment_status?:string|null;start_date?:string|null;payroll_id?:string|null;
-  last_login_at?:string|null;force_password_reset?:boolean|null;admin_notes?:string|null;
+  last_login_at?:string|null;force_password_reset?:boolean|null;password_changed_at?:string|null;admin_notes?:string|null;
 };
 type Venue={id:string;name:string;slug:string;active:boolean;brand_color:string|null;legal_name?:string|null;invoice_address?:string|null;invoice_prefix?:string|null;payment_note?:string|null};
 type ShiftTemplate={id:string;profile_id:string;venue_id:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;session_location:string|null;notes:string|null;active:boolean};
@@ -112,6 +112,10 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const [newPassword,setNewPassword]=useState("");
   const [confirmNewPassword,setConfirmNewPassword]=useState("");
   const [passwordBusy,setPasswordBusy]=useState(false);
+  const [temporaryPassword,setTemporaryPassword]=useState("");
+  const [temporaryPasswordConfirm,setTemporaryPasswordConfirm]=useState("");
+  const [forceTempPasswordChange,setForceTempPasswordChange]=useState(true);
+  const [temporaryPasswordBusy,setTemporaryPasswordBusy]=useState(false);
 
   const totalHours=useMemo(()=>shifts.filter(s=>!s.approval_status||s.approval_status==="approved").reduce((a,s)=>a+shiftHours(s),0),[shifts]);
   const totalValue=totalHours*Number(activeCoach.hourly_rate||0);
@@ -248,6 +252,9 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   function selectCoach(c:Profile){setActiveCoach(c);setTab("timesheets")}
   async function openStaffEdit(s:Profile){
     setStaffPanel("profile");
+    setTemporaryPassword("");
+    setTemporaryPasswordConfirm("");
+    setForceTempPasswordChange(true);
     setStaffEdit({...s});setStaffEditVenueIds(staffVenueMap[s.id]||[]);
     const{data}=await supabase.from("staff_venues").select("venue_id,is_admin").eq("profile_id",s.id);
     setStaffEditAdminVenueIds((data||[]).filter((x:any)=>x.is_admin).map((x:any)=>x.venue_id));
@@ -449,6 +456,49 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     if(!error){void loadAdmin();if(activeCoach.id===row.coach.id)void loadCoachMonth(row.coach.id);void loadInvoices();void loadAudits()}
   }
 
+  function generateTemporaryPassword(){
+    const upper="ABCDEFGHJKLMNPQRSTUVWXYZ",lower="abcdefghijkmnopqrstuvwxyz",nums="23456789",symbols="!@#$%*?";
+    const all=upper+lower+nums+symbols;
+    const pick=(chars:string)=>chars[Math.floor(Math.random()*chars.length)];
+    let value=pick(upper)+pick(lower)+pick(nums)+pick(symbols);
+    for(let i=0;i<8;i++)value+=pick(all);
+    value=value.split("").sort(()=>Math.random()-.5).join("");
+    setTemporaryPassword(value);setTemporaryPasswordConfirm(value);
+  }
+
+  async function setStaffTemporaryPassword(s:Profile){
+    if(!s.email){flash("Add an email address and enable portal access first.");return}
+    if(temporaryPassword.length<8){flash("Temporary password must be at least 8 characters.");return}
+    if(temporaryPassword!==temporaryPasswordConfirm){flash("The temporary passwords do not match.");return}
+    setTemporaryPasswordBusy(true);
+    try{
+      const res=await fetch("/api/staff-access",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          action:"set_password",
+          profile_id:s.id,
+          password:temporaryPassword,
+          force_password_reset:forceTempPasswordChange
+        })
+      });
+      const body=await res.json();
+      if(!res.ok)throw new Error(body.error||"Could not set password");
+      const updated={...s,force_password_reset:forceTempPasswordChange,password_changed_at:new Date().toISOString()};
+      setStaffEdit(updated);
+      setTemporaryPassword("");setTemporaryPasswordConfirm("");
+      flash(forceTempPasswordChange?"Temporary password set. Coach must choose a new password after signing in.":"Password set successfully.");
+      void loadStaff();
+    }catch(e:any){flash(e?.message||"Could not set password")}
+    finally{setTemporaryPasswordBusy(false)}
+  }
+
+  async function copyTemporaryPassword(){
+    if(!temporaryPassword){flash("Generate or enter a temporary password first.");return}
+    await navigator.clipboard.writeText(temporaryPassword);
+    flash("Temporary password copied.");
+  }
+
   async function sendPasswordResetEmail(s:Profile){
     if(!s.email){flash("Add an email address before sending a password reset.");return}
     const{error}=await supabase.auth.resetPasswordForEmail(s.email,{redirectTo:`${window.location.origin}/set-password?mode=recovery&email=${encodeURIComponent(s.email)}`});
@@ -469,7 +519,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     if(newPassword!==confirmNewPassword){flash("The new passwords do not match.");return}
     setPasswordBusy(true);
     const{error}=await supabase.auth.updateUser({password:newPassword});
-    if(!error)await supabase.from("profiles").update({force_password_reset:false}).eq("id",initialProfile.id);
+    if(!error)await supabase.from("profiles").update({force_password_reset:false,password_changed_at:new Date().toISOString()}).eq("id",initialProfile.id);
     setPasswordBusy(false);
     if(error){flash(error.message);return}
     setNewPassword("");setConfirmNewPassword("");
@@ -1014,7 +1064,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   return <div className="portal">
     <Sidebar tab={tab} setTab={(t:any)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v3.2.0</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v3.2.1</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
         {tab!=="schedule"&&mobilePageMeta&&<div className="v303MobilePageHero">
           <span>{mobilePageMeta.eyebrow}</span>
@@ -1430,7 +1480,10 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       <div className="modalBody v32StaffBody">
         {staffPanel==="profile"&&<><div className="grid grid2"><div className="field"><label>Name</label><input value={s.full_name} onChange={e=>setStaffEdit({...s,full_name:e.target.value})}/></div><div className="field"><label>Phone</label><input value={s.phone||""} onChange={e=>setStaffEdit({...s,phone:e.target.value})}/></div></div><div className="field"><label>Address</label><textarea value={s.address||""} onChange={e=>setStaffEdit({...s,address:e.target.value})}/></div><div className="grid grid2"><div className="field"><label>Emergency contact</label><input value={s.emergency_contact_name||""} onChange={e=>setStaffEdit({...s,emergency_contact_name:e.target.value})}/></div><div className="field"><label>Emergency phone</label><input value={s.emergency_contact_phone||""} onChange={e=>setStaffEdit({...s,emergency_contact_phone:e.target.value})}/></div></div><div className="grid grid3"><div className="field"><label>DBS expiry</label><input type="date" value={s.dbs_expiry||""} onChange={e=>setStaffEdit({...s,dbs_expiry:e.target.value})}/></div><div className="field"><label>First Aid</label><input type="date" value={s.first_aid_expiry||""} onChange={e=>setStaffEdit({...s,first_aid_expiry:e.target.value})}/></div><div className="field"><label>Safeguarding</label><input type="date" value={s.safeguarding_expiry||""} onChange={e=>setStaffEdit({...s,safeguarding_expiry:e.target.value})}/></div></div></>}
         {staffPanel==="employment"&&<><div className="grid grid2"><div className="field"><label>Job title</label><input value={s.job_title||""} onChange={e=>setStaffEdit({...s,job_title:e.target.value})} placeholder="e.g. Head Coach"/></div><div className="field"><label>Employment status</label><select value={s.employment_status||"active"} onChange={e=>setStaffEdit({...s,employment_status:e.target.value})}><option value="active">Active</option><option value="casual">Casual</option><option value="contractor">Contractor</option><option value="leaver">Leaver</option></select></div></div><div className="grid grid2"><div className="field"><label>Start date</label><input type="date" value={s.start_date||""} onChange={e=>setStaffEdit({...s,start_date:e.target.value})}/></div><div className="field"><label>Payroll ID</label><input value={s.payroll_id||""} onChange={e=>setStaffEdit({...s,payroll_id:e.target.value})}/></div></div><div className="grid grid2"><div className="field"><label>Hourly rate</label><input type="number" step="0.01" value={s.hourly_rate} onChange={e=>setStaffEdit({...s,hourly_rate:Number(e.target.value)})}/></div>{isGlobalAdmin&&<div className="field"><label>Account type</label><select value={s.role} onChange={e=>setStaffEdit({...s,role:e.target.value as any})}><option value="coach">Coach</option><option value="org_admin">Organisation admin</option><option value="admin">Super admin</option></select></div>}</div><div className="field"><label>Works at</label><div className="checkGrid">{adminVenues().map(v=><label className="checkCard" key={v.id}><input type="checkbox" checked={staffEditVenueIds.includes(v.id)} onChange={e=>{const ids=e.target.checked?[...staffEditVenueIds,v.id]:staffEditVenueIds.filter(x=>x!==v.id);setStaffEditVenueIds(ids);if(!ids.includes(v.id))setStaffEditAdminVenueIds(staffEditAdminVenueIds.filter(x=>x!==v.id))}}/><span><strong>{v.name}</strong>{s.role==="org_admin"&&isGlobalAdmin&&<small><input type="checkbox" checked={staffEditAdminVenueIds.includes(v.id)} onChange={e=>setStaffEditAdminVenueIds(e.target.checked?[...new Set([...staffEditAdminVenueIds,v.id])]:staffEditAdminVenueIds.filter(x=>x!==v.id))}/> Admin for this organisation</small>}</span></label>)}</div></div><div className="grid grid2"><div className="field"><label>Account name</label><input value={s.account_name||""} onChange={e=>setStaffEdit({...s,account_name:e.target.value})}/></div><div className="field"><label>UTR</label><input value={s.utr||""} onChange={e=>setStaffEdit({...s,utr:e.target.value})}/></div></div></>}
-        {staffPanel==="security"&&<><div className="v32SecurityOverview"><div><span>Portal access</span><strong>{hasPortal?"Enabled":"Not invited"}</strong></div><div><span>Account status</span><strong>{s.is_active?"Active":"Inactive"}</strong></div><div><span>Last sign in</span><strong>{s.last_login_at?new Date(s.last_login_at).toLocaleString("en-GB"):"Never"}</strong></div></div><div className="v32SecurityActions">{hasPortal?<><button className="btn btnPrimary" onClick={()=>sendPasswordResetEmail(s)}>Send password reset email</button><button className="btn btnSecondary" onClick={()=>createSetupLink(s)}>Copy secure setup/reset link</button><button className="btn btnSecondary" onClick={()=>toggleForcePasswordReset(s)}>{s.force_password_reset?"Remove forced password change":"Require password change"}</button></>:<button className="btn btnAccent" onClick={()=>inviteExistingStaff(s)}>Invite to portal</button>}<button className={`btn ${s.is_active?"btnDanger":"btnAccent"}`} onClick={()=>setStaffEdit({...s,is_active:!s.is_active})}>{s.is_active?"Disable account":"Enable account"}</button></div><div className="notice">Account status changes are applied when you press <strong>Save staff</strong>. Password-reset emails are sent immediately.</div></>}
+        {staffPanel==="security"&&<><div className="v32SecurityOverview"><div><span>Portal access</span><strong>{hasPortal?"Enabled":"Not invited"}</strong></div><div><span>Account status</span><strong>{s.is_active?"Active":"Inactive"}</strong></div><div><span>Last sign in</span><strong>{s.last_login_at?new Date(s.last_login_at).toLocaleString("en-GB"):"Never"}</strong></div></div>
+        {hasPortal?<><div className="v321Credentials"><div className="v321CredentialsHead"><div><span>Credentials</span><strong>Set a temporary password</strong><p>Useful when onboarding a coach in person. They can still change their password themselves at any time.</p></div><button className="btn btnSecondary" type="button" onClick={generateTemporaryPassword}>Generate</button></div><div className="grid grid2"><div className="field"><label>Temporary password</label><input type="text" autoComplete="off" value={temporaryPassword} onChange={e=>setTemporaryPassword(e.target.value)} placeholder="Minimum 8 characters"/></div><div className="field"><label>Confirm password</label><input type="text" autoComplete="off" value={temporaryPasswordConfirm} onChange={e=>setTemporaryPasswordConfirm(e.target.value)}/></div></div><label className="v321ForceCheck"><input type="checkbox" checked={forceTempPasswordChange} onChange={e=>setForceTempPasswordChange(e.target.checked)}/><span><strong>Require password change after login</strong><small>Recommended for temporary passwords.</small></span></label><div className="v321CredentialButtons"><button className="btn btnSecondary" type="button" disabled={!temporaryPassword} onClick={copyTemporaryPassword}>Copy password</button><button className="btn btnPrimary" type="button" disabled={temporaryPasswordBusy} onClick={()=>setStaffTemporaryPassword(s)}>{temporaryPasswordBusy?"Setting…":"Set password"}</button></div></div>
+        <div className="v321SecurityDivider"><span>Other access options</span></div><div className="v32SecurityActions"><button className="btn btnSecondary" onClick={()=>sendPasswordResetEmail(s)}>Send password reset email</button><button className="btn btnSecondary" onClick={()=>createSetupLink(s)}>Copy secure reset link</button><button className="btn btnSecondary" onClick={()=>toggleForcePasswordReset(s)}>{s.force_password_reset?"Remove forced password change":"Require password change"}</button><button className={`btn ${s.is_active?"btnDanger":"btnAccent"}`} onClick={()=>setStaffEdit({...s,is_active:!s.is_active})}>{s.is_active?"Disable account":"Enable account"}</button></div></>:<div className="v321NoPortal"><strong>This staff member does not have portal access yet.</strong><span>Add their email and invite them when you're ready for them to log in.</span><button className="btn btnAccent" onClick={()=>inviteExistingStaff(s)}>Invite to portal</button></div>}
+        <div className="v321PasswordMeta"><div><span>Password last changed</span><strong>{s.password_changed_at?new Date(s.password_changed_at).toLocaleString("en-GB"):"Not recorded"}</strong></div><div><span>Next login</span><strong>{s.force_password_reset?"Password change required":"Normal access"}</strong></div></div><div className="notice">Account status changes are applied when you press <strong>Save staff</strong>. Password and reset actions are applied immediately.</div></>}
         {staffPanel==="notes"&&<><div className="field"><label>Private admin notes</label><textarea className="v32Notes" value={s.admin_notes||""} onChange={e=>setStaffEdit({...s,admin_notes:e.target.value})} placeholder="Notes visible to administrators only."/></div><div className="notice">Documents and qualification uploads will build on this profile in v3.5.</div></>}
       </div>
       <div className="modalFoot staffModalFoot"><div className="row"><button className="btn btnDanger" onClick={()=>deleteStaffAccount(s)}>Delete account</button></div><div className="row"><button className="btn btnSecondary" onClick={()=>setStaffEdit(null)}>Cancel</button><button className="btn btnPrimary" onClick={saveStaff} disabled={saving}>{saving?"Saving…":"Save staff"}</button></div></div>
