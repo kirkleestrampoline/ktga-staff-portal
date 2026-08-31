@@ -571,3 +571,34 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);box-shadow:0 0 
   .masterClassRow{grid-template-columns:1fr}
   .masterClassActions{grid-column:auto;min-width:0}
 }
+
+/* AV_V2_0_6_MASTER_FIX_START */
+/* AV Gymnastics Solutions v2.0.6 — master editor visibility fix */
+.masterClassRow{
+  grid-template-columns:92px minmax(0,1fr)!important;
+  gap:10px!important;
+  align-items:start!important;
+  overflow:visible!important;
+}
+.masterClassClickable{cursor:pointer;transition:border-color .15s ease,background .15s ease}
+.masterClassClickable:hover{background:#fcfbfd}
+.masterClassClickable:focus{outline:2px solid rgba(109,58,145,.28);outline-offset:-2px}
+.masterClassInfo{padding-right:0!important;min-width:0}
+.masterClassInfo em{font-size:10px;color:var(--navy);font-style:normal;font-weight:750;margin-top:3px}
+.masterClassActions{
+  grid-column:1/-1!important;
+  min-width:0!important;
+  width:100%!important;
+  display:grid!important;
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:7px!important;
+  justify-content:stretch!important;
+}
+.masterClassActions .btn{width:100%!important;min-width:0!important;white-space:nowrap}
+@media(max-width:620px){
+  .masterClassRow{grid-template-columns:1fr!important}
+  .masterTime{margin-bottom:1px}
+  .masterClassActions{grid-template-columns:1fr 1fr!important}
+  .masterClassActions .btnDanger{grid-column:1/-1}
+}
+/* AV_V2_0_6_MASTER_FIX_END */
