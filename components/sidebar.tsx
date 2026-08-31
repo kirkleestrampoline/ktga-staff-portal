@@ -3,7 +3,7 @@
 import { CalendarIcon, ChartIcon, ClockIcon, HomeIcon, InvoiceIcon, SettingsIcon, UserIcon, UsersIcon } from "./icons";
 import AvLogo from "./av-logo";
 
-type Tab="dashboard"|"schedule"|"timesheets"|"invoices"|"staff"|"reports"|"settings"|"profile";
+type Tab="dashboard"|"schedule"|"leave"|"timesheets"|"invoices"|"staff"|"reports"|"settings"|"profile";
 
 export default function Sidebar({tab,setTab,name,role,onSignOut,mobileOpen,onClose}:{tab:Tab;setTab:(t:Tab)=>void;name:string;role:string;onSignOut:()=>void;mobileOpen:boolean;onClose:()=>void}){
   const admin=role==="admin"||role==="org_admin";
@@ -11,6 +11,7 @@ export default function Sidebar({tab,setTab,name,role,onSignOut,mobileOpen,onClo
   const adminItems:{id:Tab;label:string;icon:any}[]=[
     {id:"dashboard",label:"Overview",icon:HomeIcon},
     {id:"schedule",label:"Schedule",icon:CalendarIcon},
+    {id:"leave",label:"Leave",icon:ClockIcon},
     {id:"timesheets",label:"Payroll",icon:ClockIcon},
     {id:"invoices",label:"Invoices",icon:InvoiceIcon},
     {id:"staff",label:"People",icon:UsersIcon},
@@ -20,6 +21,7 @@ export default function Sidebar({tab,setTab,name,role,onSignOut,mobileOpen,onClo
   ];
   const coachItems:{id:Tab;label:string;icon:any}[]=[
     {id:"schedule",label:"My Schedule",icon:CalendarIcon},
+    {id:"leave",label:"Leave & Availability",icon:ClockIcon},
     {id:"timesheets",label:"My Timesheet",icon:ClockIcon},
     {id:"invoices",label:"My Payslips",icon:InvoiceIcon},
     {id:"profile",label:"My Profile",icon:UserIcon},

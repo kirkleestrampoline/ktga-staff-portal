@@ -9,7 +9,7 @@ import StatusPill from "@/components/status-pill";
 import AvLogo from "@/components/av-logo";
 import { CalendarIcon, ChartIcon, CheckIcon, ClockIcon, InvoiceIcon, MenuIcon, PlusIcon, PoundIcon, SearchIcon, UsersIcon } from "@/components/icons";
 
-type Tab="dashboard"|"schedule"|"timesheets"|"invoices"|"staff"|"reports"|"settings"|"profile";
+type Tab="dashboard"|"schedule"|"leave"|"timesheets"|"invoices"|"staff"|"reports"|"settings"|"profile";
 type Profile={
   id:string;full_name:string;email:string|null;phone:string|null;address:string|null;role:"coach"|"org_admin"|"admin";
   hourly_rate:number;account_name:string|null;sort_code:string|null;account_number:string|null;utr:string|null;
@@ -31,6 +31,8 @@ type ClassTemplate={id:string;venue_id:string;name:string;weekday:number;start_t
 type ClassStaffingSlot={id:string;class_id:string;slot_number:number;default_profile_id:string|null};
 type ScheduledShift={id:string;class_id:string|null;staffing_slot_id:string|null;venue_id:string;profile_id:string|null;original_profile_id:string|null;shift_date:string;start_time:string;finish_time:string;break_minutes:number;class_name:string;status:"scheduled"|"confirmed"|"cancelled";actual_shift_id:string|null;notes:string|null;adjustment_status?:"none"|"pending"|null;requested_start_time?:string|null;requested_finish_time?:string|null;requested_break_minutes?:number|null;adjustment_reason?:string|null};
 type RemovedOccurrence={class_id:string;shift_date:string;class_name:string;venue_id:string;start_time:string;finish_time:string;removed_slots:number};
+type LeaveRequest={id:string;profile_id:string;request_type:"holiday"|"sickness"|"compassionate"|"appointment"|"other";start_date:string;end_date:string;portion:"full_day"|"morning"|"afternoon";notes:string|null;status:"pending"|"approved"|"declined"|"cancelled";reviewed_by:string|null;reviewed_at:string|null;created_at:string};
+type AvailabilityException={id:string;profile_id:string;unavailable_date:string;all_day:boolean;start_time:string|null;end_time:string|null;notes:string|null;status:"pending"|"approved"|"declined"|"cancelled";reviewed_by:string|null;reviewed_at:string|null;created_at:string};
 type ClassOccurrenceDraft={key:string;id?:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;coach_ids:string[];notes:string};
 type ClassDraft={id?:string;original_ids?:string[];venue_id:string;name:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;notes:string;coach_ids:string[];occurrences?:ClassOccurrenceDraft[]};
 
@@ -118,6 +120,12 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const [temporaryPasswordBusy,setTemporaryPasswordBusy]=useState(false);
   const [securityActionMessage,setSecurityActionMessage]=useState("");
   const [securityActionBusy,setSecurityActionBusy]=useState(false);
+  const [leaveRequests,setLeaveRequests]=useState<LeaveRequest[]>([]);
+  const [availabilityExceptions,setAvailabilityExceptions]=useState<AvailabilityException[]>([]);
+  const [leaveModal,setLeaveModal]=useState<"leave"|"availability"|null>(null);
+  const [leaveDraft,setLeaveDraft]=useState({request_type:"holiday" as LeaveRequest["request_type"],start_date:"",end_date:"",portion:"full_day" as LeaveRequest["portion"],notes:""});
+  const [availabilityDraft,setAvailabilityDraft]=useState({unavailable_date:"",all_day:true,start_time:"",end_time:"",notes:""});
+  const [leaveSaving,setLeaveSaving]=useState(false);
 
   const totalHours=useMemo(()=>shifts.filter(s=>!s.approval_status||s.approval_status==="approved").reduce((a,s)=>a+shiftHours(s),0),[shifts]);
   const totalValue=totalHours*Number(activeCoach.hourly_rate||0);
@@ -130,9 +138,89 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const overdue=new Date()>cutoffDate(month,business.cutoff_day||1)&&!timesheet?.submitted_at;
   const viewingOther=isAdmin&&activeCoach.id!==initialProfile.id;
 
-  useEffect(()=>{void loadBusiness();void loadVenues();void loadStaff();void loadInvoices();if(isAdmin)void loadAudits();},[]);
+  useEffect(()=>{void loadBusiness();void loadVenues();void loadStaff();void loadInvoices();void loadLeaveData();if(isAdmin)void loadAudits();},[]);
   useEffect(()=>{void loadCoachMonth(activeCoach.id);void loadTemplates(activeCoach.id);void loadSchedule();if(isAdmin){void loadAdmin();void loadPendingExtraShifts()}},[month,activeCoach.id]);
-  useEffect(()=>{if(tab==="invoices")void loadInvoices();if(tab==="staff"&&isAdmin)void loadStaff();if(tab==="reports"&&isAdmin)void loadAudits();if(tab==="schedule"){void loadSchedule();if(isAdmin)void loadPendingExtraShifts()}},[tab]);
+  useEffect(()=>{if(tab==="invoices")void loadInvoices();if(tab==="staff"&&isAdmin)void loadStaff();if(tab==="reports"&&isAdmin)void loadAudits();if(tab==="leave")void loadLeaveData();if(tab==="schedule"){void loadSchedule();if(isAdmin)void loadPendingExtraShifts()}},[tab]);
+
+  async function loadLeaveData(){
+    if(isAdmin){
+      const [{data:l,error:le},{data:a,error:ae}]=await Promise.all([
+        supabase.from("leave_requests").select("*").order("start_date",{ascending:true}).order("created_at",{ascending:false}),
+        supabase.from("availability_exceptions").select("*").order("unavailable_date",{ascending:true}).order("created_at",{ascending:false})
+      ]);
+      if(le)console.error(le);if(ae)console.error(ae);
+      setLeaveRequests((l||[]) as LeaveRequest[]);
+      setAvailabilityExceptions((a||[]) as AvailabilityException[]);
+    }else{
+      const [{data:l,error:le},{data:a,error:ae}]=await Promise.all([
+        supabase.from("leave_requests").select("*").eq("profile_id",initialProfile.id).order("start_date",{ascending:true}).order("created_at",{ascending:false}),
+        supabase.from("availability_exceptions").select("*").eq("profile_id",initialProfile.id).order("unavailable_date",{ascending:true}).order("created_at",{ascending:false})
+      ]);
+      if(le)console.error(le);if(ae)console.error(ae);
+      setLeaveRequests((l||[]) as LeaveRequest[]);
+      setAvailabilityExceptions((a||[]) as AvailabilityException[]);
+    }
+  }
+
+  async function submitLeaveRequest(){
+    if(!leaveDraft.start_date){flash("Choose a start date.");return}
+    const end=leaveDraft.end_date||leaveDraft.start_date;
+    if(end<leaveDraft.start_date){flash("End date cannot be before the start date.");return}
+    setLeaveSaving(true);
+    const{error}=await supabase.from("leave_requests").insert({
+      profile_id:initialProfile.id,
+      request_type:leaveDraft.request_type,
+      start_date:leaveDraft.start_date,
+      end_date:end,
+      portion:leaveDraft.portion,
+      notes:leaveDraft.notes.trim()||null,
+      status:"pending"
+    });
+    setLeaveSaving(false);
+    if(error){flash(error.message);return}
+    setLeaveModal(null);
+    setLeaveDraft({request_type:"holiday",start_date:"",end_date:"",portion:"full_day",notes:""});
+    flash("Leave request sent for approval.");
+    await loadLeaveData();
+  }
+
+  async function submitAvailability(){
+    if(!availabilityDraft.unavailable_date){flash("Choose a date.");return}
+    if(!availabilityDraft.all_day&&(!availabilityDraft.start_time||!availabilityDraft.end_time)){flash("Choose the unavailable start and finish time.");return}
+    if(!availabilityDraft.all_day&&availabilityDraft.end_time<=availabilityDraft.start_time){flash("Finish time must be after start time.");return}
+    setLeaveSaving(true);
+    const{error}=await supabase.from("availability_exceptions").insert({
+      profile_id:initialProfile.id,
+      unavailable_date:availabilityDraft.unavailable_date,
+      all_day:availabilityDraft.all_day,
+      start_time:availabilityDraft.all_day?null:availabilityDraft.start_time,
+      end_time:availabilityDraft.all_day?null:availabilityDraft.end_time,
+      notes:availabilityDraft.notes.trim()||null,
+      status:"pending"
+    });
+    setLeaveSaving(false);
+    if(error){flash(error.message);return}
+    setLeaveModal(null);
+    setAvailabilityDraft({unavailable_date:"",all_day:true,start_time:"",end_time:"",notes:""});
+    flash("Unavailable date sent for approval.");
+    await loadLeaveData();
+  }
+
+  async function reviewLeave(kind:"leave"|"availability",id:string,status:"approved"|"declined"){
+    const table=kind==="leave"?"leave_requests":"availability_exceptions";
+    const{error}=await supabase.from(table).update({status,reviewed_by:initialProfile.id,reviewed_at:new Date().toISOString()}).eq("id",id);
+    if(error){flash(error.message);return}
+    flash(status==="approved"?"Request approved.":"Request declined.");
+    await loadLeaveData();
+  }
+
+  async function cancelOwnLeave(kind:"leave"|"availability",id:string){
+    const table=kind==="leave"?"leave_requests":"availability_exceptions";
+    const{error}=await supabase.from(table).update({status:"cancelled"}).eq("id",id).eq("profile_id",initialProfile.id).eq("status","pending");
+    if(error){flash(error.message);return}
+    flash("Request cancelled.");
+    await loadLeaveData();
+  }
 
   async function loadCoachMonth(coachId:string){
     const {from,to}=monthRange(month);
@@ -1104,6 +1192,8 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const pendingAdditionalScope=additionalWorkScope.filter(s=>s.approval_status==="pending");
   const approvedAdditionalScope=additionalWorkScope.filter(s=>s.approval_status==="approved");
   const pendingAdditionalCount=pendingAdditionalScope.length;
+  const pendingLeaveCount=leaveRequests.filter(r=>r.status==="pending").length+availabilityExceptions.filter(r=>r.status==="pending").length;
+  const approvedLeaveCount=leaveRequests.filter(r=>r.status==="approved").length;
   const submittedCount=adminRows.filter(r=>r.timesheet?.status==="submitted"||r.timesheet?.status==="paid").length;
   const unpaidTotal=allInvoices.filter((i:any)=>i.status==="awaiting_payment").reduce((a:number,i:any)=>a+Number(i.total_amount||0),0);
   const adminHours=adminRows.reduce((a,r)=>a+r.hours,0);
@@ -1111,12 +1201,14 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
 
   const mobilePageMeta=(()=>{
     if(!isAdmin){
+      if(tab==="leave")return{eyebrow:"My availability",title:"Leave & Availability",sub:"Request leave and tell us when you cannot coach."};
       if(tab==="timesheets")return{eyebrow:"My work",title:"My Timesheet",sub:"Review confirmed coaching and submit your month when everything is correct."};
       if(tab==="invoices")return{eyebrow:"My pay",title:"My Payslips",sub:"Your payment history and completed monthly invoices."};
       if(tab==="profile")return{eyebrow:"My account",title:"My Profile",sub:"Keep your personal, payment and compliance details up to date."};
       return null;
     }
     if(tab==="dashboard")return{eyebrow:"Overview",title:"Club Operations",sub:"Today’s staffing, schedule and payroll position at a glance."};
+    if(tab==="leave")return{eyebrow:"People",title:"Leave Management",sub:"Review staff leave and availability requests."};
     if(tab==="timesheets")return{eyebrow:"Payroll",title:"Timesheets",sub:"Review hours, submissions and monthly payroll status."};
     if(tab==="invoices")return{eyebrow:"Payroll",title:"Invoices",sub:"Generated invoices, payment status and history."};
     if(tab==="staff")return{eyebrow:"People",title:"Staff",sub:"Manage coaches, access, rates and compliance."};
@@ -1129,7 +1221,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   return <div className="portal">
     <Sidebar tab={tab} setTab={(t:any)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v3.2.6</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v3.3.0</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
         {tab!=="schedule"&&mobilePageMeta&&<div className="v303MobilePageHero">
           <span>{mobilePageMeta.eyebrow}</span>
@@ -1139,6 +1231,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
         {message&&<div className={`notice ${/(saved|sent|submitted|added|copied|reopened|created|paid)/i.test(message)?"success":""}`}>{message}</div>}
         {tab==="dashboard"&&DashboardView()}
         {tab==="schedule"&&ScheduleView()}
+        {tab==="leave"&&LeaveView()}
         {tab==="timesheets"&&TimesheetView()}
         {tab==="invoices"&&InvoicesView()}
         {tab==="staff"&&isAdmin&&StaffView()}
@@ -1147,6 +1240,8 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
         {tab==="profile"&&ProfileView()}
       </main>
     </div>
+    {leaveModal==="leave"&&LeaveRequestModal()}
+    {leaveModal==="availability"&&AvailabilityModal()}
     {shiftModal&&ShiftModal()}
     {inviteOpen&&InviteModal()}
     {staffEdit&&StaffModal()}
@@ -1169,7 +1264,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
 
   function DashboardView(){
     if(isAdmin)return <><PageHead title={`Good ${new Date().getHours()<12?"morning":new Date().getHours()<18?"afternoon":"evening"}, ${initialProfile.full_name.split(" ")[0]}`} sub="Your current staffing, timesheet and invoice position."><div className="row"><button className="btn btnSecondary" onClick={()=>{setAdminPersonalRota(true);setTab("schedule")}}>My Schedule</button><MonthSelect/></div></PageHead>
-      <div className="grid grid4"><StatCard label="Active coaches" value={String(adminRows.length)} foot="Self-employed staff" icon={<UsersIcon/>}/><StatCard label="Hours this month" value={adminHours.toFixed(2)} foot={monthLabel(month)} icon={<ClockIcon/>}/><StatCard label="Submitted" value={`${submittedCount}/${adminRows.length}`} foot={`${Math.max(0,adminRows.length-submittedCount)} outstanding`} icon={<CheckIcon/>}/><StatCard label="Unpaid invoices" value={money(unpaidTotal)} foot="Awaiting payment" icon={<PoundIcon/>}/></div>
+      <div className="grid grid4"><StatCard label="Active coaches" value={String(adminRows.length)} foot="Self-employed staff" icon={<UsersIcon/>}/><StatCard label="Hours this month" value={adminHours.toFixed(2)} foot={monthLabel(month)} icon={<ClockIcon/>}/><StatCard label="Submitted" value={`${submittedCount}/${adminRows.length}`} foot={`${Math.max(0,adminRows.length-submittedCount)} outstanding`} icon={<CheckIcon/>}/><StatCard label="Unpaid invoices" value={money(unpaidTotal)} foot="Awaiting payment" icon={<PoundIcon/>}/></div>{pendingLeaveCount>0&&<button className="v33DashboardAlert" onClick={()=>setTab("leave")}><div className="v33AlertIcon"><CalendarIcon/></div><div><strong>{pendingLeaveCount} leave / availability {pendingLeaveCount===1?"request":"requests"} awaiting review</strong><span>Open Leave Management to approve or decline.</span></div><span className="v33AlertCount">{pendingLeaveCount}</span></button>}
       <div className="grid grid4 section forecastCards"><StatCard label="Normal staffing cost" value={money(normalCost)} foot="Based on regular classes" icon={<CalendarIcon/>}/><StatCard label="Current forecast" value={money(forecastCost)} foot={`${unassignedScheduleCount} unassigned shifts`} icon={<PoundIcon/>}/><StatCard label="Actual cost so far" value={money(actualScheduleCost)} foot="Confirmed timesheet hours" icon={<CheckIcon/>}/><StatCard label="Forecast variance" value={money(forecastCost-normalCost)} foot={forecastCost>normalCost?"Above normal plan":"At / below normal plan"} icon={<ChartIcon/>}/></div>
       <div className="card section todayCoaching"><div className="sectionHeader"><div><h2>Today's coaching</h2><p>{new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</p></div><button className="btn btnSecondary" onClick={()=>setTab("schedule")}>Open schedule</button></div><div className="todayShiftGrid">{scheduledShifts.filter(s=>s.shift_date===new Date().toISOString().slice(0,10)&&s.status!=="cancelled").sort((a,b)=>a.start_time.localeCompare(b.start_time)).map(s=><div className="todayShiftCard" key={s.id}><div><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</strong><span>{s.class_name} · {venueName(s.venue_id)}</span></div><b>{profileById(s.profile_id)?.full_name||"Unassigned"}</b></div>)}{!scheduledShifts.some(s=>s.shift_date===new Date().toISOString().slice(0,10)&&s.status!=="cancelled")&&<div className="empty">No coaching scheduled today.</div>}</div></div>
       <div className="grid grid2 section"><div className="card"><div className="sectionHeader"><div><h2>Monthly status</h2><p>Open a coach to review or edit their shifts.</p></div><button className="btn btnSecondary" onClick={()=>setTab("timesheets")}>View all</button></div><div className="mobileDataList">{adminRows.slice(0,8).map(r=><button className="mobileDataCard" key={r.coach.id} onClick={()=>selectCoach(r.coach)}><div><strong>{r.coach.full_name}</strong><span>{r.hours.toFixed(2)} hours</span></div><StatusPill status={r.timesheet?.status}/></button>)}</div><div className="tableWrap desktopDataTable"><table><thead><tr><th>Coach</th><th className="num">Hours</th><th>Status</th><th></th></tr></thead><tbody>{adminRows.slice(0,8).map(r=><tr key={r.coach.id}><td><strong>{r.coach.full_name}</strong></td><td className="num">{r.hours.toFixed(2)}</td><td><StatusPill status={r.timesheet?.status}/></td><td><button className="btn btnSecondary" onClick={()=>selectCoach(r.coach)}>Open</button></td></tr>)}</tbody></table></div></div>
@@ -1326,6 +1421,66 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     return <><PageHead title={isAdmin?"Invoices":"My Payslips"} sub={isAdmin?"All generated coach invoices and payment history.":"Your monthly pay/invoice archive."}/>
       <div className="card"><div className="mobileDataList">{allInvoices.map((inv:any)=>{const coach=isAdmin?({...staff.find(s=>s.id===inv.coach_id),...(inv.profiles||{})} as Profile):ownProfile;return <div className="mobileAdminCard" key={inv.id}><div className="mobileAdminHead"><div><strong>{inv.invoice_number}</strong><span>{isAdmin?`${inv.profiles?.full_name||coach.full_name} · `:""}{inv.venues?.name||venueName(inv.venue_id)}</span></div><StatusPill status={inv.status==="awaiting_payment"?"submitted":inv.status}/></div><div className="mobileAdminStats"><span><small>Hours</small><strong>{Number(inv.hours).toFixed(2)}</strong></span><span><small>Amount</small><strong>{money(inv.total_amount)}</strong></span></div><div className="mobileAdminActions"><button className="btn btnSecondary" onClick={()=>downloadPDF(inv,coach)}>Download PDF</button>{isAdmin&&inv.status==="awaiting_payment"&&<button className="btn btnPrimary" onClick={()=>markInvoicePaid(inv)}>Mark paid</button>}</div></div>})}{!allInvoices.length&&<div className="empty">No invoices yet.</div>}</div><div className="tableWrap desktopDataTable"><table><thead><tr><th>Invoice</th>{isAdmin&&<th>Coach</th>}<th>Organisation</th><th>Date</th><th className="num">Hours</th><th className="num">Amount</th><th>Status</th><th></th></tr></thead><tbody>{allInvoices.map((inv:any)=>{const coach=isAdmin?({...staff.find(s=>s.id===inv.coach_id),...(inv.profiles||{})} as Profile):ownProfile;return <tr key={inv.id}><td><strong>{inv.invoice_number}</strong></td>{isAdmin&&<td>{inv.profiles?.full_name||coach.full_name}</td>}<td>{inv.venues?.name||venueName(inv.venue_id)}</td><td>{dateText(inv.invoice_date)}</td><td className="num">{Number(inv.hours).toFixed(2)}</td><td className="num"><strong>{money(inv.total_amount)}</strong></td><td><StatusPill status={inv.status==="awaiting_payment"?"submitted":inv.status}/></td><td><div className="row"><button className="btn btnSecondary" onClick={()=>downloadPDF(inv,coach)}>Download PDF</button>{isAdmin&&inv.status==="awaiting_payment"&&<button className="btn btnPrimary" onClick={()=>markInvoicePaid(inv)}>Mark paid</button>}</div></td></tr>})}{!allInvoices.length&&<tr><td colSpan={isAdmin?8:7} className="empty">No invoices yet.</td></tr>}</tbody></table></div></div>
     </>
+  }
+
+  function LeaveView(){
+    const today=new Date().toISOString().slice(0,10);
+    const typeLabel=(t:string)=>({holiday:"Annual leave",sickness:"Sickness",compassionate:"Compassionate leave",appointment:"Appointment",other:"Other leave"} as Record<string,string>)[t]||t;
+    const portionLabel=(p:string)=>p==="morning"?"Morning":p==="afternoon"?"Afternoon":"Whole day";
+    const statusLabel=(s:string)=>s==="approved"?"Approved":s==="declined"?"Declined":s==="cancelled"?"Cancelled":"Pending";
+    const displayDate=(d:string)=>new Date(`${d}T12:00:00`).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"});
+    const person=(id:string)=>profileById(id)?.full_name||"Staff member";
+
+    if(isAdmin){
+      const pendingLeave=leaveRequests.filter(r=>r.status==="pending");
+      const pendingAvail=availabilityExceptions.filter(r=>r.status==="pending");
+      const allItems=[
+        ...leaveRequests.map(r=>({kind:"leave" as const,id:r.id,profile_id:r.profile_id,date:r.start_date,status:r.status,title:typeLabel(r.request_type),detail:`${displayDate(r.start_date)}${r.end_date!==r.start_date?` – ${displayDate(r.end_date)}`:""} · ${portionLabel(r.portion)}`,notes:r.notes})),
+        ...availabilityExceptions.map(r=>({kind:"availability" as const,id:r.id,profile_id:r.profile_id,date:r.unavailable_date,status:r.status,title:"Unavailable",detail:`${displayDate(r.unavailable_date)} · ${r.all_day?"All day":`${r.start_time?.slice(0,5)}–${r.end_time?.slice(0,5)}`}`,notes:r.notes}))
+      ].sort((a,b)=>a.date.localeCompare(b.date));
+
+      return <><PageHead title="Leave Management" sub="Review staff leave and one-off availability requests."/>
+        <div className="grid grid3 v33Summary"><StatCard label="Awaiting review" value={String(pendingLeave.length+pendingAvail.length)} foot="Needs an admin decision" icon={<ClockIcon/>}/><StatCard label="Approved leave" value={String(leaveRequests.filter(r=>r.status==="approved"&&r.end_date>=today).length)} foot="Current / upcoming" icon={<CheckIcon/>}/><StatCard label="Unavailable dates" value={String(availabilityExceptions.filter(r=>r.status==="approved"&&r.unavailable_date>=today).length)} foot="Approved upcoming dates" icon={<CalendarIcon/>}/></div>
+        {(pendingLeave.length+pendingAvail.length)>0&&<section className="card section v33ApprovalSection"><div className="sectionHeader"><div><h3>Awaiting approval</h3><p>Requests submitted by staff.</p></div><span className="v33CountBadge">{pendingLeave.length+pendingAvail.length}</span></div><div className="v33RequestList">
+          {pendingLeave.map(r=><article className="v33RequestCard pending" key={`leave-${r.id}`}><div className="v33RequestAvatar">{initials(person(r.profile_id))}</div><div className="v33RequestMain"><div className="v33RequestTitle"><strong>{person(r.profile_id)}</strong><span>{typeLabel(r.request_type)}</span></div><h4>{displayDate(r.start_date)}{r.end_date!==r.start_date?` – ${displayDate(r.end_date)}`:""}</h4><p>{portionLabel(r.portion)}{r.notes?` · ${r.notes}`:""}</p></div><div className="v33RequestActions"><button className="btn btnSecondary" onClick={()=>reviewLeave("leave",r.id,"declined")}>Decline</button><button className="btn btnPrimary" onClick={()=>reviewLeave("leave",r.id,"approved")}>Approve</button></div></article>)}
+          {pendingAvail.map(r=><article className="v33RequestCard pending" key={`availability-${r.id}`}><div className="v33RequestAvatar">{initials(person(r.profile_id))}</div><div className="v33RequestMain"><div className="v33RequestTitle"><strong>{person(r.profile_id)}</strong><span>Unavailable</span></div><h4>{displayDate(r.unavailable_date)}</h4><p>{r.all_day?"All day":`${r.start_time?.slice(0,5)}–${r.end_time?.slice(0,5)}`}{r.notes?` · ${r.notes}`:""}</p></div><div className="v33RequestActions"><button className="btn btnSecondary" onClick={()=>reviewLeave("availability",r.id,"declined")}>Decline</button><button className="btn btnPrimary" onClick={()=>reviewLeave("availability",r.id,"approved")}>Approve</button></div></article>)}
+        </div></section>}
+        <section className="card section"><div className="sectionHeader"><div><h3>Leave & availability history</h3><p>All submitted requests and decisions.</p></div></div><div className="v33History">{allItems.map(item=><div className="v33HistoryRow" key={`${item.kind}-${item.id}`}><div><strong>{person(item.profile_id)}</strong><span>{item.title}</span></div><div><strong>{item.detail}</strong>{item.notes&&<span>{item.notes}</span>}</div><span className={`v33Status ${item.status}`}>{statusLabel(item.status)}</span></div>)}{!allItems.length&&<div className="empty">No leave or availability requests yet.</div>}</div></section>
+      </>
+    }
+
+    const myLeave=leaveRequests.filter(r=>r.profile_id===initialProfile.id);
+    const myAvail=availabilityExceptions.filter(r=>r.profile_id===initialProfile.id);
+    const upcomingLeave=myLeave.filter(r=>r.status!=="cancelled"&&r.end_date>=today);
+    const upcomingAvail=myAvail.filter(r=>r.status!=="cancelled"&&r.unavailable_date>=today);
+    const mine=[
+      ...myLeave.map(r=>({kind:"leave" as const,id:r.id,date:r.start_date,status:r.status,title:typeLabel(r.request_type),detail:`${displayDate(r.start_date)}${r.end_date!==r.start_date?` – ${displayDate(r.end_date)}`:""} · ${portionLabel(r.portion)}`,notes:r.notes})),
+      ...myAvail.map(r=>({kind:"availability" as const,id:r.id,date:r.unavailable_date,status:r.status,title:"Unavailable",detail:`${displayDate(r.unavailable_date)} · ${r.all_day?"All day":`${r.start_time?.slice(0,5)}–${r.end_time?.slice(0,5)}`}`,notes:r.notes}))
+    ].sort((a,b)=>b.date.localeCompare(a.date));
+
+    return <><PageHead title="Leave & Availability" sub="Request leave or tell us about a date you cannot coach."><div className="row v33CoachActions"><button className="btn btnSecondary" onClick={()=>setLeaveModal("availability")}>Add unavailable date</button><button className="btn btnPrimary" onClick={()=>setLeaveModal("leave")}>Request leave</button></div></PageHead>
+      <div className="grid grid3 v33Summary"><StatCard label="Pending" value={String(myLeave.filter(r=>r.status==="pending").length+myAvail.filter(r=>r.status==="pending").length)} foot="Awaiting admin review" icon={<ClockIcon/>}/><StatCard label="Upcoming leave" value={String(upcomingLeave.filter(r=>r.status==="approved").length)} foot="Approved requests" icon={<CheckIcon/>}/><StatCard label="Unavailable dates" value={String(upcomingAvail.filter(r=>r.status==="approved").length)} foot="Approved upcoming" icon={<CalendarIcon/>}/></div>
+      <div className="grid grid2 section v33CoachCards"><button className="card v33ActionCard leave" onClick={()=>setLeaveModal("leave")}><div className="v33ActionIcon"><CalendarIcon/></div><div><span>Leave requests</span><strong>Request time away</strong><p>Annual leave, sickness, appointments and other leave.</p></div><b>＋</b></button><button className="card v33ActionCard availability" onClick={()=>setLeaveModal("availability")}><div className="v33ActionIcon"><ClockIcon/></div><div><span>Availability</span><strong>Add an unavailable date</strong><p>Tell us about a one-off date or time you cannot coach.</p></div><b>＋</b></button></div>
+      <section className="card section"><div className="sectionHeader"><div><h3>My requests</h3><p>Your leave and availability history.</p></div></div><div className="v33History">{mine.map(item=><div className="v33HistoryRow v33MyHistory" key={`${item.kind}-${item.id}`}><div><strong>{item.title}</strong><span>{item.detail}</span></div><div>{item.notes&&<span>{item.notes}</span>}</div><div className="v33MyStatus"><span className={`v33Status ${item.status}`}>{statusLabel(item.status)}</span>{item.status==="pending"&&<button className="v3TextButton danger" onClick={()=>cancelOwnLeave(item.kind,item.id)}>Cancel</button>}</div></div>)}{!mine.length&&<div className="empty">You haven't submitted any leave or unavailable dates yet.</div>}</div></section>
+    </>
+  }
+
+  function LeaveRequestModal(){
+    return <div className="modalBackdrop"><div className="modal v33LeaveModal"><div className="modalHead"><div><h2>Request leave</h2><p className="muted" style={{fontSize:11,margin:"4px 0 0"}}>This will be sent to all administrators for approval.</p></div><button className="iconButton" onClick={()=>setLeaveModal(null)}>×</button></div><div className="modalBody">
+      <div className="field"><label>Leave type</label><select value={leaveDraft.request_type} onChange={e=>setLeaveDraft({...leaveDraft,request_type:e.target.value as any})}><option value="holiday">Annual leave</option><option value="sickness">Sickness</option><option value="compassionate">Compassionate leave</option><option value="appointment">Appointment</option><option value="other">Other</option></select></div>
+      <div className="grid grid2"><div className="field"><label>Start date</label><input type="date" value={leaveDraft.start_date} onChange={e=>setLeaveDraft({...leaveDraft,start_date:e.target.value,end_date:leaveDraft.end_date||e.target.value})}/></div><div className="field"><label>End date</label><input type="date" min={leaveDraft.start_date||undefined} value={leaveDraft.end_date} onChange={e=>setLeaveDraft({...leaveDraft,end_date:e.target.value})}/></div></div>
+      <div className="field"><label>Day</label><div className="v33Segmented"><button type="button" className={leaveDraft.portion==="full_day"?"active":""} onClick={()=>setLeaveDraft({...leaveDraft,portion:"full_day"})}>Whole day</button><button type="button" className={leaveDraft.portion==="morning"?"active":""} onClick={()=>setLeaveDraft({...leaveDraft,portion:"morning",end_date:leaveDraft.start_date})}>Morning</button><button type="button" className={leaveDraft.portion==="afternoon"?"active":""} onClick={()=>setLeaveDraft({...leaveDraft,portion:"afternoon",end_date:leaveDraft.start_date})}>Afternoon</button></div></div>
+      <div className="field"><label>Notes <span className="muted">(optional)</span></label><textarea value={leaveDraft.notes} onChange={e=>setLeaveDraft({...leaveDraft,notes:e.target.value})} placeholder="Anything the admin team should know?"/></div>
+    </div><div className="modalFoot"><button className="btn btnSecondary" onClick={()=>setLeaveModal(null)}>Cancel</button><button className="btn btnPrimary" disabled={leaveSaving} onClick={submitLeaveRequest}>{leaveSaving?"Submitting…":"Submit request"}</button></div></div></div>
+  }
+
+  function AvailabilityModal(){
+    return <div className="modalBackdrop"><div className="modal v33LeaveModal"><div className="modalHead"><div><h2>Add unavailable date</h2><p className="muted" style={{fontSize:11,margin:"4px 0 0"}}>Use this when you cannot coach on a specific date or time.</p></div><button className="iconButton" onClick={()=>setLeaveModal(null)}>×</button></div><div className="modalBody">
+      <div className="field"><label>Date</label><input type="date" value={availabilityDraft.unavailable_date} onChange={e=>setAvailabilityDraft({...availabilityDraft,unavailable_date:e.target.value})}/></div>
+      <div className="field"><label>Unavailable for</label><div className="v33Segmented"><button type="button" className={availabilityDraft.all_day?"active":""} onClick={()=>setAvailabilityDraft({...availabilityDraft,all_day:true})}>All day</button><button type="button" className={!availabilityDraft.all_day?"active":""} onClick={()=>setAvailabilityDraft({...availabilityDraft,all_day:false})}>Specific time</button></div></div>
+      {!availabilityDraft.all_day&&<div className="grid grid2"><div className="field"><label>From</label><input type="time" value={availabilityDraft.start_time} onChange={e=>setAvailabilityDraft({...availabilityDraft,start_time:e.target.value})}/></div><div className="field"><label>Until</label><input type="time" value={availabilityDraft.end_time} onChange={e=>setAvailabilityDraft({...availabilityDraft,end_time:e.target.value})}/></div></div>}
+      <div className="field"><label>Notes <span className="muted">(optional)</span></label><textarea value={availabilityDraft.notes} onChange={e=>setAvailabilityDraft({...availabilityDraft,notes:e.target.value})} placeholder="e.g. university, appointment, family commitment"/></div>
+    </div><div className="modalFoot"><button className="btn btnSecondary" onClick={()=>setLeaveModal(null)}>Cancel</button><button className="btn btnPrimary" disabled={leaveSaving} onClick={submitAvailability}>{leaveSaving?"Submitting…":"Submit unavailable date"}</button></div></div></div>
   }
 
   function StaffView(){
