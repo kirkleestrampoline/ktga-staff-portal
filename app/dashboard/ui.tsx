@@ -27,8 +27,8 @@ type Audit={id:string;actor_id:string|null;subject_id:string|null;action:string;
 type ClassTemplate={id:string;venue_id:string;name:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;active:boolean;notes:string|null};
 type ClassStaffingSlot={id:string;class_id:string;slot_number:number;default_profile_id:string|null};
 type ScheduledShift={id:string;class_id:string|null;staffing_slot_id:string|null;venue_id:string;profile_id:string|null;original_profile_id:string|null;shift_date:string;start_time:string;finish_time:string;break_minutes:number;class_name:string;status:"scheduled"|"confirmed"|"cancelled";actual_shift_id:string|null;notes:string|null};
-type ClassOccurrenceDraft={key:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;coach_ids:string[];notes:string};
-type ClassDraft={id?:string;venue_id:string;name:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;notes:string;coach_ids:string[];occurrences?:ClassOccurrenceDraft[]};
+type ClassOccurrenceDraft={key:string;id?:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;coach_ids:string[];notes:string};
+type ClassDraft={id?:string;original_ids?:string[];venue_id:string;name:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;notes:string;coach_ids:string[];occurrences?:ClassOccurrenceDraft[]};
 
 const supabase=createClient();
 const money=(n:number)=>new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(Number(n||0));
@@ -475,14 +475,64 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     setClasses((c||[]) as ClassTemplate[]);setClassSlots((slots||[]) as ClassStaffingSlot[]);setScheduledShifts((ss||[]) as ScheduledShift[]);
   }
 
-  function openNewClass(){
+  function blankClassOccurrence(weekday=1):ClassOccurrenceDraft{
+    return{key:crypto.randomUUID(),weekday,start_time:"16:30",finish_time:"18:00",break_minutes:0,coaches_required:1,coach_ids:[],notes:""};
+  }
+
+  function openNewClass(defaultDay=1){
     const av=adminVenues();
-    setClassModal({venue_id:av[0]?.id||"",name:"",weekday:1,start_time:"16:30",finish_time:"18:00",break_minutes:0,coaches_required:1,notes:"",coach_ids:[],occurrences:[{key:crypto.randomUUID(),weekday:1,start_time:"16:30",finish_time:"18:00",break_minutes:0,coaches_required:1,coach_ids:[],notes:""}]});
+    const occurrence=blankClassOccurrence(defaultDay);
+    setClassModal({
+      venue_id:av[0]?.id||"",
+      name:"",
+      weekday:defaultDay,
+      start_time:occurrence.start_time,
+      finish_time:occurrence.finish_time,
+      break_minutes:0,
+      coaches_required:1,
+      notes:"",
+      coach_ids:[],
+      occurrences:[occurrence]
+    });
   }
 
   function openEditClass(c:ClassTemplate){
-    const slots=classSlots.filter(x=>x.class_id===c.id).sort((a,b)=>a.slot_number-b.slot_number);
-    setClassModal({id:c.id,venue_id:c.venue_id,name:c.name,weekday:c.weekday,start_time:c.start_time.slice(0,5),finish_time:c.finish_time.slice(0,5),break_minutes:c.break_minutes,coaches_required:c.coaches_required,notes:c.notes||"",coach_ids:slots.map(x=>x.default_profile_id).filter(Boolean) as string[]});
+    // A "class" in the master timetable can run on several days.
+    // Edit all active occurrences with the same class name + organisation together.
+    const group=classes
+      .filter(x=>x.active&&x.venue_id===c.venue_id&&x.name===c.name)
+      .sort((a,b)=>(a.weekday-b.weekday)||a.start_time.localeCompare(b.start_time));
+
+    const occurrences:ClassOccurrenceDraft[]=group.map(x=>{
+      const slots=classSlots.filter(s=>s.class_id===x.id).sort((a,b)=>a.slot_number-b.slot_number);
+      return{
+        key:crypto.randomUUID(),
+        id:x.id,
+        weekday:x.weekday,
+        start_time:x.start_time.slice(0,5),
+        finish_time:x.finish_time.slice(0,5),
+        break_minutes:Number(x.break_minutes||0),
+        coaches_required:Number(x.coaches_required||1),
+        coach_ids:slots.map(s=>s.default_profile_id||""),
+        notes:x.notes||""
+      };
+    });
+
+    const first=occurrences[0]||blankClassOccurrence(c.weekday);
+    setClassModal({
+      id:c.id,
+      original_ids:group.map(x=>x.id),
+      venue_id:c.venue_id,
+      name:c.name,
+      weekday:first.weekday,
+      start_time:first.start_time,
+      finish_time:first.finish_time,
+      break_minutes:first.break_minutes,
+      coaches_required:first.coaches_required,
+      notes:first.notes,
+      coach_ids:[...first.coach_ids],
+      occurrences:occurrences.length?occurrences:[first]
+    });
   }
 
   function duplicateClassGroup(c:ClassTemplate){
@@ -517,51 +567,114 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   }
 
   async function saveClass(){
-    if(!classModal||!classModal.name||!classModal.venue_id)return;
-    setSaving(true);
+    if(!classModal||!classModal.name.trim()||!classModal.venue_id)return;
+    const occurrences=(classModal.occurrences?.length?classModal.occurrences:[{
+      key:crypto.randomUUID(),
+      id:classModal.id,
+      weekday:classModal.weekday,
+      start_time:classModal.start_time,
+      finish_time:classModal.finish_time,
+      break_minutes:classModal.break_minutes,
+      coaches_required:classModal.coaches_required,
+      coach_ids:classModal.coach_ids,
+      notes:classModal.notes
+    }]) as ClassOccurrenceDraft[];
 
-    if(!classModal.id&&classModal.occurrences?.length){
-      for(const occurrence of classModal.occurrences){
-        const payload={venue_id:classModal.venue_id,name:classModal.name,weekday:Number(occurrence.weekday),start_time:occurrence.start_time,finish_time:occurrence.finish_time,break_minutes:Number(occurrence.break_minutes||0),coaches_required:Number(occurrence.coaches_required||1),notes:occurrence.notes||null,active:true,updated_at:new Date().toISOString()};
+    setSaving(true);
+    const keptIds:string[]=[];
+
+    for(const occurrence of occurrences){
+      const payload={
+        venue_id:classModal.venue_id,
+        name:classModal.name.trim(),
+        weekday:Number(occurrence.weekday),
+        start_time:occurrence.start_time,
+        finish_time:occurrence.finish_time,
+        break_minutes:Number(occurrence.break_minutes||0),
+        coaches_required:Math.max(1,Number(occurrence.coaches_required||1)),
+        notes:occurrence.notes||null,
+        active:true,
+        updated_at:new Date().toISOString()
+      };
+
+      let classId=occurrence.id||"";
+
+      if(classId){
+        const{error}=await supabase.from("classes").update(payload).eq("id",classId);
+        if(error){setSaving(false);flash(error.message);return}
+      }else{
         const{data,error}=await supabase.from("classes").insert(payload).select("id").single();
         if(error){setSaving(false);flash(error.message);return}
-        const rows=Array.from({length:Math.max(1,Number(occurrence.coaches_required||1))},(_,i)=>({class_id:data.id,slot_number:i+1,default_profile_id:occurrence.coach_ids[i]||null}));
-        const ins=await supabase.from("class_staffing_slots").insert(rows);
-        if(ins.error){setSaving(false);flash(ins.error.message);return}
+        classId=data.id;
       }
-      setSaving(false);setClassModal(null);flash(`${classModal.name} added across ${classModal.occurrences.length} weekly sessions.`);await loadSchedule();return;
-    }
 
-    const payload={venue_id:classModal.venue_id,name:classModal.name,weekday:Number(classModal.weekday),start_time:classModal.start_time,finish_time:classModal.finish_time,break_minutes:Number(classModal.break_minutes||0),coaches_required:Number(classModal.coaches_required||1),notes:classModal.notes||null,active:true,updated_at:new Date().toISOString()};
-    const classId=classModal.id!;
-    const{error}=await supabase.from("classes").update(payload).eq("id",classId);
-    if(error){setSaving(false);flash(error.message);return}
+      keptIds.push(classId);
 
-    // Preserve staffing-slot IDs when editing. Generated schedule rows use these IDs,
-    // so deleting/recreating them caused duplicate shifts after a coach change.
-    const existingSlots=classSlots.filter(x=>x.class_id===classId).sort((a,b)=>a.slot_number-b.slot_number);
-    const required=Math.max(1,Number(classModal.coaches_required||1));
-    for(let i=0;i<required;i++){
-      const existing=existingSlots.find(x=>x.slot_number===i+1);
-      const default_profile_id=classModal.coach_ids[i]||null;
-      if(existing){
-        const{error:slotError}=await supabase.from("class_staffing_slots").update({default_profile_id}).eq("id",existing.id);
-        if(slotError){setSaving(false);flash(slotError.message);return}
-      }else{
-        const{error:slotError}=await supabase.from("class_staffing_slots").insert({class_id:classId,slot_number:i+1,default_profile_id});
-        if(slotError){setSaving(false);flash(slotError.message);return}
+      // Preserve existing staffing slot IDs. Generated schedule rows point to these IDs,
+      // so changing a coach must update the slot rather than delete/recreate it.
+      const{data:slotData,error:slotReadError}=await supabase
+        .from("class_staffing_slots")
+        .select("*")
+        .eq("class_id",classId)
+        .order("slot_number");
+      if(slotReadError){setSaving(false);flash(slotReadError.message);return}
+
+      const existingSlots=(slotData||[]) as ClassStaffingSlot[];
+      const required=Math.max(1,Number(occurrence.coaches_required||1));
+
+      for(let i=0;i<required;i++){
+        const slotNumber=i+1;
+        const default_profile_id=occurrence.coach_ids[i]||null;
+        const existing=existingSlots.find(x=>x.slot_number===slotNumber);
+
+        if(existing){
+          const{error}=await supabase
+            .from("class_staffing_slots")
+            .update({default_profile_id})
+            .eq("id",existing.id);
+          if(error){setSaving(false);flash(error.message);return}
+        }else{
+          const{error}=await supabase.from("class_staffing_slots").insert({
+            class_id:classId,
+            slot_number:slotNumber,
+            default_profile_id
+          });
+          if(error){setSaving(false);flash(error.message);return}
+        }
       }
-    }
-    const excess=existingSlots.filter(x=>x.slot_number>required);
-    if(excess.length){
-      const{error:slotError}=await supabase.from("class_staffing_slots").delete().in("id",excess.map(x=>x.id));
-      if(slotError){setSaving(false);flash(slotError.message);return}
+
+      const excess=existingSlots.filter(x=>x.slot_number>required);
+      if(excess.length){
+        const{error}=await supabase
+          .from("class_staffing_slots")
+          .delete()
+          .in("id",excess.map(x=>x.id));
+        if(error){setSaving(false);flash(error.message);return}
+      }
+
+      // Keep the existing v2 calendar behaviour: update only unconfirmed schedule rows.
+      const{error:syncError}=await supabase.rpc("sync_class_schedule",{p_class_id:classId});
+      if(syncError){setSaving(false);flash(syncError.message);return}
     }
 
-    const{error:syncError}=await supabase.rpc("sync_class_schedule",{p_class_id:classId});
-    if(syncError){setSaving(false);flash(syncError.message);return}
+    // If an existing multi-day class had an occurrence removed in the editor,
+    // archive only that removed recurring occurrence.
+    const removed=(classModal.original_ids||[]).filter(id=>!keptIds.includes(id));
+    if(removed.length){
+      const{error}=await supabase
+        .from("classes")
+        .update({active:false,updated_at:new Date().toISOString()})
+        .in("id",removed);
+      if(error){setSaving(false);flash(error.message);return}
+    }
 
-    setSaving(false);setClassModal(null);flash("Master timetable updated. Unconfirmed schedule occurrences have been synced.");await loadSchedule();
+    setSaving(false);
+    setClassModal(null);
+    flash(classModal.id
+      ?`${classModal.name} master timetable updated.`
+      :`${classModal.name} added across ${occurrences.length} weekly session${occurrences.length===1?"":"s"}.`
+    );
+    await loadSchedule();
   }
 
   async function archiveClass(c:ClassTemplate){
@@ -704,7 +817,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   return <div className="portal">
     <Sidebar tab={tab} setTab={(t:any)=>{setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="topBrandMark">AV</div><div className="topTitle">AV Gymnastics Solutions</div></div><div className="topActions"><span className="versionBadge">v2.0.4</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="topBrandMark">AV</div><div className="topTitle">AV Gymnastics Solutions</div></div><div className="topActions"><span className="versionBadge">v2.0.5</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
         {message&&<div className={`notice ${/(saved|sent|submitted|added|copied|reopened|created|paid)/i.test(message)?"success":""}`}>{message}</div>}
         {tab==="dashboard"&&DashboardView()}
@@ -757,9 +870,9 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       <div className="scheduleAgenda section">{Object.entries(grouped).map(([date,items]:[string,ScheduledShift[]])=><div className="scheduleDay" key={date}><div className="scheduleDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</strong></div>{items.map(s=><div className={`scheduleShift ${s.status} ${venueColourClass(s.venue_id)}`} key={s.id}><div className="scheduleShiftMain"><div className="scheduleTime">{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</div><div><strong>{s.class_name}</strong><span>{venueName(s.venue_id)} · {scheduleHours(s).toFixed(2)}h</span></div></div><div className="scheduleActions"><span className={`scheduleStatus ${s.status}`}>{s.status}</span>{s.status==="scheduled"&&<button className="btn btnPrimary" type="button" onClick={(e)=>{e.preventDefault();void confirmScheduled(s)}}>Confirm worked</button>}</div></div>)}</div>)}{!visibleScheduled.length&&<div className="card empty">No scheduled coaching for {monthLabel(month)} yet.</div>}</div></>;
 
     return <><PageHead title="Schedule & Staffing" sub="Build once, copy forward and only change the exceptions."><div className="row"><MonthSelect/><button className="btn btnSecondary" onClick={clonePreviousScheduleMonth}>Copy previous month</button><button className="btn btnSecondary" onClick={copyScheduleWeek}>Copy week</button><button className="btn btnPrimary" onClick={generateSchedule}>Generate missing shifts</button></div></PageHead>
-      <div className="scheduleToolbar"><select value={scheduleFilter} onChange={e=>setScheduleFilter(e.target.value)}><option value="">All organisations</option>{adminVenues().map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select><div className="row"><button className={`btn ${scheduleView==="calendar"?"btnPrimary":"btnSecondary"}`} onClick={()=>setScheduleView("calendar")}>Calendar</button><button className={`btn ${scheduleView==="agenda"?"btnPrimary":"btnSecondary"}`} onClick={()=>setScheduleView("agenda")}>Agenda</button><button className="btn btnAccent" onClick={openNewClass}><PlusIcon/>Add class</button></div></div>
+      <div className="scheduleToolbar"><select value={scheduleFilter} onChange={e=>setScheduleFilter(e.target.value)}><option value="">All organisations</option>{adminVenues().map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select><div className="row"><button className={`btn ${scheduleView==="calendar"?"btnPrimary":"btnSecondary"}`} onClick={()=>setScheduleView("calendar")}>Calendar</button><button className={`btn ${scheduleView==="agenda"?"btnPrimary":"btnSecondary"}`} onClick={()=>setScheduleView("agenda")}>Agenda</button><button className="btn btnAccent" onClick={()=>openNewClass()}><PlusIcon/>Add class</button></div></div>
       <div className="grid grid4 scheduleSummary"><StatCard label="Normal monthly cost" value={money(normalCost)} foot="Regular timetable" icon={<PoundIcon/>}/><StatCard label="Current forecast" value={money(forecastCost)} foot={`${plannedSchedule.length} scheduled staffing shifts`} icon={<CalendarIcon/>}/><StatCard label="Actual cost so far" value={money(actualScheduleCost)} foot={`${money(actualScheduleCost-forecastCost)} vs forecast`} icon={<CheckIcon/>}/><StatCard label="Unassigned shifts" value={String(unassignedScheduleCount)} foot={unassignedScheduleCount?"Needs a coach":"Fully staffed"} icon={<UsersIcon/>}/></div>
-      <div className="grid scheduleAdminGrid section"><div className="card"><div className="sectionHeader"><div><h2>Weekly master timetable</h2><p>Sunday–Saturday. Add as many different classes as you need on the same day or at the same time.</p></div><button className="btn btnSecondary" onClick={openNewClass}>Add class</button></div><div className="masterTimetable">{[1,2,3,4,5,6,0].map(day=>{const dayClasses=classes.filter(c=>(!scheduleFilter||c.venue_id===scheduleFilter)&&c.weekday===day).sort((a,b)=>a.start_time.localeCompare(b.start_time)||a.name.localeCompare(b.name));return <div className="masterDay" key={day}><div className="masterDayHead"><strong>{dayNames[day]}</strong><button className="btn btnSecondary" type="button" onClick={()=>{openNewClass();setTimeout(()=>setClassModal(d=>d?{...d,occurrences:d.occurrences?.map(o=>({...o,weekday:day}))}:d),0)}}>+ Add to {dayNames[day]}</button></div><div className="masterDayClasses">{dayClasses.map(c=>{const slots=classSlots.filter(x=>x.class_id===c.id).sort((a,b)=>a.slot_number-b.slot_number);return <div className={`masterClassRow ${venueColourClass(c.venue_id)}`} key={c.id}><div className="masterTime">{c.start_time.slice(0,5)}–{c.finish_time.slice(0,5)}</div><div className="masterClassInfo"><strong>{c.name}</strong><span>{venueName(c.venue_id)}</span><small>{slots.map(x=>profileById(x.default_profile_id)?.full_name||"Unassigned").join(" · ")}</small></div><div className="masterClassActions"><button className="btn btnSecondary" onClick={()=>openEditClass(c)}>Edit</button><button className="btn btnSecondary" onClick={()=>duplicateClassGroup(c)}>Duplicate group</button><button className="btn btnDanger" onClick={()=>archiveClass(c)}>Archive</button></div></div>})}{!dayClasses.length&&<div className="masterEmpty">No regular classes</div>}</div></div>})}</div></div>
+      <div className="grid scheduleAdminGrid section"><div className="card"><div className="sectionHeader"><div><h2>Weekly master timetable</h2><p>Sunday–Saturday. Add as many different classes as you need on the same day or at the same time.</p></div><button className="btn btnSecondary" onClick={()=>openNewClass()}>Add class</button></div><div className="masterTimetable">{[1,2,3,4,5,6,0].map(day=>{const dayClasses=classes.filter(c=>(!scheduleFilter||c.venue_id===scheduleFilter)&&c.weekday===day).sort((a,b)=>a.start_time.localeCompare(b.start_time)||a.name.localeCompare(b.name));return <div className="masterDay" key={day}><div className="masterDayHead"><strong>{dayNames[day]}</strong><button className="btn btnSecondary" type="button" onClick={()=>openNewClass(day)}>+ Add to {dayNames[day]}</button></div><div className="masterDayClasses">{dayClasses.map(c=>{const slots=classSlots.filter(x=>x.class_id===c.id).sort((a,b)=>a.slot_number-b.slot_number);return <div className={`masterClassRow ${venueColourClass(c.venue_id)}`} key={c.id}><div className="masterTime">{c.start_time.slice(0,5)}–{c.finish_time.slice(0,5)}</div><div className="masterClassInfo"><strong>{c.name}</strong><span>{venueName(c.venue_id)}</span><small>{slots.map(x=>profileById(x.default_profile_id)?.full_name||"Unassigned").join(" · ")}</small></div><div className="masterClassActions"><button className="btn btnSecondary" onClick={()=>openEditClass(c)}>Edit</button><button className="btn btnSecondary" onClick={()=>duplicateClassGroup(c)}>Duplicate group</button><button className="btn btnDanger" onClick={()=>archiveClass(c)}>Archive</button></div></div>})}{!dayClasses.length&&<div className="masterEmpty">No regular classes</div>}</div></div>})}</div></div>
       <div className="card"><div className="sectionHeader"><div><h2>{monthLabel(month)} staffing</h2><p>Drag one staffing card onto another to swap coach assignments. Use Agenda for detailed editing.</p></div><div className="scheduleLegend"><span>Forecast {money(forecastCost)}</span><span>Confirmed {money(confirmedScheduleCost)}</span></div></div>
       {scheduleView==="calendar"?<div className="staffingBoard">{(()=>{
         const[y,m]=month.split("-").map(Number),last=new Date(y,m,0).getDate();
@@ -863,18 +976,71 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   }
 
   function ClassModal(){
-    const d=classModal!;const dayNames=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+    const d=classModal!;
+    const dayNames=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
     const eligible=staffOptionsForVenue(d.venue_id);
-    if(!d.id){
-      const occurrences=d.occurrences||[];
-      const updateOccurrence=(key:string,patch:Partial<ClassOccurrenceDraft>)=>setClassModal({...d,occurrences:occurrences.map(o=>o.key===key?{...o,...patch}:o)});
-      const addOccurrence=()=>setClassModal({...d,occurrences:[...occurrences,{key:crypto.randomUUID(),weekday:1,start_time:"16:30",finish_time:"18:00",break_minutes:0,coaches_required:1,coach_ids:[],notes:""}]});
-      const duplicateOccurrence=(o:ClassOccurrenceDraft)=>setClassModal({...d,occurrences:[...occurrences,{...o,key:crypto.randomUUID(),coach_ids:[...o.coach_ids]}]});
-      const removeOccurrence=(key:string)=>{if(occurrences.length<=1)return;setClassModal({...d,occurrences:occurrences.filter(o=>o.key!==key)})};
-      return <div className="modalBackdrop"><div className="modal modalWide"><div className="modalHead"><h2>Add regular class</h2><button className="iconButton" onClick={()=>setClassModal(null)}>×</button></div><div className="modalBody"><div className="grid grid2"><div className="field"><label>Organisation</label><select value={d.venue_id} onChange={e=>setClassModal({...d,venue_id:e.target.value})}>{adminVenues().map(v=><option value={v.id} key={v.id}>{v.name}</option>)}</select></div><div className="field"><label>Class / session name</label><input value={d.name} onChange={e=>setClassModal({...d,name:e.target.value})} placeholder="e.g. Champ Tots"/></div></div><div className="formSectionTitle"><h3>Weekly sessions</h3><p>Add every day this class runs. Each session can have its own time and default coaches.</p></div><div className="classOccurrenceList">{occurrences.map((o,index)=>{const ids=[...o.coach_ids];while(ids.length<o.coaches_required)ids.push("");return <div className="classOccurrenceCard" key={o.key}><div className="classOccurrenceHead"><strong>Session {index+1}</strong><div className="row"><button className="btn btnSecondary" type="button" onClick={()=>duplicateOccurrence(o)}>Duplicate session</button>{occurrences.length>1&&<button className="btn btnDanger" type="button" onClick={()=>removeOccurrence(o.key)}>Remove</button>}</div></div><div className="grid grid3"><div className="field"><label>Day</label><select value={o.weekday} onChange={e=>updateOccurrence(o.key,{weekday:Number(e.target.value)})}>{dayNames.map((x,i)=><option value={i} key={x}>{x}</option>)}</select></div><div className="field"><label>Start</label><input type="time" value={o.start_time} onChange={e=>updateOccurrence(o.key,{start_time:e.target.value})}/></div><div className="field"><label>Finish</label><input type="time" value={o.finish_time} onChange={e=>updateOccurrence(o.key,{finish_time:e.target.value})}/></div></div><div className="grid grid2"><div className="field"><label>Break minutes</label><input type="number" min={0} value={o.break_minutes} onChange={e=>updateOccurrence(o.key,{break_minutes:Number(e.target.value)})}/></div><div className="field"><label>Coaches required</label><input type="number" min={1} max={12} value={o.coaches_required} onChange={e=>{const n=Math.max(1,Number(e.target.value)||1);updateOccurrence(o.key,{coaches_required:n,coach_ids:o.coach_ids.slice(0,n)})}}/></div></div><div className="grid grid2">{Array.from({length:o.coaches_required},(_,i)=><div className="field" key={i}><label>Default coach {i+1}</label><select value={ids[i]||""} onChange={e=>{const next=[...ids];next[i]=e.target.value;updateOccurrence(o.key,{coach_ids:next})}}><option value="">Unassigned</option>{eligible.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select></div>)}</div><div className="field"><label>Session notes</label><input value={o.notes} onChange={e=>updateOccurrence(o.key,{notes:e.target.value})} placeholder="Optional"/></div></div>})}</div><button className="btn btnSecondary" type="button" onClick={addOccurrence}><PlusIcon/>Add another class / session</button></div><div className="modalFoot"><span/><div className="row"><button className="btn btnSecondary" onClick={()=>setClassModal(null)}>Cancel</button><button className="btn btnPrimary" disabled={saving||!d.name||!d.venue_id||!occurrences.length} onClick={saveClass}>{saving?"Saving…":`Save ${occurrences.length} session${occurrences.length===1?"":"s"}`}</button></div></div></div></div>;
-    }
-    const coachIds=[...d.coach_ids];while(coachIds.length<d.coaches_required)coachIds.push("");
-    return <div className="modalBackdrop"><div className="modal modalWide"><div className="modalHead"><h2>Edit class session</h2><button className="iconButton" onClick={()=>setClassModal(null)}>×</button></div><div className="modalBody"><div className="grid grid2"><div className="field"><label>Organisation</label><select value={d.venue_id} onChange={e=>setClassModal({...d,venue_id:e.target.value,coach_ids:[]})}>{adminVenues().map(v=><option value={v.id} key={v.id}>{v.name}</option>)}</select></div><div className="field"><label>Class / session name</label><input value={d.name} onChange={e=>setClassModal({...d,name:e.target.value})}/></div></div><div className="grid grid3"><div className="field"><label>Day</label><select value={d.weekday} onChange={e=>setClassModal({...d,weekday:Number(e.target.value)})}>{dayNames.map((x,i)=><option value={i} key={x}>{x}</option>)}</select></div><div className="field"><label>Start</label><input type="time" value={d.start_time} onChange={e=>setClassModal({...d,start_time:e.target.value})}/></div><div className="field"><label>Finish</label><input type="time" value={d.finish_time} onChange={e=>setClassModal({...d,finish_time:e.target.value})}/></div></div><div className="grid grid2"><div className="field"><label>Break minutes</label><input type="number" min={0} value={d.break_minutes} onChange={e=>setClassModal({...d,break_minutes:Number(e.target.value)})}/></div><div className="field"><label>Coaches required</label><input type="number" min={1} max={12} value={d.coaches_required} onChange={e=>{const n=Math.max(1,Number(e.target.value)||1);setClassModal({...d,coaches_required:n,coach_ids:d.coach_ids.slice(0,n)})}}/></div></div><div className="grid grid2">{Array.from({length:d.coaches_required},(_,i)=><div className="field" key={i}><label>Default coach {i+1}</label><select value={coachIds[i]||""} onChange={e=>{const ids=[...coachIds];ids[i]=e.target.value;setClassModal({...d,coach_ids:ids})}}><option value="">Unassigned</option>{eligible.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select></div>)}</div><div className="field"><label>Notes</label><textarea value={d.notes} onChange={e=>setClassModal({...d,notes:e.target.value})}/></div></div><div className="modalFoot"><span/><div className="row"><button className="btn btnSecondary" onClick={()=>setClassModal(null)}>Cancel</button><button className="btn btnPrimary" disabled={saving||!d.name||!d.venue_id} onClick={saveClass}>{saving?"Saving…":"Save session"}</button></div></div></div></div>;
+    const occurrences=d.occurrences?.length?d.occurrences:[blankClassOccurrence(d.weekday)];
+
+    const updateOccurrence=(key:string,patch:Partial<ClassOccurrenceDraft>)=>{
+      setClassModal({...d,occurrences:occurrences.map(o=>o.key===key?{...o,...patch}:o)});
+    };
+    const addOccurrence=()=>{
+      const previous=occurrences[occurrences.length-1]||blankClassOccurrence();
+      setClassModal({...d,occurrences:[...occurrences,{
+        ...previous,
+        key:crypto.randomUUID(),
+        id:undefined,
+        weekday:(previous.weekday+1)%7,
+        coach_ids:[...previous.coach_ids]
+      }]});
+    };
+    const duplicateOccurrence=(o:ClassOccurrenceDraft)=>{
+      setClassModal({...d,occurrences:[...occurrences,{
+        ...o,
+        key:crypto.randomUUID(),
+        id:undefined,
+        coach_ids:[...o.coach_ids]
+      }]});
+    };
+    const removeOccurrence=(key:string)=>{
+      if(occurrences.length<=1){flash("A regular class needs at least one weekly session.");return}
+      setClassModal({...d,occurrences:occurrences.filter(o=>o.key!==key)});
+    };
+
+    return <div className="modalBackdrop"><div className="modal modalWide">
+      <div className="modalHead"><h2>{d.id?"Edit regular class":"Add regular class"}</h2><button className="iconButton" onClick={()=>setClassModal(null)}>×</button></div>
+      <div className="modalBody">
+        <div className="grid grid2">
+          <div className="field"><label>Organisation</label><select value={d.venue_id} onChange={e=>setClassModal({...d,venue_id:e.target.value})}>{adminVenues().map(v=><option value={v.id} key={v.id}>{v.name}</option>)}</select></div>
+          <div className="field"><label>Class / session name</label><input value={d.name} onChange={e=>setClassModal({...d,name:e.target.value})} placeholder="e.g. Champ Tots"/></div>
+        </div>
+
+        <div className="formSectionTitle"><h3>Weekly sessions</h3><p>Add as many days as you need. Each occurrence can have a different day, time and default coaching team. Different classes can also run at exactly the same time.</p></div>
+
+        <div className="classOccurrenceList">
+          {occurrences.map((o,index)=>{
+            const ids=[...o.coach_ids];while(ids.length<o.coaches_required)ids.push("");
+            return <div className="classOccurrenceCard" key={o.key}>
+              <div className="classOccurrenceHead"><strong>{dayNames[o.weekday]} session {index+1}</strong><div className="row"><button className="btn btnSecondary" type="button" onClick={()=>duplicateOccurrence(o)}>Duplicate session</button>{occurrences.length>1&&<button className="btn btnDanger" type="button" onClick={()=>removeOccurrence(o.key)}>Remove</button>}</div></div>
+              <div className="grid grid3">
+                <div className="field"><label>Day</label><select value={o.weekday} onChange={e=>updateOccurrence(o.key,{weekday:Number(e.target.value)})}>{dayNames.map((x,i)=><option value={i} key={x}>{x}</option>)}</select></div>
+                <div className="field"><label>Start</label><input type="time" value={o.start_time} onChange={e=>updateOccurrence(o.key,{start_time:e.target.value})}/></div>
+                <div className="field"><label>Finish</label><input type="time" value={o.finish_time} onChange={e=>updateOccurrence(o.key,{finish_time:e.target.value})}/></div>
+              </div>
+              <div className="grid grid2">
+                <div className="field"><label>Break minutes</label><input type="number" min={0} value={o.break_minutes} onChange={e=>updateOccurrence(o.key,{break_minutes:Number(e.target.value)})}/></div>
+                <div className="field"><label>Coaches required</label><input type="number" min={1} max={12} value={o.coaches_required} onChange={e=>{const n=Math.max(1,Number(e.target.value)||1);updateOccurrence(o.key,{coaches_required:n,coach_ids:ids.slice(0,n)})}}/></div>
+              </div>
+              <div className="grid grid2">{Array.from({length:o.coaches_required},(_,i)=><div className="field" key={i}><label>Default coach {i+1}</label><select value={ids[i]||""} onChange={e=>{const next=[...ids];next[i]=e.target.value;updateOccurrence(o.key,{coach_ids:next})}}><option value="">Unassigned</option>{eligible.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select></div>)}</div>
+              <div className="field"><label>Session notes</label><input value={o.notes} onChange={e=>updateOccurrence(o.key,{notes:e.target.value})} placeholder="Optional"/></div>
+            </div>
+          })}
+        </div>
+
+        <button className="btn btnSecondary" type="button" onClick={addOccurrence}><PlusIcon/>Add another day / session</button>
+      </div>
+      <div className="modalFoot"><span/><div className="row"><button className="btn btnSecondary" onClick={()=>setClassModal(null)}>Cancel</button><button className="btn btnPrimary" disabled={saving||!d.name.trim()||!d.venue_id||!occurrences.length} onClick={saveClass}>{saving?"Saving…":d.id?"Save master class":`Save ${occurrences.length} session${occurrences.length===1?"":"s"}`}</button></div></div>
+    </div></div>;
   }
 
   function TemplateModal(){
