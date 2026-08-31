@@ -17,7 +17,7 @@ type Profile={
   emergency_contact_name?:string|null;emergency_contact_phone?:string|null;
   dbs_expiry?:string|null;first_aid_expiry?:string|null;safeguarding_expiry?:string|null;qualifications?:string|null;
   job_title?:string|null;employment_status?:string|null;start_date?:string|null;payroll_id?:string|null;
-  last_login_at?:string|null;force_password_reset?:boolean|null;password_changed_at?:string|null;admin_notes?:string|null;
+  last_login_at?:string|null;force_password_reset?:boolean|null;password_changed_at?:string|null;admin_notes?:string|null;username?:string|null;contact_email?:string|null;auth_email?:string|null;
 };
 type Venue={id:string;name:string;slug:string;active:boolean;brand_color:string|null;legal_name?:string|null;invoice_address?:string|null;invoice_prefix?:string|null;payment_note?:string|null};
 type ShiftTemplate={id:string;profile_id:string;venue_id:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;session_location:string|null;notes:string|null;active:boolean};
@@ -68,7 +68,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const [shiftModal,setShiftModal]=useState<Shift|null>(null);
   const [inviteOpen,setInviteOpen]=useState(false);
   const [staffEdit,setStaffEdit]=useState<Profile|null>(null);
-  const [invite,setInvite]=useState({name:"",email:"",rate:""});
+  const [invite,setInvite]=useState({name:"",username:"",password:"",email:"",rate:""});
   const [saving,setSaving]=useState(false);
   const [mobileOpen,setMobileOpen]=useState(false);
   const [mobileMoreOpen,setMobileMoreOpen]=useState(false);
@@ -264,8 +264,16 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   async function saveOwnProfile(){
     setSaving(true);
     const p=ownProfile;
+    const originalEmail=(initialProfile.email||initialProfile.contact_email||"").trim().toLowerCase();
+    const nextEmail=(p.email||p.contact_email||"").trim().toLowerCase();
+    if(nextEmail!==originalEmail){
+      const res=await fetch("/api/account-email",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:nextEmail})});
+      const j=await res.json();
+      if(!res.ok){setSaving(false);flash(j.error||"Could not update recovery email.");return}
+    }
     const editable={
       full_name:p.full_name,phone:p.phone,address:p.address,account_name:p.account_name,sort_code:p.sort_code,account_number:p.account_number,utr:p.utr,invoice_prefix:p.invoice_prefix,
+      email:nextEmail||null,contact_email:nextEmail||null,
       emergency_contact_name:p.emergency_contact_name||null,emergency_contact_phone:p.emergency_contact_phone||null,
       dbs_expiry:p.dbs_expiry||null,first_aid_expiry:p.first_aid_expiry||null,safeguarding_expiry:p.safeguarding_expiry||null,qualifications:p.qualifications||null
     };
@@ -278,9 +286,19 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   async function saveStaff(){
     if(!staffEdit)return;
     setSaving(true);
+    const original=staff.find(x=>x.id===staffEdit.id);
+    const nextUsername=(staffEdit.username||"").trim().toLowerCase();
+    const nextEmail=(staffEdit.email||staffEdit.contact_email||"").trim().toLowerCase();
+    if(!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(nextUsername)){setSaving(false);flash("Username must be 3–32 characters using letters, numbers, dots, dashes or underscores.");return}
+    if(!original||nextUsername!==(original.username||"").toLowerCase()||nextEmail!==(original.email||original.contact_email||"").toLowerCase()){
+      const res=await fetch("/api/staff-access",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update_identity",profile_id:staffEdit.id,username:nextUsername,email:nextEmail})});
+      const j=await res.json();
+      if(!res.ok){setSaving(false);flash(j.error||"Could not update username/email.");return}
+    }
     const payload={
       full_name:staffEdit.full_name,phone:staffEdit.phone,address:staffEdit.address,hourly_rate:Number(staffEdit.hourly_rate||0),is_active:staffEdit.is_active,
       ...(isGlobalAdmin?{role:staffEdit.role}:{}),
+      username:nextUsername,email:nextEmail||null,contact_email:nextEmail||null,
       account_name:staffEdit.account_name,sort_code:staffEdit.sort_code,account_number:staffEdit.account_number,utr:staffEdit.utr,invoice_prefix:staffEdit.invoice_prefix,
       emergency_contact_name:staffEdit.emergency_contact_name||null,emergency_contact_phone:staffEdit.emergency_contact_phone||null,
       dbs_expiry:staffEdit.dbs_expiry||null,first_aid_expiry:staffEdit.first_aid_expiry||null,safeguarding_expiry:staffEdit.safeguarding_expiry||null,qualifications:staffEdit.qualifications||null,
@@ -302,27 +320,56 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     flash(error?error.message:"Business settings saved.");
   }
 
+  function generateInvitePassword(){
+    const upper="ABCDEFGHJKLMNPQRSTUVWXYZ",lower="abcdefghijkmnopqrstuvwxyz",nums="23456789",symbols="!@#$%*?";
+    const all=upper+lower+nums+symbols;
+    const pick=(chars:string)=>chars[Math.floor(Math.random()*chars.length)];
+    let value=pick(upper)+pick(lower)+pick(nums)+pick(symbols);
+    for(let i=0;i<8;i++)value+=pick(all);
+    value=value.split("").sort(()=>Math.random()-.5).join("");
+    setInvite({...invite,password:value});
+  }
+
   async function sendInvite(e:FormEvent){
-    e.preventDefault();setSaving(true);
-    const hasEmail=Boolean(invite.email.trim());
-    const endpoint=hasEmail?"/api/invite":"/api/staff-access";
-    const body=hasEmail
-      ? {full_name:invite.name,email:invite.email.trim(),hourly_rate:Number(invite.rate),venue_ids:inviteVenueIds,role:inviteRole,admin_venue_ids:inviteRole==="org_admin"?inviteVenueIds:[]}
-      : {action:"create_placeholder",full_name:invite.name,hourly_rate:Number(invite.rate),venue_ids:inviteVenueIds,role:inviteRole,admin_venue_ids:inviteRole==="org_admin"?inviteVenueIds:[]};
-    const res=await fetch(endpoint,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    e.preventDefault();
+    const username=invite.username.trim().toLowerCase();
+    if(!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(username)){flash("Username must be 3–32 characters using letters, numbers, dots, dashes or underscores.");return}
+    if(invite.password.length<8){flash("Set a password of at least 8 characters.");return}
+    setSaving(true);
+    const res=await fetch("/api/staff-access",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        action:"create_account",
+        full_name:invite.name,
+        username,
+        password:invite.password,
+        email:invite.email.trim(),
+        hourly_rate:Number(invite.rate),
+        venue_ids:inviteVenueIds,
+        role:inviteRole,
+        admin_venue_ids:inviteRole==="org_admin"?inviteVenueIds:[],
+        force_password_reset:true
+      })
+    });
     const j=await res.json();setSaving(false);
-    if(!res.ok){flash(j.error||"Could not add staff member.");return}
-    flash(hasEmail?"Invitation sent.":"Staff member added without portal access.");
-    setInviteOpen(false);setInvite({name:"",email:"",rate:""});setInviteVenueIds([]);setInviteRole("coach");void loadStaff();void loadAdmin();
+    if(!res.ok){flash(j.error||"Could not create staff account.");return}
+    flash(`Account created · username ${username}`);
+    setInviteOpen(false);
+    setInvite({name:"",username:"",password:"",email:"",rate:""});
+    setInviteVenueIds([]);setInviteRole("coach");
+    void loadStaff();void loadAdmin();
   }
 
   async function inviteExistingStaff(s:Profile){
-    const email=window.prompt(`Enter the email address to invite ${s.full_name} to the portal.`);
-    if(!email)return;
-    const res=await fetch("/api/staff-access",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"invite_existing",profile_id:s.id,email:email.trim()})});
+    const email=window.prompt(`Enter a recovery/contact email for ${s.full_name}.`);
+    if(email===null)return;
+    const res=await fetch("/api/staff-access",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"set_contact_email",profile_id:s.id,email:email.trim()})});
     const j=await res.json();
-    if(!res.ok){flash(j.error||"Could not invite staff member.");return}
-    flash("Portal invitation sent.");setStaffEdit(null);void loadStaff();
+    if(!res.ok){flash(j.error||"Could not update recovery email.");return}
+    flash(email.trim()?"Recovery email saved.":"Recovery email removed.");
+    setStaffEdit({...s,email:email.trim()||null,contact_email:email.trim()||null});
+    void loadStaff();
   }
 
   async function saveShift(){
@@ -467,7 +514,6 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   }
 
   async function setStaffTemporaryPassword(s:Profile){
-    if(!s.email){flash("Add an email address and enable portal access first.");return}
     if(temporaryPassword.length<8){flash("Temporary password must be at least 8 characters.");return}
     if(temporaryPassword!==temporaryPasswordConfirm){flash("The temporary passwords do not match.");return}
     setTemporaryPasswordBusy(true);
@@ -500,9 +546,10 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   }
 
   async function sendPasswordResetEmail(s:Profile){
-    if(!s.email){flash("Add an email address before sending a password reset.");return}
-    const{error}=await supabase.auth.resetPasswordForEmail(s.email,{redirectTo:`${window.location.origin}/set-password?mode=recovery&email=${encodeURIComponent(s.email)}`});
-    flash(error?error.message:`Password reset email sent to ${s.email}.`);
+    if(!s.email&&!s.contact_email){flash("Add a recovery email before sending a password reset.");return}
+    const res=await fetch("/api/staff-access",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"send_reset_email",profile_id:s.id})});
+    const j=await res.json();
+    flash(res.ok?"Password reset email sent.":(j.error||"Could not send password reset email."));
   }
 
   async function toggleForcePasswordReset(s:Profile){
@@ -1064,7 +1111,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   return <div className="portal">
     <Sidebar tab={tab} setTab={(t:any)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v3.2.2</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v3.2.3</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
         {tab!=="schedule"&&mobilePageMeta&&<div className="v303MobilePageHero">
           <span>{mobilePageMeta.eyebrow}</span>
@@ -1265,18 +1312,18 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
 
   function StaffView(){
     const activeCount=filteredStaff.filter(s=>s.is_active).length;
-    const portalCount=filteredStaff.filter(s=>Boolean(s.email)).length;
+    const portalCount=filteredStaff.filter(s=>Boolean(s.username)).length;
     const recentCount=filteredStaff.filter(s=>s.last_login_at&&Date.now()-new Date(s.last_login_at).getTime()<30*86400000).length;
     const roleLabel=(s:Profile)=>s.role==="admin"?"Super admin":s.role==="org_admin"?"Organisation admin":"Coach";
-    const lastLogin=(s:Profile)=>s.last_login_at?new Date(s.last_login_at).toLocaleString("en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):s.email?"Never":"No portal account";
+    const lastLogin=(s:Profile)=>s.last_login_at?new Date(s.last_login_at).toLocaleString("en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):s.username?"Never":"No portal account";
     return <><PageHead title="People" sub="Manage staff details, organisations, account access and security."><button className="btn btnPrimary" onClick={()=>setInviteOpen(true)}><PlusIcon/>Add staff</button></PageHead>
       <div className="grid grid3 v32PeopleStats"><StatCard label="Active staff" value={String(activeCount)} foot={`${filteredStaff.length} total profiles`} icon={<UsersIcon/>}/><StatCard label="Portal access" value={String(portalCount)} foot={`${filteredStaff.length-portalCount} not invited yet`} icon={<CheckIcon/>}/><StatCard label="Recently signed in" value={String(recentCount)} foot="Within the last 30 days" icon={<ClockIcon/>}/></div>
       <div className="card section"><div className="sectionHeader"><div className="staffFilters"><div className="searchBar"><SearchIcon/><input placeholder="Search staff…" value={search} onChange={e=>setSearch(e.target.value)}/></div><select value={venueFilter} onChange={e=>setVenueFilter(e.target.value)}><option value="">All organisations</option>{adminVenues().map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select></div><div className="muted" style={{fontSize:12}}>{filteredStaff.length} people</div></div>
         <div className="v32PeopleGrid">{filteredStaff.map(s=><button className="v32PersonCard" key={s.id} onClick={()=>openStaffEdit(s)}>
           <div className="v32PersonTop"><div className="v32PersonAvatar">{initials(s.full_name)}</div><div className="v32PersonIdentity"><strong>{s.full_name||"Unnamed coach"}</strong><span>{s.job_title||roleLabel(s)}</span></div><span className={`v32AccountDot ${s.is_active?"active":"inactive"}`}>{s.is_active?"Active":"Inactive"}</span></div>
           <div className="venueBadges">{profileVenues(s.id).map(v=><span className="venueBadge" key={v.id}>{v.name}</span>)}{!profileVenues(s.id).length&&<span className="venueBadge mutedBadge">No organisation</span>}</div>
-          <div className="v32PersonMeta"><div><span>Account</span><strong>{s.email?"Portal enabled":"Not invited"}</strong></div><div><span>Last sign in</span><strong>{lastLogin(s)}</strong></div></div>
-          <div className="v32PersonFooter"><span>{s.email||"Add an email when ready"}</span><strong>Open profile →</strong></div>
+          <div className="v32PersonMeta"><div><span>Account</span><strong>{s.username?`@${s.username}`:"No username"}</strong></div><div><span>Last sign in</span><strong>{lastLogin(s)}</strong></div></div>
+          <div className="v32PersonFooter"><span>{s.email||s.contact_email||"Recovery email optional"}</span><strong>Open profile →</strong></div>
         </button>)}</div>
         {!filteredStaff.length&&<div className="empty">No staff match these filters.</div>}
       </div>
@@ -1326,9 +1373,9 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
 
   function ProfileView(){
     const p=ownProfile,fields=[p.full_name,p.email,p.phone,p.address,p.account_name,p.sort_code,p.account_number,p.invoice_prefix,p.emergency_contact_name,p.emergency_contact_phone],complete=Math.round(fields.filter(Boolean).length/fields.length*100);
-    return <><PageHead title="My profile" sub="Personal, payment and security information."/><div className="card profileHero"><div className="profileAvatar">{initials(p.full_name)}</div><div><div className="profileName">{p.full_name}</div><div className="profileMeta">{p.email} · {p.job_title||p.role}</div></div><div className="completion"><strong>{complete}% complete</strong><div className="progress"><span style={{width:`${complete}%`}}/></div></div></div>
+    return <><PageHead title="My profile" sub="Personal, payment and security information."/><div className="card profileHero"><div className="profileAvatar">{initials(p.full_name)}</div><div><div className="profileName">{p.full_name}</div><div className="profileMeta">@{p.username||"username"} · {p.job_title||p.role}</div></div><div className="completion"><strong>{complete}% complete</strong><div className="progress"><span style={{width:`${complete}%`}}/></div></div></div>
       <div className="grid grid2 section">
-        <div className="card"><div className="formSection"><div className="formSectionTitle"><h3>Personal details</h3></div><div className="field"><label>Name / trading name</label><input value={p.full_name} onChange={e=>setOwnProfile({...p,full_name:e.target.value})}/></div><div className="field"><label>Email</label><input value={p.email||""} disabled/></div><div className="field"><label>Mobile</label><input value={p.phone||""} onChange={e=>setOwnProfile({...p,phone:e.target.value})}/></div><div className="field"><label>Address</label><textarea value={p.address||""} onChange={e=>setOwnProfile({...p,address:e.target.value})}/></div><div className="grid grid2"><div className="field"><label>Emergency contact</label><input value={p.emergency_contact_name||""} onChange={e=>setOwnProfile({...p,emergency_contact_name:e.target.value})}/></div><div className="field"><label>Emergency phone</label><input value={p.emergency_contact_phone||""} onChange={e=>setOwnProfile({...p,emergency_contact_phone:e.target.value})}/></div></div></div></div>
+        <div className="card"><div className="formSection"><div className="formSectionTitle"><h3>Personal details</h3></div><div className="field"><label>Name / trading name</label><input value={p.full_name} onChange={e=>setOwnProfile({...p,full_name:e.target.value})}/></div><div className="field"><label>Recovery email <span className="muted">(optional)</span></label><input type="email" value={p.email||p.contact_email||""} onChange={e=>setOwnProfile({...p,email:e.target.value,contact_email:e.target.value})}/><div className="fieldHint">Used for password recovery only. Your username stays the same.</div></div><div className="field"><label>Mobile</label><input value={p.phone||""} onChange={e=>setOwnProfile({...p,phone:e.target.value})}/></div><div className="field"><label>Address</label><textarea value={p.address||""} onChange={e=>setOwnProfile({...p,address:e.target.value})}/></div><div className="grid grid2"><div className="field"><label>Emergency contact</label><input value={p.emergency_contact_name||""} onChange={e=>setOwnProfile({...p,emergency_contact_name:e.target.value})}/></div><div className="field"><label>Emergency phone</label><input value={p.emergency_contact_phone||""} onChange={e=>setOwnProfile({...p,emergency_contact_phone:e.target.value})}/></div></div></div></div>
         <div className="card v32SecurityCard"><div className="formSection"><div className="formSectionTitle"><h3>Security</h3><p>Change the password you use to access AV Gymnastics.</p></div>{p.force_password_reset&&<div className="notice">An administrator has requested that you change your password.</div>}<div className="field"><label>New password</label><input type="password" autoComplete="new-password" value={newPassword} onChange={e=>setNewPassword(e.target.value)} placeholder="Minimum 8 characters"/></div><div className="field"><label>Confirm new password</label><input type="password" autoComplete="new-password" value={confirmNewPassword} onChange={e=>setConfirmNewPassword(e.target.value)}/></div><button className="btn btnPrimary" onClick={changeOwnPassword} disabled={passwordBusy}>{passwordBusy?"Updating…":"Change password"}</button><div className="v32SecurityMeta"><span>Last sign in</span><strong>{p.last_login_at?new Date(p.last_login_at).toLocaleString("en-GB"):"Not recorded yet"}</strong></div></div></div>
         <div className="card"><div className="formSection"><div className="formSectionTitle"><h3>Payment details</h3><p>Used on self-employed invoices.</p></div><div className="field"><label>Account name</label><input value={p.account_name||""} onChange={e=>setOwnProfile({...p,account_name:e.target.value})}/></div><div className="grid grid2"><div className="field"><label>Sort code</label><input value={p.sort_code||""} onChange={e=>setOwnProfile({...p,sort_code:e.target.value})}/></div><div className="field"><label>Account number</label><input value={p.account_number||""} onChange={e=>setOwnProfile({...p,account_number:e.target.value})}/></div></div><div className="grid grid2"><div className="field"><label>UTR</label><input value={p.utr||""} onChange={e=>setOwnProfile({...p,utr:e.target.value})}/></div><div className="field"><label>Invoice prefix</label><input value={p.invoice_prefix||""} onChange={e=>setOwnProfile({...p,invoice_prefix:e.target.value.toUpperCase()})}/></div></div></div></div>
         <div className="card"><div className="formSection"><div className="formSectionTitle"><h3>Compliance</h3></div><div className="grid grid2"><div className="field"><label>DBS expiry</label><input type="date" value={p.dbs_expiry||""} onChange={e=>setOwnProfile({...p,dbs_expiry:e.target.value})}/></div><div className="field"><label>First Aid expiry</label><input type="date" value={p.first_aid_expiry||""} onChange={e=>setOwnProfile({...p,first_aid_expiry:e.target.value})}/></div></div><div className="field"><label>Safeguarding expiry</label><input type="date" value={p.safeguarding_expiry||""} onChange={e=>setOwnProfile({...p,safeguarding_expiry:e.target.value})}/></div><div className="field"><label>Qualifications</label><textarea placeholder="e.g. Level 2 Trampoline, DMT Module..." value={p.qualifications||""} onChange={e=>setOwnProfile({...p,qualifications:e.target.value})}/></div></div></div>
@@ -1467,22 +1514,29 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   }
 
   function InviteModal(){
-    return <div className="modalBackdrop"><form className="modal" onSubmit={sendInvite}><div className="modalHead"><h2>Add staff member</h2><button type="button" className="iconButton" onClick={()=>setInviteOpen(false)}>×</button></div><div className="modalBody"><div className="field"><label>Full name</label><input value={invite.name} onChange={e=>setInvite({...invite,name:e.target.value})} required/></div><div className="field"><label>Email <span className="muted">(optional)</span></label><input type="email" value={invite.email} onChange={e=>setInvite({...invite,email:e.target.value})} placeholder="Leave blank to add them without portal access"/><div className="fieldHint">You can add their email and invite them later. They can still be scheduled and included in payroll now.</div></div><div className="field"><label>Account type</label><select value={inviteRole} onChange={e=>setInviteRole(e.target.value as any)} disabled={!isGlobalAdmin}><option value="coach">Coach</option>{isGlobalAdmin&&<option value="org_admin">Organisation admin</option>}</select></div><div className="field"><label>Hourly rate</label><input type="number" min={0} step="0.01" value={invite.rate} onChange={e=>setInvite({...invite,rate:e.target.value})} required/></div><div className="field"><label>Works at</label><div className="checkGrid">{adminVenues().map(v=><label className="checkCard" key={v.id}><input type="checkbox" checked={inviteVenueIds.includes(v.id)} onChange={e=>setInviteVenueIds(e.target.checked?[...inviteVenueIds,v.id]:inviteVenueIds.filter(x=>x!==v.id))}/><span><strong>{v.name}</strong></span></label>)}</div></div></div><div className="modalFoot"><span/><button className="btn btnPrimary" disabled={saving}>{saving?"Saving…":invite.email.trim()?"Add & send invitation":"Add staff without login"}</button></div></form></div>
+    return <div className="modalBackdrop"><form className="modal v323CreateAccount" onSubmit={sendInvite}><div className="modalHead"><div><h2>Create staff account</h2><p className="muted" style={{margin:"4px 0 0",fontSize:11}}>Create their login now. Email can be added later.</p></div><button type="button" className="iconButton" onClick={()=>setInviteOpen(false)}>×</button></div><div className="modalBody">
+      <div className="field"><label>Full name</label><input value={invite.name} onChange={e=>setInvite({...invite,name:e.target.value})} required/></div>
+      <div className="field"><label>Username</label><div className="v323UsernameInput"><span>@</span><input autoCapitalize="none" autoCorrect="off" value={invite.username} onChange={e=>setInvite({...invite,username:e.target.value.toLowerCase().replace(/\s+/g,"")})} placeholder="e.g. gabby" required/></div><div className="fieldHint">3–32 characters. Letters, numbers, dots, dashes and underscores.</div></div>
+      <div className="field"><div className="v323FieldAction"><label>Initial password</label><button className="v3TextButton" type="button" onClick={generateInvitePassword}>Generate password</button></div><input type="text" autoComplete="off" value={invite.password} onChange={e=>setInvite({...invite,password:e.target.value})} placeholder="Minimum 8 characters" required/><div className="fieldHint">They will be asked to choose their own password after first login.</div></div>
+      <div className="field"><label>Recovery email <span className="muted">(optional)</span></label><input type="email" value={invite.email} onChange={e=>setInvite({...invite,email:e.target.value})} placeholder="Can be added later"/><div className="fieldHint">Only used for password recovery and contact. It is not their username.</div></div>
+      <div className="grid grid2"><div className="field"><label>Account type</label><select value={inviteRole} onChange={e=>setInviteRole(e.target.value as any)} disabled={!isGlobalAdmin}><option value="coach">Coach</option>{isGlobalAdmin&&<option value="org_admin">Organisation admin</option>}</select></div><div className="field"><label>Hourly rate</label><input type="number" min={0} step="0.01" value={invite.rate} onChange={e=>setInvite({...invite,rate:e.target.value})} required/></div></div>
+      <div className="field"><label>Works at</label><div className="checkGrid">{adminVenues().map(v=><label className="checkCard" key={v.id}><input type="checkbox" checked={inviteVenueIds.includes(v.id)} onChange={e=>setInviteVenueIds(e.target.checked?[...inviteVenueIds,v.id]:inviteVenueIds.filter(x=>x!==v.id))}/><span><strong>{v.name}</strong></span></label>)}</div></div>
+    </div><div className="modalFoot"><span/><button className="btn btnPrimary" disabled={saving||!invite.name.trim()||!invite.username.trim()||invite.password.length<8}>{saving?"Creating…":"Create account"}</button></div></form></div>
   }
 
   function StaffModal(){
     const s=staffEdit!;
     const roleLabel=s.role==="admin"?"Super admin":s.role==="org_admin"?"Organisation admin":"Coach";
-    const hasPortal=Boolean(s.email);
+    const hasPortal=Boolean(s.username);
     return <div className="modalBackdrop"><div className="modal modalWide v32StaffModal v322StaffModalShell">
-      <div className="v32StaffHero"><div className="v32StaffHeroIdentity"><div className="v32StaffHeroAvatar">{initials(s.full_name)}</div><div><span>{s.job_title||roleLabel}</span><h2>{s.full_name}</h2><p>{s.email||"No portal access yet"}</p></div></div><button className="iconButton" onClick={()=>setStaffEdit(null)}>×</button></div>
+      <div className="v32StaffHero"><div className="v32StaffHeroIdentity"><div className="v32StaffHeroAvatar">{initials(s.full_name)}</div><div><span>{s.job_title||roleLabel}</span><h2>{s.full_name}</h2><p>@{s.username||"username"}{(s.email||s.contact_email)?` · ${s.email||s.contact_email}`:""}</p></div></div><button className="iconButton" onClick={()=>setStaffEdit(null)}>×</button></div>
       <div className="v32ProfileTabs"><button className={staffPanel==="profile"?"active":""} onClick={()=>setStaffPanel("profile")}>Profile</button><button className={staffPanel==="employment"?"active":""} onClick={()=>setStaffPanel("employment")}>Employment</button><button className={staffPanel==="security"?"active":""} onClick={()=>setStaffPanel("security")}>Security</button><button className={staffPanel==="notes"?"active":""} onClick={()=>setStaffPanel("notes")}>Notes</button></div>
       <div className="modalBody v32StaffBody v322StaffModalBody">
-        {staffPanel==="profile"&&<><div className="grid grid2"><div className="field"><label>Name</label><input value={s.full_name} onChange={e=>setStaffEdit({...s,full_name:e.target.value})}/></div><div className="field"><label>Phone</label><input value={s.phone||""} onChange={e=>setStaffEdit({...s,phone:e.target.value})}/></div></div><div className="field"><label>Address</label><textarea value={s.address||""} onChange={e=>setStaffEdit({...s,address:e.target.value})}/></div><div className="grid grid2"><div className="field"><label>Emergency contact</label><input value={s.emergency_contact_name||""} onChange={e=>setStaffEdit({...s,emergency_contact_name:e.target.value})}/></div><div className="field"><label>Emergency phone</label><input value={s.emergency_contact_phone||""} onChange={e=>setStaffEdit({...s,emergency_contact_phone:e.target.value})}/></div></div><div className="grid grid3"><div className="field"><label>DBS expiry</label><input type="date" value={s.dbs_expiry||""} onChange={e=>setStaffEdit({...s,dbs_expiry:e.target.value})}/></div><div className="field"><label>First Aid</label><input type="date" value={s.first_aid_expiry||""} onChange={e=>setStaffEdit({...s,first_aid_expiry:e.target.value})}/></div><div className="field"><label>Safeguarding</label><input type="date" value={s.safeguarding_expiry||""} onChange={e=>setStaffEdit({...s,safeguarding_expiry:e.target.value})}/></div></div></>}
+        {staffPanel==="profile"&&<><div className="grid grid2"><div className="field"><label>Name</label><input value={s.full_name} onChange={e=>setStaffEdit({...s,full_name:e.target.value})}/></div><div className="field"><label>Username</label><div className="v323UsernameInput"><span>@</span><input value={s.username||""} autoCapitalize="none" onChange={e=>setStaffEdit({...s,username:e.target.value.toLowerCase().replace(/\s+/g,"")})}/></div></div></div><div className="grid grid2"><div className="field"><label>Recovery email <span className="muted">(optional)</span></label><input type="email" value={s.email||s.contact_email||""} onChange={e=>setStaffEdit({...s,email:e.target.value,contact_email:e.target.value})}/></div><div className="field"><label>Phone</label><input value={s.phone||""} onChange={e=>setStaffEdit({...s,phone:e.target.value})}/></div></div><div className="field"><label>Address</label><textarea value={s.address||""} onChange={e=>setStaffEdit({...s,address:e.target.value})}/></div><div className="grid grid2"><div className="field"><label>Emergency contact</label><input value={s.emergency_contact_name||""} onChange={e=>setStaffEdit({...s,emergency_contact_name:e.target.value})}/></div><div className="field"><label>Emergency phone</label><input value={s.emergency_contact_phone||""} onChange={e=>setStaffEdit({...s,emergency_contact_phone:e.target.value})}/></div></div><div className="grid grid3"><div className="field"><label>DBS expiry</label><input type="date" value={s.dbs_expiry||""} onChange={e=>setStaffEdit({...s,dbs_expiry:e.target.value})}/></div><div className="field"><label>First Aid</label><input type="date" value={s.first_aid_expiry||""} onChange={e=>setStaffEdit({...s,first_aid_expiry:e.target.value})}/></div><div className="field"><label>Safeguarding</label><input type="date" value={s.safeguarding_expiry||""} onChange={e=>setStaffEdit({...s,safeguarding_expiry:e.target.value})}/></div></div></>}
         {staffPanel==="employment"&&<><div className="grid grid2"><div className="field"><label>Job title</label><input value={s.job_title||""} onChange={e=>setStaffEdit({...s,job_title:e.target.value})} placeholder="e.g. Head Coach"/></div><div className="field"><label>Employment status</label><select value={s.employment_status||"active"} onChange={e=>setStaffEdit({...s,employment_status:e.target.value})}><option value="active">Active</option><option value="casual">Casual</option><option value="contractor">Contractor</option><option value="leaver">Leaver</option></select></div></div><div className="grid grid2"><div className="field"><label>Start date</label><input type="date" value={s.start_date||""} onChange={e=>setStaffEdit({...s,start_date:e.target.value})}/></div><div className="field"><label>Payroll ID</label><input value={s.payroll_id||""} onChange={e=>setStaffEdit({...s,payroll_id:e.target.value})}/></div></div><div className="grid grid2"><div className="field"><label>Hourly rate</label><input type="number" step="0.01" value={s.hourly_rate} onChange={e=>setStaffEdit({...s,hourly_rate:Number(e.target.value)})}/></div>{isGlobalAdmin&&<div className="field"><label>Account type</label><select value={s.role} onChange={e=>setStaffEdit({...s,role:e.target.value as any})}><option value="coach">Coach</option><option value="org_admin">Organisation admin</option><option value="admin">Super admin</option></select></div>}</div><div className="field"><label>Works at</label><div className="checkGrid">{adminVenues().map(v=><label className="checkCard" key={v.id}><input type="checkbox" checked={staffEditVenueIds.includes(v.id)} onChange={e=>{const ids=e.target.checked?[...staffEditVenueIds,v.id]:staffEditVenueIds.filter(x=>x!==v.id);setStaffEditVenueIds(ids);if(!ids.includes(v.id))setStaffEditAdminVenueIds(staffEditAdminVenueIds.filter(x=>x!==v.id))}}/><span><strong>{v.name}</strong>{s.role==="org_admin"&&isGlobalAdmin&&<small><input type="checkbox" checked={staffEditAdminVenueIds.includes(v.id)} onChange={e=>setStaffEditAdminVenueIds(e.target.checked?[...new Set([...staffEditAdminVenueIds,v.id])]:staffEditAdminVenueIds.filter(x=>x!==v.id))}/> Admin for this organisation</small>}</span></label>)}</div></div><div className="grid grid2"><div className="field"><label>Account name</label><input value={s.account_name||""} onChange={e=>setStaffEdit({...s,account_name:e.target.value})}/></div><div className="field"><label>UTR</label><input value={s.utr||""} onChange={e=>setStaffEdit({...s,utr:e.target.value})}/></div></div></>}
-        {staffPanel==="security"&&<><div className="v32SecurityOverview"><div><span>Portal access</span><strong>{hasPortal?"Enabled":"Not invited"}</strong></div><div><span>Account status</span><strong>{s.is_active?"Active":"Inactive"}</strong></div><div><span>Last sign in</span><strong>{s.last_login_at?new Date(s.last_login_at).toLocaleString("en-GB"):"Never"}</strong></div></div>
+        {staffPanel==="security"&&<><div className="v32SecurityOverview"><div><span>Username</span><strong>@{s.username||"Not set"}</strong></div><div><span>Account status</span><strong>{s.is_active?"Active":"Inactive"}</strong></div><div><span>Last sign in</span><strong>{s.last_login_at?new Date(s.last_login_at).toLocaleString("en-GB"):"Never"}</strong></div></div>
         {hasPortal?<><div className="v321Credentials"><div className="v321CredentialsHead"><div><span>Credentials</span><strong>Set a temporary password</strong><p>Useful when onboarding a coach in person. They can still change their password themselves at any time.</p></div><button className="btn btnSecondary" type="button" onClick={generateTemporaryPassword}>Generate</button></div><div className="grid grid2"><div className="field"><label>Temporary password</label><input type="text" autoComplete="off" value={temporaryPassword} onChange={e=>setTemporaryPassword(e.target.value)} placeholder="Minimum 8 characters"/></div><div className="field"><label>Confirm password</label><input type="text" autoComplete="off" value={temporaryPasswordConfirm} onChange={e=>setTemporaryPasswordConfirm(e.target.value)}/></div></div><label className="v321ForceCheck"><input type="checkbox" checked={forceTempPasswordChange} onChange={e=>setForceTempPasswordChange(e.target.checked)}/><span><strong>Require password change after login</strong><small>Recommended for temporary passwords.</small></span></label><div className="v321CredentialButtons"><button className="btn btnSecondary" type="button" disabled={!temporaryPassword} onClick={copyTemporaryPassword}>Copy password</button><button className="btn btnPrimary" type="button" disabled={temporaryPasswordBusy} onClick={()=>setStaffTemporaryPassword(s)}>{temporaryPasswordBusy?"Setting…":"Set password"}</button></div></div>
-        <div className="v321SecurityDivider"><span>Other access options</span></div><div className="v32SecurityActions"><button className="btn btnSecondary" onClick={()=>sendPasswordResetEmail(s)}>Send password reset email</button><button className="btn btnSecondary" onClick={()=>createSetupLink(s)}>Copy secure reset link</button><button className="btn btnSecondary" onClick={()=>toggleForcePasswordReset(s)}>{s.force_password_reset?"Remove forced password change":"Require password change"}</button><button className={`btn ${s.is_active?"btnDanger":"btnAccent"}`} onClick={()=>setStaffEdit({...s,is_active:!s.is_active})}>{s.is_active?"Disable account":"Enable account"}</button></div></>:<div className="v321NoPortal"><strong>This staff member does not have portal access yet.</strong><span>Add their email and invite them when you're ready for them to log in.</span><button className="btn btnAccent" onClick={()=>inviteExistingStaff(s)}>Invite to portal</button></div>}
+        <div className="v321SecurityDivider"><span>Other access options</span></div><div className="v32SecurityActions"><button className="btn btnSecondary" disabled={!s.email&&!s.contact_email} onClick={()=>sendPasswordResetEmail(s)}>Send password reset email</button><button className="btn btnSecondary" onClick={()=>toggleForcePasswordReset(s)}>{s.force_password_reset?"Remove forced password change":"Require password change"}</button><button className={`btn ${s.is_active?"btnDanger":"btnAccent"}`} onClick={()=>setStaffEdit({...s,is_active:!s.is_active})}>{s.is_active?"Disable account":"Enable account"}</button></div></>:<div className="v321NoPortal"><strong>This legacy staff profile needs a username.</strong><span>Add a username in the Profile tab, save it, then manage their password here.</span></div>}
         <div className="v321PasswordMeta"><div><span>Password last changed</span><strong>{s.password_changed_at?new Date(s.password_changed_at).toLocaleString("en-GB"):"Not recorded"}</strong></div><div><span>Next login</span><strong>{s.force_password_reset?"Password change required":"Normal access"}</strong></div></div><div className="notice">Account status changes are applied when you press <strong>Save staff</strong>. Password and reset actions are applied immediately.</div></>}
         {staffPanel==="notes"&&<><div className="field"><label>Private admin notes</label><textarea className="v32Notes" value={s.admin_notes||""} onChange={e=>setStaffEdit({...s,admin_notes:e.target.value})} placeholder="Notes visible to administrators only."/></div><div className="notice">Documents and qualification uploads will build on this profile in v3.5.</div></>}
       </div>

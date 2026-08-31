@@ -10,7 +10,7 @@ function EyeGlyph({off=false}:{off?:boolean}){return <svg viewBox="0 0 24 24" ar
 
 export default function LoginPage(){
   const supabase=createClient();
-  const[email,setEmail]=useState("");
+  const[identifier,setIdentifier]=useState("");
   const[password,setPassword]=useState("");
   const[message,setMessage]=useState("");
   const[busy,setBusy]=useState(false);
@@ -18,22 +18,18 @@ export default function LoginPage(){
 
   async function signIn(event:FormEvent){
     event.preventDefault();setBusy(true);setMessage("");
-    const{data,error}=await supabase.auth.signInWithPassword({email,password});
-    if(error){setBusy(false);setMessage(error.message);return}
-    let forceReset=false;
-    if(data.user){
-      await supabase.from("profiles").update({last_login_at:new Date().toISOString()}).eq("id",data.user.id);
-      const{data:profile}=await supabase.from("profiles").select("force_password_reset").eq("id",data.user.id).single();
-      forceReset=Boolean(profile?.force_password_reset);
-    }
+    const res=await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({identifier,password})});
+    const body=await res.json();
     setBusy(false);
-    window.location.href=forceReset?"/set-password?mode=forced":"/dashboard";
+    if(!res.ok){setMessage(body.error||"Could not sign in.");return}
+    window.location.href=body.force_password_reset?"/set-password?mode=forced":"/dashboard";
   }
 
   async function resetPassword(){
-    if(!email){setMessage("Enter your email address first.");return}
-    const{error}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:`${window.location.origin}/set-password?mode=recovery&email=${encodeURIComponent(email.toLowerCase())}`});
-    setMessage(error?error.message:"Password reset email sent. Check your inbox.");
+    if(!identifier){setMessage("Enter your username or recovery email first.");return}
+    const res=await fetch("/api/password-reset",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({identifier})});
+    const body=await res.json();
+    setMessage(body.message||body.error||"If a recovery email is available, a reset link has been sent.");
   }
 
   return <main className="v3LoginPage">
@@ -50,7 +46,7 @@ export default function LoginPage(){
       <div className="v3MobileBrand"><AvLogo size={52} showWordmark/></div>
       <form className="v3LoginCard" onSubmit={signIn}>
         <div className="v3LoginHeading"><span className="v3Eyebrow">AV Gymnastics</span><h2>Welcome back</h2><p>Sign in to continue to your workspace.</p></div>
-        <div className="v3Field"><label>Email address</label><div className="v3InputShell"><span className="v3InputIcon"><MailGlyph/></span><input type="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={e=>setEmail(e.target.value)} required/></div></div>
+        <div className="v3Field"><label>Username or email</label><div className="v3InputShell"><span className="v3InputIcon"><MailGlyph/></span><input type="text" autoCapitalize="none" autoCorrect="off" autoComplete="username" placeholder="e.g. gabby" value={identifier} onChange={e=>setIdentifier(e.target.value)} required/></div></div>
         <div className="v3Field"><div className="v3FieldHead"><label>Password</label><button type="button" className="v3TextButton" onClick={resetPassword}>Forgot password?</button></div><div className="v3InputShell"><span className="v3InputIcon"><LockGlyph/></span><input type={showPassword?"text":"password"} autoComplete="current-password" placeholder="Enter your password" value={password} onChange={e=>setPassword(e.target.value)} required/><button className="v3PasswordToggle" type="button" aria-label={showPassword?"Hide password":"Show password"} onClick={()=>setShowPassword(!showPassword)}><EyeGlyph off={showPassword}/></button></div></div>
         {message&&<div className="v3LoginNotice">{message}</div>}
         <button className="v3SignInButton" disabled={busy}>{busy?<><span className="v3Spinner"/>Signing in…</>:"Sign in"}</button>
