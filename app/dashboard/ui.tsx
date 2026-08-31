@@ -60,6 +60,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const [timesheet,setTimesheet]=useState<Timesheet|null>(null);
   const [invoice,setInvoice]=useState<Invoice|null>(null);
   const [allInvoices,setAllInvoices]=useState<any[]>([]);
+  const [unpaidInvoiceTotal,setUnpaidInvoiceTotal]=useState(0);
   const [staff,setStaff]=useState<Profile[]>([]);
   const [adminRows,setAdminRows]=useState<AdminRow[]>([]);
   const [business,setBusiness]=useState<Business>({id:1,business_name:"Kirklees Trampoline Gymnastics Academy Ltd",business_address:"",payment_note:"Payment by bank transfer",cutoff_day:1});
@@ -129,7 +130,8 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const [leaveSaving,setLeaveSaving]=useState(false);
   const [adminTimeAwayProfileId,setAdminTimeAwayProfileId]=useState("");
   const [adminTimeAwayStatus,setAdminTimeAwayStatus]=useState<"pending"|"approved">("approved");
-  const previousTab=useRef<Tab>(tab);
+  const [loadingTab,setLoadingTab]=useState<Tab|null>(null);
+  const loadedTabs=useRef<Set<Tab>>(new Set(isAdmin?["dashboard"]:[]));
 
   const totalHours=useMemo(()=>shifts.filter(s=>!s.approval_status||s.approval_status==="approved").reduce((a,s)=>a+shiftHours(s),0),[shifts]);
   const totalValue=totalHours*Number(activeCoach.hourly_rate||0);
@@ -142,9 +144,31 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const overdue=new Date()>cutoffDate(month,business.cutoff_day||1)&&!timesheet?.submitted_at;
   const viewingOther=isAdmin&&activeCoach.id!==initialProfile.id;
 
-  useEffect(()=>{void loadBusiness();void loadVenues();void loadStaff();void loadInvoices();void loadLeaveData();if(isAdmin){void loadAudits();void loadFutureUnstaffedShifts()}},[]);
-  useEffect(()=>{void loadCoachMonth(activeCoach.id);void loadTemplates(activeCoach.id);void loadSchedule();if(isAdmin){void loadAdmin();void loadPendingExtraShifts()}},[month,activeCoach.id]);
-  useEffect(()=>{if(previousTab.current===tab)return;previousTab.current=tab;if(tab==="invoices")void loadInvoices();if(tab==="staff"&&isAdmin)void loadStaff();if(tab==="reports"&&isAdmin)void loadAudits();if(tab==="leave")void loadLeaveData();if(tab==="dashboard"&&isAdmin){void loadSchedule();void loadLeaveData();void loadFutureUnstaffedShifts()}if(tab==="schedule"){void loadSchedule();void loadLeaveData();if(isAdmin)void loadPendingExtraShifts()}},[tab]);
+  useEffect(()=>{void loadVenues();void loadStaff();if(isAdmin){void loadLeaveData().then(()=>loadedTabs.current.add("leave"));void loadFutureUnstaffedShifts();void loadInvoiceSummary()}},[]);
+  useEffect(()=>{if(isAdmin&&tab==="dashboard"){void loadOverviewSchedule();void loadAdmin(false)}else if(loadedTabs.current.has(tab))void reloadLoadedTab(tab)},[month,activeCoach.id]);
+  useEffect(()=>{void loadTabOnce(tab)},[tab]);
+
+  async function loadTabOnce(next:Tab){
+    if(next==="dashboard"||loadedTabs.current.has(next))return;
+    setLoadingTab(next);
+    try{
+      if(next==="schedule"){
+        if(isAdmin)await Promise.all([loadRemovedOccurrences(),loadPendingExtraShifts()]);
+        else await Promise.all([loadSchedule(),loadLeaveData()]);
+      }else if(next==="leave")await loadLeaveData();
+      else if(next==="timesheets")await Promise.all([loadBusiness(),loadCoachMonth(activeCoach.id),loadTemplates(activeCoach.id),isAdmin?loadAdmin(true):Promise.resolve()]);
+      else if(next==="invoices")await Promise.all([loadBusiness(),loadInvoices()]);
+      else if(next==="reports"&&isAdmin)await loadAudits();
+      else if(next==="settings"&&isAdmin)await loadBusiness();
+      loadedTabs.current.add(next);
+    }finally{setLoadingTab(current=>current===next?null:current)}
+  }
+
+  async function reloadLoadedTab(current:Tab){
+    if(current==="schedule")await Promise.all([loadSchedule(),isAdmin?loadPendingExtraShifts():Promise.resolve()]);
+    else if(current==="timesheets")await Promise.all([loadCoachMonth(activeCoach.id),loadTemplates(activeCoach.id),isAdmin?loadAdmin(true):Promise.resolve()]);
+    else if(current==="reports"&&isAdmin)await loadAdmin(false);
+  }
 
   async function loadLeaveData(){
     const q=supabase.from("time_away_requests").select("*").order("start_date",{ascending:true}).order("created_at",{ascending:false});
@@ -391,9 +415,15 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       const{data}=await supabase.from("invoices").select("*,venues(name,legal_name,invoice_address,invoice_prefix,payment_note)").eq("coach_id",initialProfile.id).order("invoice_date",{ascending:false}).limit(120);
       setAllInvoices(data||[]);
     }
+    if(isAdmin)void loadInvoiceSummary();
   }
 
-  async function loadAdmin(){
+  async function loadInvoiceSummary(){
+    const{data}=await supabase.from("invoices").select("total_amount").eq("status","awaiting_payment");
+    setUnpaidInvoiceTotal((data||[]).reduce((total,row:any)=>total+Number(row.total_amount||0),0));
+  }
+
+  async function loadAdmin(includeInvoices=true){
     if(!isAdmin)return;
     const{from,to}=monthRange(month);
     const [{data:coaches},{data:ss},{data:ts}]=await Promise.all([
@@ -403,7 +433,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     ]);
     const tids=((ts||[]) as Timesheet[]).map(t=>t.id);
     let inv:Invoice[]=[];
-    if(tids.length){
+    if(includeInvoices&&tids.length){
       const{data}=await supabase.from("invoices").select("*").in("timesheet_id",tids);
       inv=(data||[]) as Invoice[];
     }
@@ -834,6 +864,25 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     const{data,error}=await supabase.from("scheduled_shifts").select("*").neq("status","cancelled").gt("shift_date",localDateKey(cutoff)).order("shift_date").order("start_time");
     if(error){console.error(error);return}
     setFutureScheduledShifts((data||[]) as ScheduledShift[]);
+  }
+
+  async function loadOverviewSchedule(){
+    const{from,to}=monthRange(month);
+    const[{data:c},{data:slots},{data:ss}]=await Promise.all([
+      supabase.from("classes").select("*").eq("active",true).order("weekday").order("start_time"),
+      supabase.from("class_staffing_slots").select("*").order("slot_number"),
+      supabase.from("scheduled_shifts").select("*").gte("shift_date",from).lte("shift_date",to).order("shift_date").order("start_time")
+    ]);
+    setClasses((c||[]) as ClassTemplate[]);
+    setClassSlots((slots||[]) as ClassStaffingSlot[]);
+    setScheduledShifts((ss||[]) as ScheduledShift[]);
+  }
+
+  async function loadRemovedOccurrences(){
+    if(!isAdmin)return;
+    const{data,error}=await supabase.rpc("get_removed_schedule_occurrences",{p_month_start:`${month}-01`});
+    if(error){console.error(error);return}
+    setRemovedOccurrences((data||[]) as RemovedOccurrence[]);
   }
 
   async function loadSchedule(){
@@ -1326,7 +1375,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const reminderSchedulingCount=schedulingIssues.filter(issue=>issue.severity==="reminder").length;
   const approvedLeaveCount=timeAwayRequests.filter(r=>r.status==="approved").length;
   const submittedCount=adminRows.filter(r=>r.timesheet?.status==="submitted"||r.timesheet?.status==="paid").length;
-  const unpaidTotal=allInvoices.filter((i:any)=>i.status==="awaiting_payment").reduce((a:number,i:any)=>a+Number(i.total_amount||0),0);
+  const unpaidTotal=unpaidInvoiceTotal;
   const adminHours=adminRows.reduce((a,r)=>a+r.hours,0);
   const filteredStaff=staff.filter(s=>`${s.full_name} ${s.email||""}`.toLowerCase().includes(search.toLowerCase()) && (!venueFilter||(staffVenueMap[s.id]||[]).includes(venueFilter)));
 
@@ -1352,7 +1401,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   return <div className="portal">
     <Sidebar tab={tab} setTab={(t:any)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v4.1.1</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v4.1.2</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
         {tab!=="schedule"&&mobilePageMeta&&<div className="v303MobilePageHero">
           <span>{mobilePageMeta.eyebrow}</span>
@@ -1360,15 +1409,17 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
           <p>{mobilePageMeta.sub}</p>
         </div>}
         {message&&<div className={`notice ${/(saved|sent|submitted|added|copied|reopened|created|paid)/i.test(message)?"success":""}`}>{message}</div>}
-        {tab==="dashboard"&&DashboardView()}
-        {tab==="schedule"&&ScheduleView()}
-        {tab==="leave"&&LeaveView()}
-        {tab==="timesheets"&&TimesheetView()}
-        {tab==="invoices"&&InvoicesView()}
-        {tab==="staff"&&isAdmin&&StaffView()}
-        {tab==="reports"&&isAdmin&&ReportsView()}
-        {tab==="settings"&&isAdmin&&SettingsView()}
-        {tab==="profile"&&ProfileView()}
+        {tab!=="dashboard"&&(loadingTab===tab||!loadedTabs.current.has(tab))?TabLoadingSkeleton():<>
+          {tab==="dashboard"&&DashboardView()}
+          {tab==="schedule"&&ScheduleView()}
+          {tab==="leave"&&LeaveView()}
+          {tab==="timesheets"&&TimesheetView()}
+          {tab==="invoices"&&InvoicesView()}
+          {tab==="staff"&&isAdmin&&StaffView()}
+          {tab==="reports"&&isAdmin&&ReportsView()}
+          {tab==="settings"&&isAdmin&&SettingsView()}
+          {tab==="profile"&&ProfileView()}
+        </>}
       </main>
     </div>
     {timeAwayModal!==undefined&&TimeAwayModal()}
@@ -1384,6 +1435,14 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   </div>;
 
   function PageHead({title,sub,children}:{title:string;sub:string;children?:React.ReactNode}){return <div className="pageHead"><div><h1>{title}</h1><p>{sub}</p></div>{children}</div>}
+  function TabLoadingSkeleton(){
+    return <div className="v412Loading" role="status" aria-live="polite" aria-label="Loading page data">
+      <span className="srOnly">Loading page data</span>
+      <div className="v412SkeletonHead"><i/><i/></div>
+      <div className="v412SkeletonCards"><i/><i/><i/></div>
+      <div className="v412SkeletonPanel"><i/><i/><i/><i/></div>
+    </div>;
+  }
   function MonthSelect(){
     return <div className="monthNavigator">
       <button className="btn btnSecondary monthArrow" type="button" onClick={()=>changeMonth(-1)}>←</button>
