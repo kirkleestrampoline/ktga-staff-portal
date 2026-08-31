@@ -892,11 +892,33 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const adminHours=adminRows.reduce((a,r)=>a+r.hours,0);
   const filteredStaff=staff.filter(s=>`${s.full_name} ${s.email||""}`.toLowerCase().includes(search.toLowerCase()) && (!venueFilter||(staffVenueMap[s.id]||[]).includes(venueFilter)));
 
+  const mobilePageMeta=(()=>{
+    if(!isAdmin){
+      if(tab==="timesheets")return{eyebrow:"My work",title:"My Timesheet",sub:"Review confirmed coaching and submit your month when everything is correct."};
+      if(tab==="invoices")return{eyebrow:"My pay",title:"My Payslips",sub:"Your payment history and completed monthly invoices."};
+      if(tab==="profile")return{eyebrow:"My account",title:"My Profile",sub:"Keep your personal, payment and compliance details up to date."};
+      return null;
+    }
+    if(tab==="dashboard")return{eyebrow:"Overview",title:"Club Operations",sub:"Today’s staffing, schedule and payroll position at a glance."};
+    if(tab==="timesheets")return{eyebrow:"Payroll",title:"Timesheets",sub:"Review hours, submissions and monthly payroll status."};
+    if(tab==="invoices")return{eyebrow:"Payroll",title:"Invoices",sub:"Generated invoices, payment status and history."};
+    if(tab==="staff")return{eyebrow:"People",title:"Staff",sub:"Manage coaches, access, rates and compliance."};
+    if(tab==="reports")return{eyebrow:"Insights",title:"Reports",sub:"Staffing cost, hours and activity across your organisations."};
+    if(tab==="settings")return{eyebrow:"Settings",title:"Organisation Settings",sub:"Manage invoice and organisation configuration."};
+    if(tab==="profile")return{eyebrow:"My account",title:"My Profile",sub:"Your own coaching, payment and compliance details."};
+    return null;
+  })();
+
   return <div className="portal">
     <Sidebar tab={tab} setTab={(t:any)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v3.0.2</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v3.0.3</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
+        {tab!=="schedule"&&mobilePageMeta&&<div className="v303MobilePageHero">
+          <span>{mobilePageMeta.eyebrow}</span>
+          <h1>{mobilePageMeta.title}</h1>
+          <p>{mobilePageMeta.sub}</p>
+        </div>}
         {message&&<div className={`notice ${/(saved|sent|submitted|added|copied|reopened|created|paid)/i.test(message)?"success":""}`}>{message}</div>}
         {tab==="dashboard"&&DashboardView()}
         {tab==="schedule"&&ScheduleView()}
