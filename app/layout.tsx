@@ -1,3 +1,10 @@
 import "./globals.css";
-export const metadata = { title: "AV Gymnastics Solutions", description: "Multi-venue staff hours, invoices and administration" };
-export default function RootLayout({ children }: { children: React.ReactNode }) { return <html lang="en"><body>{children}</body></html>; }
+
+export const metadata={
+  title:"AV Gymnastics",
+  description:"Coach. Schedule. Perform.",
+};
+
+export default function RootLayout({children}:{children:React.ReactNode}){
+  return <html lang="en"><body>{children}</body></html>;
+}

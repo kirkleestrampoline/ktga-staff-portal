@@ -32,16 +32,16 @@ export default function MobileNav({tab,setTab,role,name,open,setOpen,onSignOut}:
 
   return <>
     <nav className="mobileBottomNav" aria-label="Mobile navigation">
-      <button className={tab==="dashboard"?"active":""} onClick={()=>choose("dashboard")}><HomeIcon/><span>Home</span></button>
+      <button className={tab==="dashboard"?"active":""} onClick={()=>choose("dashboard")}><HomeIcon/><span>Overview</span></button>
       <button className={tab==="schedule"?"active":""} onClick={()=>choose("schedule")}><CalendarIcon/><span>Schedule</span></button>
-      <button className={tab==="timesheets"?"active":""} onClick={()=>choose("timesheets")}><ClockIcon/><span>Hours</span></button>
-      <button className={tab==="staff"?"active":""} onClick={()=>choose("staff")}><UsersIcon/><span>Staff</span></button>
+      <button className={tab==="timesheets"?"active":""} onClick={()=>choose("timesheets")}><ClockIcon/><span>Payroll</span></button>
+      <button className={tab==="staff"?"active":""} onClick={()=>choose("staff")}><UsersIcon/><span>People</span></button>
       <button className={open||(["invoices","reports","settings","profile"] as string[]).includes(tab)?"active":""} onClick={()=>setOpen(!open)}><span className="moreGlyph">•••</span><span>More</span></button>
     </nav>
     {open&&<button className="mobileMoreScrim" aria-label="Close more menu" onClick={()=>setOpen(false)}/>}
     <section className={`mobileMoreSheet ${open?"open":""}`} aria-hidden={!open}>
       <div className="mobileMoreHandle"/>
-      <div className="mobileMoreHead"><div><strong>AV Gymnastics Solutions</strong><span>{name}</span></div><button onClick={()=>setOpen(false)} aria-label="Close">×</button></div>
+      <div className="mobileMoreHead"><div><strong>AV Gymnastics</strong><span>{name}</span></div><button onClick={()=>setOpen(false)} aria-label="Close">×</button></div>
       <div className="mobileMoreLinks">
         <button onClick={()=>choose("invoices")}><InvoiceIcon/><span><strong>Invoices</strong><small>Coach invoices and payment history</small></span></button>
         <button onClick={()=>choose("reports")}><ChartIcon/><span><strong>Reports</strong><small>Hours and costs</small></span></button>
