@@ -986,4 +986,10 @@ table{background:#fff}th{background:#fafbfc;color:#858e9c;letter-spacing:.07em}t
   .v311AdminShiftModal{border-radius:24px 24px 0 0!important}.v311AdminShiftHero{padding:23px 18px 20px}.v311ShiftSummary{grid-template-columns:repeat(3,1fr);gap:6px}.v311ShiftSummary>div{padding:10px 6px;text-align:center}.v311AdminActions{grid-template-columns:1fr}.v311RemoveOccurrence .btn{width:100%}
   .staffingCalendarShift small{display:block!important}
 }
+
+/* AV Gymnastics v3.1.2 — clear month control */
+.v312ClearMonth{margin-left:2px}
+@media(max-width:820px){
+  .v312ClearMonth{width:100%;margin-left:0}
+}
 /* AV_V3_IDENTITY_END */

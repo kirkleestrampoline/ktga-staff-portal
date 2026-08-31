@@ -733,6 +733,20 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     if(!fillError)await loadSchedule();
   }
 
+  async function clearScheduleMonth(){
+    const label=monthLabel(month);
+    if(!confirm(`Clear the entire ${label} rota?\n\nThis removes generated schedule sessions for ${label} only. The Master Timetable is not changed, and you can generate the month again afterwards.`))return;
+    const phrase=`CLEAR ${label.toUpperCase()}`;
+    const typed=prompt(`For safety, type:\n\n${phrase}`);
+    if(typed!==phrase){if(typed!==null)flash("Month clear cancelled — confirmation text did not match.");return}
+    flash(`Clearing ${label} rota…`);
+    const{data,error}=await supabase.rpc("clear_schedule_month",{p_month_start:`${month}-01`});
+    if(error){flash(error.message);return}
+    flash(`${label} rota cleared${typeof data==="number"?` — ${data} staffing shifts removed`:""}.`);
+    await loadSchedule();
+    await loadAdmin();
+  }
+
   async function copyScheduleWeek(){
     const source=prompt("Source week start (Monday, YYYY-MM-DD)",`${month}-01`);
     if(!source)return;
@@ -941,7 +955,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   return <div className="portal">
     <Sidebar tab={tab} setTab={(t:any)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v3.1.1</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v3.1.2</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
         {tab!=="schedule"&&mobilePageMeta&&<div className="v303MobilePageHero">
           <span>{mobilePageMeta.eyebrow}</span>
@@ -1070,7 +1084,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       </>;
     }
 
-    return <><PageHead title="Schedule & Staffing" sub="Build once, copy forward and only change the exceptions."><div className="row"><MonthSelect/><button className="btn btnSecondary" onClick={clonePreviousScheduleMonth}>Copy previous month</button><button className="btn btnSecondary" onClick={copyScheduleWeek}>Copy week</button><button className="btn btnPrimary" onClick={generateSchedule}>Generate missing shifts</button></div></PageHead>
+    return <><PageHead title="Schedule & Staffing" sub="Build once, copy forward and only change the exceptions."><div className="row"><MonthSelect/><button className="btn btnSecondary" onClick={clonePreviousScheduleMonth}>Copy previous month</button><button className="btn btnSecondary" onClick={copyScheduleWeek}>Copy week</button><button className="btn btnPrimary" onClick={generateSchedule}>Generate missing shifts</button><button className="btn btnDanger v312ClearMonth" onClick={clearScheduleMonth}>Clear month</button></div></PageHead>
       <div className="scheduleToolbar"><select value={scheduleFilter} onChange={e=>setScheduleFilter(e.target.value)}><option value="">All organisations</option>{adminVenues().map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select><div className="row"><button className={`btn ${scheduleView==="calendar"?"btnPrimary":"btnSecondary"}`} onClick={()=>setScheduleView("calendar")}>Calendar</button><button className={`btn ${scheduleView==="agenda"?"btnPrimary":"btnSecondary"}`} onClick={()=>setScheduleView("agenda")}>Agenda</button><button className="btn btnAccent" onClick={()=>openNewClass()}><PlusIcon/>Add class</button></div></div>
       <div className="grid grid4 scheduleSummary"><StatCard label="Normal monthly cost" value={money(normalCost)} foot="Regular timetable" icon={<PoundIcon/>}/><StatCard label="Current forecast" value={money(forecastCost)} foot={`${plannedSchedule.length} scheduled staffing shifts`} icon={<CalendarIcon/>}/><StatCard label="Actual cost so far" value={money(actualScheduleCost)} foot={`${money(actualScheduleCost-forecastCost)} vs forecast`} icon={<CheckIcon/>}/><StatCard label="Unassigned shifts" value={String(unassignedScheduleCount)} foot={unassignedScheduleCount?"Needs a coach":"Fully staffed"} icon={<UsersIcon/>}/></div>
       {pendingAdditionalCount>0&&<div className="v311ApprovalBanner"><div className="v311ApprovalIcon"><ClockIcon/></div><div><strong>{pendingAdditionalCount} additional work {pendingAdditionalCount===1?"request":"requests"} awaiting approval</strong><span>These were recorded by staff outside their rota. Review them below in the schedule.</span></div><span className="v311ApprovalCount">{pendingAdditionalCount}</span></div>}
