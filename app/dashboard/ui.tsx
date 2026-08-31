@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Sidebar from "@/components/sidebar";
 import MobileNav from "@/components/mobile-nav";
@@ -129,6 +129,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const [leaveSaving,setLeaveSaving]=useState(false);
   const [adminTimeAwayProfileId,setAdminTimeAwayProfileId]=useState("");
   const [adminTimeAwayStatus,setAdminTimeAwayStatus]=useState<"pending"|"approved">("approved");
+  const previousTab=useRef<Tab>(tab);
 
   const totalHours=useMemo(()=>shifts.filter(s=>!s.approval_status||s.approval_status==="approved").reduce((a,s)=>a+shiftHours(s),0),[shifts]);
   const totalValue=totalHours*Number(activeCoach.hourly_rate||0);
@@ -143,7 +144,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
 
   useEffect(()=>{void loadBusiness();void loadVenues();void loadStaff();void loadInvoices();void loadLeaveData();if(isAdmin){void loadAudits();void loadFutureUnstaffedShifts()}},[]);
   useEffect(()=>{void loadCoachMonth(activeCoach.id);void loadTemplates(activeCoach.id);void loadSchedule();if(isAdmin){void loadAdmin();void loadPendingExtraShifts()}},[month,activeCoach.id]);
-  useEffect(()=>{if(tab==="invoices")void loadInvoices();if(tab==="staff"&&isAdmin)void loadStaff();if(tab==="reports"&&isAdmin)void loadAudits();if(tab==="leave")void loadLeaveData();if(tab==="dashboard"&&isAdmin){void loadSchedule();void loadLeaveData();void loadFutureUnstaffedShifts()}if(tab==="schedule"){void loadSchedule();void loadLeaveData();if(isAdmin)void loadPendingExtraShifts()}},[tab]);
+  useEffect(()=>{if(previousTab.current===tab)return;previousTab.current=tab;if(tab==="invoices")void loadInvoices();if(tab==="staff"&&isAdmin)void loadStaff();if(tab==="reports"&&isAdmin)void loadAudits();if(tab==="leave")void loadLeaveData();if(tab==="dashboard"&&isAdmin){void loadSchedule();void loadLeaveData();void loadFutureUnstaffedShifts()}if(tab==="schedule"){void loadSchedule();void loadLeaveData();if(isAdmin)void loadPendingExtraShifts()}},[tab]);
 
   async function loadLeaveData(){
     const q=supabase.from("time_away_requests").select("*").order("start_date",{ascending:true}).order("created_at",{ascending:false});
@@ -1351,7 +1352,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   return <div className="portal">
     <Sidebar tab={tab} setTab={(t:any)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v4.0.8</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v4.1.1</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
         {tab!=="schedule"&&mobilePageMeta&&<div className="v303MobilePageHero">
           <span>{mobilePageMeta.eyebrow}</span>
