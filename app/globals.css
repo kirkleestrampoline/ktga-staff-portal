@@ -960,4 +960,30 @@ table{background:#fff}th{background:#fafbfc;color:#858e9c;letter-spacing:.07em}t
   .v31ConfirmFoot{grid-template-columns:1fr!important;padding-bottom:calc(16px + env(safe-area-inset-bottom))!important}
   .v31ConfirmFoot .btn{width:100%}
 }
+
+/* AV Gymnastics v3.1.1 — admin schedule control */
+
+.v311ApprovalBanner{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:13px;margin-top:14px;padding:14px 16px;border:1px solid #f0d49b;border-radius:15px;background:linear-gradient(135deg,#fffaf0,#fff7e7);box-shadow:0 8px 24px rgba(96,63,13,.045)}
+.v311ApprovalIcon{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:#fff0ca;color:#9a6700}.v311ApprovalIcon svg{width:19px;height:19px}.v311ApprovalBanner>div:nth-child(2){display:grid;gap:3px}.v311ApprovalBanner strong{font-size:13px;color:#563f17}.v311ApprovalBanner span{font-size:11px;color:#8b6c35}.v311ApprovalCount{display:grid!important;place-items:center;width:30px;height:30px;border-radius:999px;background:#d58a1d;color:#fff!important;font-weight:850!important;font-size:12px!important}
+
+.v311PendingExtra,.v311ExtraRow{border-color:#eccb86!important;border-left-color:#d58a1d!important;background:linear-gradient(135deg,#fffaf0,#fff4dd)!important;cursor:pointer}
+.v311PendingExtra small{color:#96691f!important}.v311PendingBadge{background:#fff0cc!important;color:#94630f!important}
+.staffingCalendarShift{cursor:pointer}
+
+.v311Agenda .scheduleDate{display:flex;align-items:center;justify-content:space-between}.v311Agenda .scheduleDate>span{font-size:10px;color:#9299a4;text-transform:uppercase;letter-spacing:.06em;font-weight:760}
+.v311ScheduleRow{display:grid!important;grid-template-columns:minmax(260px,1fr) minmax(170px,.65fr) auto!important;gap:16px!important;align-items:center!important;cursor:pointer;padding:14px 16px!important}
+.v311ScheduleRow:hover{border-color:#d7cfdf;box-shadow:0 8px 24px rgba(35,25,47,.055)}
+.v311ScheduleRow .scheduleShiftMain{min-width:0}.v311RowCoach{display:grid;gap:3px;min-width:0}.v311RowCoach>span{font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:#969ca6;font-weight:800}.v311RowCoach>strong{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.v311RowStatus{display:flex;align-items:center;justify-content:flex-end;gap:8px}.v311RowStatus .btn{min-height:34px;padding:7px 10px;font-size:11px}
+
+.v311AdminShiftModal{overflow:hidden}.v311AdminShiftHero{position:relative;padding:21px 20px;color:#fff;background:radial-gradient(circle at 5% 0%,rgba(153,84,224,.68),transparent 45%),radial-gradient(circle at 95% 130%,rgba(55,178,98,.46),transparent 48%),linear-gradient(145deg,#181224,#24153d 58%,#152820 125%);display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.v311AdminShiftHero>div{display:grid;gap:3px}.v311AdminShiftHero span{font-size:9px;text-transform:uppercase;letter-spacing:.14em;color:#cebde4;font-weight:850}.v311AdminShiftHero h2{margin:2px 0 1px;font-size:22px;color:#fff;letter-spacing:-.03em}.v311AdminShiftHero p{margin:0;font-size:11px;color:#d6d3dc}.v311AdminShiftHero .iconButton{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.13);color:#fff}
+.v311ShiftSummary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:17px}.v311ShiftSummary>div{display:grid;gap:5px;padding:11px;border:1px solid #ebe8ef;border-radius:12px;background:#faf9fb}.v311ShiftSummary>div>span{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:#9299a4;font-weight:800}.v311ShiftSummary strong{font-size:12px}
+.v311AdminActions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:4px}.v311AdminActions .btn{width:100%}
+.v311RemoveOccurrence{margin-top:20px;padding:16px;border:1px solid #eed6d3;border-radius:14px;background:#fff9f8;display:grid;gap:6px}.v311RemoveOccurrence>strong{font-size:13px;color:#792c25}.v311RemoveOccurrence p{font-size:11px;line-height:1.5;color:#85635f;margin:0 0 5px}.v311RemoveOccurrence small{font-size:10px;color:#9a6b66}.v311RemoveOccurrence .btn{justify-self:start}
+
+@media(max-width:820px){
+  .v311ApprovalBanner{grid-template-columns:auto minmax(0,1fr);padding:13px}.v311ApprovalCount{display:none!important}
+  .v311ScheduleRow{grid-template-columns:1fr!important;gap:10px!important;padding:14px!important}.v311RowCoach{padding-top:9px;border-top:1px solid rgba(116,93,132,.09)}.v311RowStatus{justify-content:space-between}.v311RowStatus .btn{min-width:94px}
+  .v311AdminShiftModal{border-radius:24px 24px 0 0!important}.v311AdminShiftHero{padding:23px 18px 20px}.v311ShiftSummary{grid-template-columns:repeat(3,1fr);gap:6px}.v311ShiftSummary>div{padding:10px 6px;text-align:center}.v311AdminActions{grid-template-columns:1fr}.v311RemoveOccurrence .btn{width:100%}
+  .staffingCalendarShift small{display:block!important}
+}
 /* AV_V3_IDENTITY_END */
