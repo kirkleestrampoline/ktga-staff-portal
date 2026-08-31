@@ -95,6 +95,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const [rotaView,setRotaView]=useState<"month"|"week"|"day">("day");
   const [rotaDate,setRotaDate]=useState(new Date().toISOString().slice(0,10));
   const [adjustShift,setAdjustShift]=useState<ScheduledShift|null>(null);
+  const [confirmShift,setConfirmShift]=useState<ScheduledShift|null>(null);
   const [adjustStart,setAdjustStart]=useState("");
   const [adjustFinish,setAdjustFinish]=useState("");
   const [adjustBreak,setAdjustBreak]=useState(0);
@@ -742,7 +743,6 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
 
   async function confirmScheduled(sch:ScheduledShift){
     if(!sch.profile_id){flash("Assign a coach before confirming this shift.");return}
-    if(!isAdmin&&!confirm(`Confirm this session as worked?\n\n${sch.class_name}\n${sch.start_time.slice(0,5)}–${sch.finish_time.slice(0,5)}\n${venueName(sch.venue_id)}`))return;
     flash("Confirming shift…");
 
     const monthStart=`${sch.shift_date.slice(0,7)}-01`;
@@ -912,7 +912,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   return <div className="portal">
     <Sidebar tab={tab} setTab={(t:any)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v3.0.3</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v3.1.0</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
         {tab!=="schedule"&&mobilePageMeta&&<div className="v303MobilePageHero">
           <span>{mobilePageMeta.eyebrow}</span>
@@ -935,6 +935,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     {staffEdit&&StaffModal()}
     {templateOpen&&TemplateModal()}
     {classModal&&ClassModal()}
+    {confirmShift&&ConfirmShiftModal()}
     {adjustShift&&AdjustmentModal()}
     <MobileNav tab={tab} setTab={(t:any)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} role={initialProfile.role} name={initialProfile.full_name} open={mobileMoreOpen} setOpen={setMobileMoreOpen} onSignOut={signOut}/>
   </div>;
@@ -1007,9 +1008,10 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
             <p>{todayItems.length?`${todayItems.length} ${todayItems.length===1?"session":"sessions"} on your rota today.`:next?`Nothing today. Your next session is ${new Date(`${next.shift_date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"short"})}.`:"You're all caught up — no upcoming coaching on the rota."}</p>
           </div>
 
-          {next&&<div className={`v302NextSession ${venueColourClass(next.venue_id)}`}>
+          {next&&<div className={`v302NextSession v31NextSession ${venueColourClass(next.venue_id)}`}>
             <div className="v302NextTop"><span>Up next</span><small>{new Date(`${next.shift_date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}</small></div>
             <div className="v302NextBody"><div className="v302NextTime">{next.start_time.slice(0,5)}</div><div><strong>{next.class_name}</strong><span>{venueName(next.venue_id)} · {next.start_time.slice(0,5)}–{next.finish_time.slice(0,5)}</span></div></div>
+            {next.shift_date===today&&next.status==="scheduled"&&next.adjustment_status!=="pending"&&<button className="btn btnPrimary v31NextAction" onClick={()=>setConfirmShift(next)}>Confirm when finished</button>}
           </div>}
 
           <div className="rotaControls">
@@ -1029,11 +1031,11 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
           <div className="grid grid3 scheduleSummary v302DesktopStats"><StatCard label="Today" value={`${todayH.toFixed(2)}h`} foot={todayH?"Scheduled coaching":"No coaching today"} icon={<ClockIcon/>}/><StatCard label="This week" value={`${weekH.toFixed(2)}h`} foot="Planned rota hours" icon={<CalendarIcon/>}/><StatCard label="This month" value={`${monthH.toFixed(2)}h`} foot={`${allMine.filter(s=>s.status==="confirmed").length} sessions confirmed`} icon={<CheckIcon/>}/></div>
         </>;
       })()}
-        <div className="staffRotaList section">{Object.entries(groupedMine).map(([date,items])=><div className="staffRotaDay" key={date}><div className="staffRotaDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</strong></div>{items.map(s=><div className={`staffRotaCard ${s.status} ${venueColourClass(s.venue_id)}`} key={s.id}><div className="staffRotaMain"><div><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</strong><span>{s.class_name}</span><small>{venueName(s.venue_id)}</small></div><span className={`scheduleStatus ${s.adjustment_status==="pending"?"scheduled":s.status}`}>{s.adjustment_status==="pending"?"Approval pending":s.status}</span></div><div className="staffRotaActions">
-          {s.status==="scheduled"&&s.adjustment_status!=="pending"&&<><button className="btn btnPrimary" onClick={()=>confirmScheduled(s)}>Confirm as planned</button><button className="btn btnSecondary" onClick={()=>openAdjustment(s)}>Adjust actual time</button></>}
+        <div className="staffRotaList v31Timeline section">{Object.entries(groupedMine).map(([date,items])=><div className="staffRotaDay v31TimelineDay" key={date}><div className="staffRotaDate v31TimelineDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</strong><span>{items.length} {items.length===1?"session":"sessions"}</span></div><div className="v31TimelineItems">{items.map((s,index)=><div className="v31TimelineItem" key={s.id}><div className="v31TimelineRail"><span className={`v31TimelineDot ${s.status} ${s.adjustment_status==="pending"?"pending":""}`}/>{index<items.length-1&&<span className="v31TimelineLine"/>}</div><div className={`staffRotaCard v31RotaCard ${s.status} ${venueColourClass(s.venue_id)}`}><div className="staffRotaMain v31RotaMain"><div className="v31RotaTime"><strong>{s.start_time.slice(0,5)}</strong><small>{s.finish_time.slice(0,5)}</small></div><div className="v31RotaDetails"><span>{s.class_name}</span><small>{venueName(s.venue_id)} · {scheduleHours(s).toFixed(2)}h</small></div><span className={`scheduleStatus ${s.adjustment_status==="pending"?"scheduled":s.status}`}>{s.adjustment_status==="pending"?"Approval pending":s.status}</span></div><div className="staffRotaActions v31RotaActions">
+          {s.status==="scheduled"&&s.adjustment_status!=="pending"&&<><button className="btn btnPrimary" onClick={()=>setConfirmShift(s)}>Confirm as planned</button><button className="btn btnSecondary" onClick={()=>openAdjustment(s)}>Adjust actual time</button></>}
           {s.adjustment_status==="pending"&&<><span className="rotaPendingText">Extra time awaiting admin approval</span><button className="btn btnDanger" onClick={()=>undoOwnRota(s)}>Cancel request</button></>}
           {s.status==="confirmed"&&<><span className="rotaConfirmedText">Confirmed into timesheet</span><button className="btn btnSecondary" onClick={()=>undoOwnRota(s)}>Undo</button></>}
-        </div></div>)}</div>)}{!visible.length&&<div className="card empty v302EmptyState"><div className="v302EmptyMark"><CalendarIcon/></div><strong>You're all caught up</strong><span>No coaching is planned in this view.</span></div>}</div>
+        </div></div></div>)}</div></div>)}{!visible.length&&<div className="card empty v302EmptyState"><div className="v302EmptyMark"><CalendarIcon/></div><strong>You're all caught up</strong><span>No coaching is planned in this view.</span></div>}</div>
         <div className="card section rotaExtraCard"><div><strong>Need to record work that wasn't on your rota?</strong><p>Use Record Additional Work for cover, camps, competitions, meetings, admin or anything else that was not on your rota. It will be sent to an admin for approval.</p></div><button className="btn btnAccent" onClick={()=>{setTab("timesheets");setShiftModal({coach_id:initialProfile.id,shift_date:rotaDate,start_time:"16:30",finish_time:"18:00",break_minutes:0,venue_id:profileVenues(initialProfile.id)[0]?.id||null,session_location:"",notes:"",source:"extra",approval_status:"pending"})}}><PlusIcon/>Record Additional Work</button></div>
       </>;
     }
@@ -1146,6 +1148,22 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       <div className="card"><div className="formSection"><div className="formSectionTitle"><h3>Rate</h3><p>Your agreed hourly rate is controlled by admin.</p></div><div className="statValue">{money(p.hourly_rate)}</div></div></div></div>
       <div className="section"><button className="btn btnPrimary" onClick={saveOwnProfile} disabled={saving}>{saving?"Saving…":"Save profile"}</button></div>
     </>
+  }
+
+  function ConfirmShiftModal(){
+    const s=confirmShift!;
+    return <div className="modalBackdrop"><div className="modal v31ConfirmModal">
+      <div className="v31ConfirmHero"><div className="v31ConfirmIcon"><CheckIcon/></div><span>Confirm session</span><h2>{s.class_name}</h2><p>{venueName(s.venue_id)}</p></div>
+      <div className="modalBody v31ConfirmBody">
+        <div className="v31ConfirmFacts">
+          <div><span>Planned time</span><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</strong></div>
+          <div><span>Hours</span><strong>{scheduleHours(s).toFixed(2)}h</strong></div>
+          <div><span>Date</span><strong>{new Date(`${s.shift_date}T12:00:00`).toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</strong></div>
+        </div>
+        <div className="v31ConfirmPrompt"><strong>Did you work this session as planned?</strong><span>If the time changed, adjust it before confirming.</span></div>
+      </div>
+      <div className="modalFoot v31ConfirmFoot"><button className="btn btnSecondary" onClick={()=>setConfirmShift(null)}>Not yet</button><button className="btn btnSecondary" onClick={()=>{setConfirmShift(null);openAdjustment(s)}}>Adjust time</button><button className="btn btnPrimary" onClick={async()=>{setConfirmShift(null);await confirmScheduled(s)}}>Confirm shift</button></div>
+    </div></div>
   }
 
   function AdjustmentModal(){

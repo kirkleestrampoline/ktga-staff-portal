@@ -907,4 +907,57 @@ table{background:#fff}th{background:#fafbfc;color:#858e9c;letter-spacing:.07em}t
     border-radius:19px!important;
   }
 }
+
+/* AV Gymnastics v3.1.0 — coach timeline & confirmation experience */
+
+.v31Timeline{gap:22px}
+.v31TimelineDay{gap:10px}
+.v31TimelineDate{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.v31TimelineDate>span{font-size:10px;color:#9399a4;font-weight:750;text-transform:uppercase;letter-spacing:.06em}
+.v31TimelineItems{display:flex;flex-direction:column}
+.v31TimelineItem{display:grid;grid-template-columns:28px minmax(0,1fr);gap:8px;position:relative}
+.v31TimelineRail{position:relative;display:flex;justify-content:center}
+.v31TimelineDot{position:relative;z-index:2;width:11px;height:11px;margin-top:23px;border-radius:999px;background:#7a48b8;border:3px solid #f5effa;box-shadow:0 0 0 1px rgba(104,58,157,.14)}
+.v31TimelineDot.confirmed{background:#2fa866;border-color:#eaf7ef;box-shadow:0 0 0 1px rgba(47,168,102,.14)}
+.v31TimelineDot.pending{background:#d58a1d;border-color:#fff4df}
+.v31TimelineLine{position:absolute;top:32px;bottom:-14px;width:1.5px;background:linear-gradient(#ddd5e7,#ebe7ef)}
+.v31RotaCard{width:100%;margin:0 0 10px;border-left-width:1px!important}
+.v31RotaMain{display:grid!important;grid-template-columns:72px minmax(0,1fr) auto;gap:12px;align-items:start!important}
+.v31RotaTime{display:grid;gap:1px}.v31RotaTime strong{font-size:18px!important;letter-spacing:-.035em}.v31RotaTime small{font-size:11px!important;color:#9198a3}
+.v31RotaDetails{display:grid;gap:4px;min-width:0}.v31RotaDetails>span{font-size:14px!important;font-weight:820;color:#272c35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.v31RotaDetails>small{font-size:11px!important;color:#7f8793}
+.v31RotaActions{padding-left:84px}
+.v31NextAction{width:100%;margin-top:14px}
+
+.v31ConfirmModal{overflow:hidden}
+.v31ConfirmHero{position:relative;overflow:hidden;padding:27px 24px 25px;text-align:center;color:#fff;background:radial-gradient(circle at 8% 0%,rgba(156,87,230,.75),transparent 45%),radial-gradient(circle at 95% 120%,rgba(61,184,105,.56),transparent 50%),linear-gradient(145deg,#171224,#22143b 55%,#12281f 125%)}
+.v31ConfirmHero:after{content:"";position:absolute;right:-55px;top:-80px;width:180px;height:180px;border:1px solid rgba(255,255,255,.09);border-radius:50%;box-shadow:0 0 0 28px rgba(255,255,255,.018)}
+.v31ConfirmIcon{position:relative;z-index:1;width:43px;height:43px;margin:0 auto 12px;border-radius:14px;display:grid;place-items:center;background:rgba(255,255,255,.13);backdrop-filter:blur(12px)}
+.v31ConfirmIcon svg{width:21px;height:21px}
+.v31ConfirmHero>span{position:relative;z-index:1;font-size:9px;font-weight:850;text-transform:uppercase;letter-spacing:.15em;color:#d3c1ea}
+.v31ConfirmHero h2{position:relative;z-index:1;margin:6px 0 4px;font-size:24px;letter-spacing:-.035em;color:#fff}
+.v31ConfirmHero p{position:relative;z-index:1;margin:0;color:#d5d7df;font-size:12px}
+.v31ConfirmBody{padding:20px!important}
+.v31ConfirmFacts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.v31ConfirmFacts>div{display:grid;gap:5px;padding:12px;border:1px solid #ebe7ef;border-radius:13px;background:#faf9fb}
+.v31ConfirmFacts span{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:#8d94a0;font-weight:800}.v31ConfirmFacts strong{font-size:13px;color:#252a33}
+.v31ConfirmPrompt{display:grid;gap:4px;margin-top:17px;padding-top:16px;border-top:1px solid #ece9ef}.v31ConfirmPrompt strong{font-size:14px}.v31ConfirmPrompt span{font-size:12px;color:#7e8692;line-height:1.45}
+.v31ConfirmFoot{display:grid!important;grid-template-columns:1fr 1fr 1.25fr!important;gap:8px!important}
+
+@media(max-width:820px){
+  .v31Timeline{gap:18px}
+  .v31TimelineItem{grid-template-columns:24px minmax(0,1fr);gap:6px}
+  .v31TimelineDot{margin-top:24px}
+  .v31RotaCard{margin-bottom:8px!important}
+  .v31RotaMain{grid-template-columns:64px minmax(0,1fr) auto!important;gap:9px!important}
+  .v31RotaTime strong{font-size:17px!important}
+  .v31RotaDetails>span{font-size:14px!important}
+  .v31RotaActions{padding-left:73px!important;display:grid!important;grid-template-columns:1fr!important}
+  .v31RotaActions .btn{width:100%}
+  .v31ConfirmModal{border-radius:24px 24px 0 0!important}
+  .v31ConfirmHero{padding:28px 20px 25px}
+  .v31ConfirmFacts{grid-template-columns:1fr 1fr 1fr;gap:6px}
+  .v31ConfirmFacts>div{padding:11px 8px;text-align:center}
+  .v31ConfirmFoot{grid-template-columns:1fr!important;padding-bottom:calc(16px + env(safe-area-inset-bottom))!important}
+  .v31ConfirmFoot .btn{width:100%}
+}
 /* AV_V3_IDENTITY_END */
