@@ -22,36 +22,46 @@ export default function SetPasswordPage(){
       const code=params.get("code");
       setMode(queryMode);
 
-      // Supabase password-recovery links use a one-time code.
-      // Exchange it for a browser session before calling updateUser().
-      if(code){
-        const{error}=await supabase.auth.exchangeCodeForSession(code);
-        if(error){
-          if(!cancelled){
-            setMessage("This password reset link is invalid or has expired. Please request a new one.");
-            setReady(true);
-          }
-          return;
-        }
-
-        // Remove the one-time code from the address bar once consumed.
-        const clean=new URL(window.location.href);
-        clean.searchParams.delete("code");
-        window.history.replaceState({},document.title,clean.pathname+clean.search);
+      if(queryMode==="forced"){
+        const{data}=await supabase.auth.getUser();
+        if(!data.user){window.location.href="/";return}
+        if(!cancelled)setReady(true);
+        return;
       }
 
-      const{data}=await supabase.auth.getUser();
-      if(!data.user){
-        if(queryMode==="forced"){
-          window.location.href="/";
-          return;
-        }
+      // A recovery page is never allowed to reuse whichever account happens
+      // to be signed in already. It must have a fresh one-time recovery code.
+      if(!code){
         if(!cancelled){
-          setMessage("This password reset link has expired or has already been used. Please request a new one.");
+          setMessage("This reset link is invalid, expired, or has already been used. Please request a new password reset email.");
           setReady(true);
         }
         return;
       }
+
+      // Isolate the recovery flow from any existing admin/coach browser session.
+      await supabase.auth.signOut({scope:"local"});
+      const{error}=await supabase.auth.exchangeCodeForSession(code);
+      if(error){
+        if(!cancelled){
+          setMessage("This password reset link is invalid or has expired. Please request a new one.");
+          setReady(true);
+        }
+        return;
+      }
+
+      const{data}=await supabase.auth.getUser();
+      if(!data.user){
+        if(!cancelled){
+          setMessage("The recovery session could not be established. Please request a new reset email.");
+          setReady(true);
+        }
+        return;
+      }
+
+      const clean=new URL(window.location.href);
+      clean.searchParams.delete("code");
+      window.history.replaceState({},document.title,clean.pathname+clean.search);
 
       if(!cancelled)setReady(true);
     }
@@ -70,7 +80,7 @@ export default function SetPasswordPage(){
     if(error){
       setBusy(false);
       setMessage(error.message==="Auth session missing"
-        ?"Your reset session has expired. Please request a new password reset link."
+        ?"Your password-reset session has expired. Please request a new reset email."
         :error.message);
       return;
     }
@@ -86,6 +96,8 @@ export default function SetPasswordPage(){
     window.location.href="/dashboard";
   }
 
+  const blocked=/invalid|expired|could not be established|already been used/i.test(message);
+
   if(!ready)return <main className="v321PasswordPage"><div className="v321PasswordLoading">Securing your account…</div></main>;
 
   return <main className="v321PasswordPage">
@@ -97,12 +109,12 @@ export default function SetPasswordPage(){
         <h1>{mode==="forced"?"Choose your own password":"Set a new password"}</h1>
         <p>{mode==="forced"
           ?"Your temporary password worked. Choose a private password before continuing to the portal."
-          :"Choose a new password for your AV Gymnastics account."}</p>
+          :"This reset link is tied to your account and can only be used once."}</p>
       </div>
 
       {message&&<div className="notice danger">{message}</div>}
 
-      {!message.includes("expired")&&!message.includes("invalid")&&<form onSubmit={save}>
+      {!blocked&&<form onSubmit={save}>
         <div className="field"><label>New password</label><input type="password" autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Minimum 8 characters"/></div>
         <div className="field"><label>Confirm new password</label><input type="password" autoComplete="new-password" value={confirm} onChange={e=>setConfirm(e.target.value)}/></div>
         <button className="btn btnPrimary v321PasswordSubmit" disabled={busy}>{busy?"Updating…":"Save password & continue"}</button>
