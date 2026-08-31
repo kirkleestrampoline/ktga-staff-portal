@@ -1277,4 +1277,10 @@ table{background:#fff}th{background:#fafbfc;color:#858e9c;letter-spacing:.07em}t
   .v323CreateAccount{max-height:94dvh!important;border-radius:22px 22px 0 0!important}
   .v323CreateAccount .modalBody{flex:1;min-height:0;overflow-y:auto}
 }
+
+/* AV Gymnastics v3.2.5 — visible password-reset status */
+.v325SecurityMessage{margin:10px 0 14px;padding:11px 12px;border-radius:11px;font-size:11px;line-height:1.45;font-weight:650}
+.v325SecurityMessage.success{background:#eaf7ef;border:1px solid #c7e8d3;color:#296c47}
+.v325SecurityMessage.working{background:#f2edf8;border:1px solid #ded0eb;color:#65418a}
+.v325SecurityMessage.error{background:#fff2f0;border:1px solid #f1d0cc;color:#963b32}
 /* AV_V3_IDENTITY_END */

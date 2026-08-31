@@ -140,6 +140,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ok:true});
   }
 
+  if(body.action==="create_reset_link"){
+    const profileId=String(body.profile_id||"");
+    if(!profileId)return NextResponse.json({error:"Staff member is required"},{status:400});
+    if(profileId===actorId)return NextResponse.json({error:"Use My Profile → Security to change your own password"},{status:400});
+    if(!(await canManage(profileId)))return NextResponse.json({error:"You do not manage this staff member"},{status:403});
+
+    const{data:person}=await admin.from("profiles").select("email,contact_email,auth_email").eq("id",profileId).single();
+    if(!person)return NextResponse.json({error:"Staff member not found"},{status:404});
+    const recovery=String(person.contact_email||person.email||"").trim().toLowerCase();
+    if(!recovery)return NextResponse.json({error:"This staff member does not have a recovery email"},{status:400});
+
+    if(String(person.auth_email||"").toLowerCase()!==recovery){
+      const{error:updateError}=await admin.auth.admin.updateUserById(profileId,{email:recovery,email_confirm:true});
+      if(updateError)return NextResponse.json({error:`Could not prepare recovery email: ${updateError.message}`},{status:400});
+      const{error:profileError}=await admin.from("profiles").update({auth_email:recovery,email:recovery,contact_email:recovery}).eq("id",profileId);
+      if(profileError)return NextResponse.json({error:profileError.message},{status:400});
+    }
+
+    const siteUrl=process.env.NEXT_PUBLIC_SITE_URL||"https://staff.avgymnastics.co.uk";
+    const{data,error}=await admin.auth.admin.generateLink({
+      type:"recovery",
+      email:recovery,
+      options:{redirectTo:`${siteUrl}/set-password?mode=recovery`}
+    });
+    if(error)return NextResponse.json({error:error.message},{status:400});
+    const actionLink=data?.properties?.action_link;
+    if(!actionLink)return NextResponse.json({error:"Supabase did not return a recovery link"},{status:500});
+    return NextResponse.json({ok:true,url:actionLink,email:recovery});
+  }
+
   if(body.action==="send_reset_email"){
     const profileId=String(body.profile_id||"");
     if(!profileId)return NextResponse.json({error:"Staff member is required"},{status:400});
@@ -158,8 +188,11 @@ export async function POST(req: NextRequest) {
 
     const siteUrl=process.env.NEXT_PUBLIC_SITE_URL||"https://staff.avgymnastics.co.uk";
     const{error}=await admin.auth.resetPasswordForEmail(recovery,{redirectTo:`${siteUrl}/set-password?mode=recovery`});
-    if(error)return NextResponse.json({error:error.message},{status:400});
-    return NextResponse.json({ok:true});
+    if(error){
+      const suffix=(error as any)?.code?` (${(error as any).code})`:"";
+      return NextResponse.json({error:`Password reset email was not sent: ${error.message}${suffix}`},{status:400});
+    }
+    return NextResponse.json({ok:true,email:recovery});
   }
 
   return NextResponse.json({error:"Unknown action"},{status:400});
