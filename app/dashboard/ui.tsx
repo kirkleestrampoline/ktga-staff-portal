@@ -103,6 +103,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const [adminPersonalRota,setAdminPersonalRota]=useState(false);
   const [adminScheduleShift,setAdminScheduleShift]=useState<ScheduledShift|null>(null);
   const [pendingExtraShifts,setPendingExtraShifts]=useState<Shift[]>([]);
+  const [monthActionsOpen,setMonthActionsOpen]=useState(false);
 
   const totalHours=useMemo(()=>shifts.filter(s=>!s.approval_status||s.approval_status==="approved").reduce((a,s)=>a+shiftHours(s),0),[shifts]);
   const totalValue=totalHours*Number(activeCoach.hourly_rate||0);
@@ -229,7 +230,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
 
   async function loadPendingExtraShifts(){
     if(!isAdmin)return;
-    const{data,error}=await supabase.rpc("get_pending_extra_shifts",{p_month_start:`${month}-01`});
+    const{data,error}=await supabase.rpc("get_schedule_extra_shifts",{p_month_start:`${month}-01`});
     if(error){console.error(error);return}
     setPendingExtraShifts((data||[]) as Shift[]);
   }
@@ -928,7 +929,9 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     return total+slots.reduce((a,slot)=>a+occurrences*shiftHours({coach_id:slot.default_profile_id||"",shift_date:`${month}-01`,start_time:c.start_time,finish_time:c.finish_time,break_minutes:c.break_minutes,session_location:c.name,notes:null})*Number(profileById(slot.default_profile_id)?.hourly_rate||0),0);
   },0);
 
-  const pendingAdditionalScope=pendingExtraShifts.filter(s=>!scheduleFilter||s.venue_id===scheduleFilter);
+  const additionalWorkScope=pendingExtraShifts.filter(s=>!scheduleFilter||s.venue_id===scheduleFilter);
+  const pendingAdditionalScope=additionalWorkScope.filter(s=>s.approval_status==="pending");
+  const approvedAdditionalScope=additionalWorkScope.filter(s=>s.approval_status==="approved");
   const pendingAdditionalCount=pendingAdditionalScope.length;
   const submittedCount=adminRows.filter(r=>r.timesheet?.status==="submitted"||r.timesheet?.status==="paid").length;
   const unpaidTotal=allInvoices.filter((i:any)=>i.status==="awaiting_payment").reduce((a:number,i:any)=>a+Number(i.total_amount||0),0);
@@ -955,7 +958,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   return <div className="portal">
     <Sidebar tab={tab} setTab={(t:any)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v3.1.2</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v3.1.3</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
         {tab!=="schedule"&&mobilePageMeta&&<div className="v303MobilePageHero">
           <span>{mobilePageMeta.eyebrow}</span>
@@ -1084,7 +1087,22 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
       </>;
     }
 
-    return <><PageHead title="Schedule & Staffing" sub="Build once, copy forward and only change the exceptions."><div className="row"><MonthSelect/><button className="btn btnSecondary" onClick={clonePreviousScheduleMonth}>Copy previous month</button><button className="btn btnSecondary" onClick={copyScheduleWeek}>Copy week</button><button className="btn btnPrimary" onClick={generateSchedule}>Generate missing shifts</button><button className="btn btnDanger v312ClearMonth" onClick={clearScheduleMonth}>Clear month</button></div></PageHead>
+    return <><PageHead title="Schedule & Staffing" sub="Build once, copy forward and only change the exceptions."><MonthSelect/></PageHead>
+      <div className="v313MonthActions">
+        <div className="v313MonthActionsText"><span>Month actions</span><strong>{monthLabel(month)}</strong></div>
+        <div className="v313MonthActionButtons">
+          <button className="btn btnPrimary" onClick={generateSchedule}>Generate missing shifts</button>
+          <button className="btn btnSecondary" onClick={clonePreviousScheduleMonth}>Duplicate previous month</button>
+          <div className="v313MoreWrap">
+            <button className="btn btnSecondary" onClick={()=>setMonthActionsOpen(!monthActionsOpen)}>More <span className="v313Chevron">⌄</span></button>
+            {monthActionsOpen&&<><button className="v313MenuScrim" aria-label="Close month actions" onClick={()=>setMonthActionsOpen(false)}/><div className="v313MoreMenu">
+              <button type="button" onClick={()=>{setMonthActionsOpen(false);void copyScheduleWeek()}}>Copy a week</button>
+              <div className="v313MenuDivider"/>
+              <button type="button" className="danger" onClick={()=>{setMonthActionsOpen(false);void clearScheduleMonth()}}>Clear this month</button>
+            </div></>}
+          </div>
+        </div>
+      </div>
       <div className="scheduleToolbar"><select value={scheduleFilter} onChange={e=>setScheduleFilter(e.target.value)}><option value="">All organisations</option>{adminVenues().map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select><div className="row"><button className={`btn ${scheduleView==="calendar"?"btnPrimary":"btnSecondary"}`} onClick={()=>setScheduleView("calendar")}>Calendar</button><button className={`btn ${scheduleView==="agenda"?"btnPrimary":"btnSecondary"}`} onClick={()=>setScheduleView("agenda")}>Agenda</button><button className="btn btnAccent" onClick={()=>openNewClass()}><PlusIcon/>Add class</button></div></div>
       <div className="grid grid4 scheduleSummary"><StatCard label="Normal monthly cost" value={money(normalCost)} foot="Regular timetable" icon={<PoundIcon/>}/><StatCard label="Current forecast" value={money(forecastCost)} foot={`${plannedSchedule.length} scheduled staffing shifts`} icon={<CalendarIcon/>}/><StatCard label="Actual cost so far" value={money(actualScheduleCost)} foot={`${money(actualScheduleCost-forecastCost)} vs forecast`} icon={<CheckIcon/>}/><StatCard label="Unassigned shifts" value={String(unassignedScheduleCount)} foot={unassignedScheduleCount?"Needs a coach":"Fully staffed"} icon={<UsersIcon/>}/></div>
       {pendingAdditionalCount>0&&<div className="v311ApprovalBanner"><div className="v311ApprovalIcon"><ClockIcon/></div><div><strong>{pendingAdditionalCount} additional work {pendingAdditionalCount===1?"request":"requests"} awaiting approval</strong><span>These were recorded by staff outside their rota. Review them below in the schedule.</span></div><span className="v311ApprovalCount">{pendingAdditionalCount}</span></div>}
@@ -1095,14 +1113,14 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
         return Array.from({length:last},(_,i)=>{
           const d=i+1,date=`${month}-${String(d).padStart(2,"0")}`;
           const items=visibleScheduled.filter(s=>s.shift_date===date).sort((a,b)=>a.start_time.localeCompare(b.start_time)||a.class_name.localeCompare(b.class_name));
-          const extras=pendingAdditionalScope.filter(s=>s.shift_date===date).sort((a,b)=>a.start_time.localeCompare(b.start_time));
+          const extras=additionalWorkScope.filter(s=>s.shift_date===date).sort((a,b)=>a.start_time.localeCompare(b.start_time));
           const totalItems=items.length+extras.length;
           return <div className={`staffingBoardDay ${totalItems?"hasShifts":"emptyDay"}`} key={date}>
             <div className="staffingBoardDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}</strong><span>{totalItems?`${totalItems} ${totalItems===1?"item":"items"}`:"No coaching"}</span></div>
-            <div className="staffingBoardShifts">{items.map(s=><div className={`staffingCalendarShift ${s.status} ${venueColourClass(s.venue_id)}`} key={s.id} draggable={s.status!=="cancelled"} onClick={()=>openAdminScheduleShift(s)} onDragStart={e=>{e.stopPropagation();setDragShiftId(s.id)}} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();e.stopPropagation();if(dragShiftId)void swapScheduledAssignments(dragShiftId,s.id);setDragShiftId(null)}}><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)} · {s.class_name}</strong><span>{profileById(s.profile_id)?.full_name||"Unassigned"}</span><small>{venueName(s.venue_id)} · Tap to manage</small></div>)}{extras.map(s=><div className="staffingCalendarShift v311PendingExtra" key={`extra-${s.id}`} onClick={()=>setShiftModal(s)}><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)} · {s.session_location||"Additional work"}</strong><span>{profileById(s.coach_id)?.full_name||"Staff member"}</span><small>{venueName(s.venue_id)} · Additional work · Approval required</small></div>)}</div>
+            <div className="staffingBoardShifts">{items.map(s=><div className={`staffingCalendarShift ${s.status} ${venueColourClass(s.venue_id)}`} key={s.id} draggable={s.status!=="cancelled"} onClick={()=>openAdminScheduleShift(s)} onDragStart={e=>{e.stopPropagation();setDragShiftId(s.id)}} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();e.stopPropagation();if(dragShiftId)void swapScheduledAssignments(dragShiftId,s.id);setDragShiftId(null)}}><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)} · {s.class_name}</strong><span>{profileById(s.profile_id)?.full_name||"Unassigned"}</span><small>{venueName(s.venue_id)} · Tap to manage</small></div>)}{extras.map(s=><div className={`staffingCalendarShift ${s.approval_status==="pending"?"v311PendingExtra":"v313ApprovedExtra"}`} key={`extra-${s.id}`} onClick={()=>setShiftModal(s)}><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)} · {s.session_location||"Additional work"}</strong><span>{profileById(s.coach_id)?.full_name||"Staff member"}</span><small>{venueName(s.venue_id)} · Additional shift · {s.approval_status==="pending"?"Approval required":"Approved"}</small></div>)}</div>
           </div>
         });
-      })()}</div>:<div className="scheduleAgenda v311Agenda">{Array.from(new Set([...Object.keys(grouped),...pendingAdditionalScope.map(s=>s.shift_date)])).sort().map(date=>{const items=(grouped[date]||[]) as ScheduledShift[];const extras=pendingAdditionalScope.filter(s=>s.shift_date===date);return <div className="scheduleDay" key={date}><div className="scheduleDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}</strong><span>{items.length+extras.length} items</span></div>{items.map(s=>{const allowed=staffOptionsForVenue(s.venue_id);return <div className={`scheduleShift v311ScheduleRow ${s.status} ${venueColourClass(s.venue_id)}`} key={s.id} onClick={()=>openAdminScheduleShift(s)}><div className="scheduleShiftMain"><div className="scheduleTime">{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</div><div><strong>{s.class_name}</strong><span>{venueName(s.venue_id)} · {scheduleHours(s).toFixed(2)}h</span></div></div><div className="v311RowCoach"><span>Coach</span><strong>{profileById(s.profile_id)?.full_name||"Unassigned"}</strong></div><div className="v311RowStatus"><span className={`scheduleStatus ${s.status}`}>{s.adjustment_status==="pending"?"Approval pending":s.status}</span><button className="btn btnSecondary" type="button" onClick={e=>{e.stopPropagation();openAdminScheduleShift(s)}}>Manage</button></div></div>})}{extras.map(s=><div className="scheduleShift v311ScheduleRow v311ExtraRow" key={`extra-${s.id}`} onClick={()=>setShiftModal(s)}><div className="scheduleShiftMain"><div className="scheduleTime">{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</div><div><strong>{s.session_location||"Additional work"}</strong><span>{venueName(s.venue_id)} · {shiftHours(s).toFixed(2)}h</span></div></div><div className="v311RowCoach"><span>Submitted by</span><strong>{profileById(s.coach_id)?.full_name||"Staff member"}</strong></div><div className="v311RowStatus"><span className="scheduleStatus v311PendingBadge">Approval required</span><button className="btn btnAccent" type="button" onClick={e=>{e.stopPropagation();setShiftModal(s)}}>Review</button></div></div>)}</div>})}{!visibleScheduled.length&&!pendingAdditionalCount&&<div className="empty">Generate {monthLabel(month)} to create the staffing rota from your regular classes.</div>}</div>}</div></div></>;
+      })()}</div>:<div className="scheduleAgenda v311Agenda">{Array.from(new Set([...Object.keys(grouped),...additionalWorkScope.map(s=>s.shift_date)])).sort().map(date=>{const items=(grouped[date]||[]) as ScheduledShift[];const extras=additionalWorkScope.filter(s=>s.shift_date===date);return <div className="scheduleDay" key={date}><div className="scheduleDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}</strong><span>{items.length+extras.length} items</span></div>{items.map(s=>{const allowed=staffOptionsForVenue(s.venue_id);return <div className={`scheduleShift v311ScheduleRow ${s.status} ${venueColourClass(s.venue_id)}`} key={s.id} onClick={()=>openAdminScheduleShift(s)}><div className="scheduleShiftMain"><div className="scheduleTime">{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</div><div><strong>{s.class_name}</strong><span>{venueName(s.venue_id)} · {scheduleHours(s).toFixed(2)}h</span></div></div><div className="v311RowCoach"><span>Coach</span><strong>{profileById(s.profile_id)?.full_name||"Unassigned"}</strong></div><div className="v311RowStatus"><span className={`scheduleStatus ${s.status}`}>{s.adjustment_status==="pending"?"Approval pending":s.status}</span><button className="btn btnSecondary" type="button" onClick={e=>{e.stopPropagation();openAdminScheduleShift(s)}}>Manage</button></div></div>})}{extras.map(s=><div className={`scheduleShift v311ScheduleRow v311ExtraRow ${s.approval_status==="approved"?"v313ApprovedExtraRow":""}`} key={`extra-${s.id}`} onClick={()=>setShiftModal(s)}><div className="scheduleShiftMain"><div className="scheduleTime">{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</div><div><strong>{s.session_location||"Additional work"}</strong><span>{venueName(s.venue_id)} · {shiftHours(s).toFixed(2)}h</span></div></div><div className="v311RowCoach"><span>{s.approval_status==="pending"?"Submitted by":"Coach"}</span><strong>{profileById(s.coach_id)?.full_name||"Staff member"}</strong></div><div className="v311RowStatus"><span className={`scheduleStatus ${s.approval_status==="pending"?"v311PendingBadge":"v313ApprovedBadge"}`}>{s.approval_status==="pending"?"Approval required":"Additional shift · Approved"}</span><button className={`btn ${s.approval_status==="pending"?"btnAccent":"btnSecondary"}`} type="button" onClick={e=>{e.stopPropagation();setShiftModal(s)}}>{s.approval_status==="pending"?"Review":"View"}</button></div></div>)}</div>})}{!visibleScheduled.length&&!additionalWorkScope.length&&<div className="empty">Generate {monthLabel(month)} to create the staffing rota from your regular classes.</div>}</div>}</div></div></>;
   }
 
   function TimesheetView(){
