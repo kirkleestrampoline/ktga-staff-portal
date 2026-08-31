@@ -1300,4 +1300,24 @@ table{background:#fff}th{background:#fafbfc;color:#858e9c;letter-spacing:.07em}t
  .v33Segmented{grid-template-columns:1fr}.v33LeaveModal{border-radius:24px 24px 0 0!important;max-height:94dvh!important}.v33LeaveModal .modalBody{overflow-y:auto}
  .v33DashboardAlert{grid-template-columns:auto minmax(0,1fr)}.v33AlertCount{display:none!important}
 }
+
+/* AV Gymnastics v3.3.1 — unified time-away workflow */
+.v331Duration{grid-template-columns:1fr 1fr!important}
+.v331HistoryRow{position:relative}
+.v331HistoryRow:before,.v33RequestCard:before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:99px;background:#8d7f97}
+.v331Type-holiday:before{background:#7f50ae!important}
+.v331Type-sickness:before{background:#be5b57!important}
+.v331Type-appointment:before{background:#4e82b7!important}
+.v331Type-compassionate:before{background:#b16e98!important}
+.v331Type-unavailable:before{background:#d18a24!important}
+.v331Type-other:before{background:#78808a!important}
+.v331AdminHistoryActions{display:flex!important;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.v331AdminHistoryActions .v3TextButton{font-size:10px}
+.v33RequestCard{position:relative;padding-left:16px!important}
+.v33RequestActions{flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:820px){
+  .v331Duration{grid-template-columns:1fr 1fr!important}
+  .v331AdminHistoryActions{justify-content:flex-start!important}
+  .v33RequestActions{grid-template-columns:1fr 1fr 1fr!important}
+}
 /* AV_V3_IDENTITY_END */
