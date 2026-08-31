@@ -44,7 +44,9 @@ const fmtStamp=(s:string)=>new Date(s).toLocaleString("en-GB",{dateStyle:"medium
 export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const isGlobalAdmin=initialProfile.role==="admin";
   const isAdmin=initialProfile.role==="admin"||initialProfile.role==="org_admin";
-  const [tab,setTab]=useState<Tab>("dashboard");
+  const [tab,setTab]=useState<Tab>(
+    initialProfile.role==="admin"||initialProfile.role==="org_admin"?"dashboard":"schedule"
+  );
   const [month,setMonth]=useState(monthKey());
   const [ownProfile,setOwnProfile]=useState<Profile>(initialProfile);
   const [activeCoach,setActiveCoach]=useState<Profile>(initialProfile);
@@ -96,6 +98,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const [adjustFinish,setAdjustFinish]=useState("");
   const [adjustBreak,setAdjustBreak]=useState(0);
   const [adjustReason,setAdjustReason]=useState("");
+  const [adminPersonalRota,setAdminPersonalRota]=useState(false);
 
   const totalHours=useMemo(()=>shifts.filter(s=>!s.approval_status||s.approval_status==="approved").reduce((a,s)=>a+shiftHours(s),0),[shifts]);
   const totalValue=totalHours*Number(activeCoach.hourly_rate||0);
@@ -738,6 +741,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
 
   async function confirmScheduled(sch:ScheduledShift){
     if(!sch.profile_id){flash("Assign a coach before confirming this shift.");return}
+    if(!isAdmin&&!confirm(`Confirm this session as worked?\n\n${sch.class_name}\n${sch.start_time.slice(0,5)}–${sch.finish_time.slice(0,5)}\n${venueName(sch.venue_id)}`))return;
     flash("Confirming shift…");
 
     const monthStart=`${sch.shift_date.slice(0,7)}-01`;
@@ -888,9 +892,9 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   const filteredStaff=staff.filter(s=>`${s.full_name} ${s.email||""}`.toLowerCase().includes(search.toLowerCase()) && (!venueFilter||(staffVenueMap[s.id]||[]).includes(venueFilter)));
 
   return <div className="portal">
-    <Sidebar tab={tab} setTab={(t:any)=>{setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
+    <Sidebar tab={tab} setTab={(t:any)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="topBrandMark">AV</div><div className="topTitle">AV Gymnastics Solutions</div></div><div className="topActions"><span className="versionBadge">v2.1.0</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row"><div className="topBrandMark">AV</div><div className="topTitle">AV Gymnastics Solutions</div></div><div className="topActions"><span className="versionBadge">v2.2.0</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
         {message&&<div className={`notice ${/(saved|sent|submitted|added|copied|reopened|created|paid)/i.test(message)?"success":""}`}>{message}</div>}
         {tab==="dashboard"&&DashboardView()}
@@ -909,7 +913,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
     {templateOpen&&TemplateModal()}
     {classModal&&ClassModal()}
     {adjustShift&&AdjustmentModal()}
-    <MobileNav tab={tab} setTab={(t:any)=>{setTab(t);if(t!=="timesheets")backToAdmin()}} role={initialProfile.role} name={initialProfile.full_name} open={mobileMoreOpen} setOpen={setMobileMoreOpen} onSignOut={signOut}/>
+    <MobileNav tab={tab} setTab={(t:any)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} role={initialProfile.role} name={initialProfile.full_name} open={mobileMoreOpen} setOpen={setMobileMoreOpen} onSignOut={signOut}/>
   </div>;
 
   function PageHead({title,sub,children}:{title:string;sub:string;children?:React.ReactNode}){return <div className="pageHead"><div><h1>{title}</h1><p>{sub}</p></div>{children}</div>}
@@ -922,7 +926,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   }
 
   function DashboardView(){
-    if(isAdmin)return <><PageHead title={`Good ${new Date().getHours()<12?"morning":new Date().getHours()<18?"afternoon":"evening"}, ${initialProfile.full_name.split(" ")[0]}`} sub="Your current staffing, timesheet and invoice position."><MonthSelect/></PageHead>
+    if(isAdmin)return <><PageHead title={`Good ${new Date().getHours()<12?"morning":new Date().getHours()<18?"afternoon":"evening"}, ${initialProfile.full_name.split(" ")[0]}`} sub="Your current staffing, timesheet and invoice position."><div className="row"><button className="btn btnSecondary" onClick={()=>{setAdminPersonalRota(true);setTab("schedule")}}>My Schedule</button><MonthSelect/></div></PageHead>
       <div className="grid grid4"><StatCard label="Active coaches" value={String(adminRows.length)} foot="Self-employed staff" icon={<UsersIcon/>}/><StatCard label="Hours this month" value={adminHours.toFixed(2)} foot={monthLabel(month)} icon={<ClockIcon/>}/><StatCard label="Submitted" value={`${submittedCount}/${adminRows.length}`} foot={`${Math.max(0,adminRows.length-submittedCount)} outstanding`} icon={<CheckIcon/>}/><StatCard label="Unpaid invoices" value={money(unpaidTotal)} foot="Awaiting payment" icon={<PoundIcon/>}/></div>
       <div className="grid grid4 section forecastCards"><StatCard label="Normal staffing cost" value={money(normalCost)} foot="Based on regular classes" icon={<CalendarIcon/>}/><StatCard label="Current forecast" value={money(forecastCost)} foot={`${unassignedScheduleCount} unassigned shifts`} icon={<PoundIcon/>}/><StatCard label="Actual cost so far" value={money(actualScheduleCost)} foot="Confirmed timesheet hours" icon={<CheckIcon/>}/><StatCard label="Forecast variance" value={money(forecastCost-normalCost)} foot={forecastCost>normalCost?"Above normal plan":"At / below normal plan"} icon={<ChartIcon/>}/></div>
       <div className="card section todayCoaching"><div className="sectionHeader"><div><h2>Today's coaching</h2><p>{new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</p></div><button className="btn btnSecondary" onClick={()=>setTab("schedule")}>Open schedule</button></div><div className="todayShiftGrid">{scheduledShifts.filter(s=>s.shift_date===new Date().toISOString().slice(0,10)&&s.status!=="cancelled").sort((a,b)=>a.start_time.localeCompare(b.start_time)).map(s=><div className="todayShiftCard" key={s.id}><div><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</strong><span>{s.class_name} · {venueName(s.venue_id)}</span></div><b>{profileById(s.profile_id)?.full_name||"Unassigned"}</b></div>)}{!scheduledShifts.some(s=>s.shift_date===new Date().toISOString().slice(0,10)&&s.status!=="cancelled")&&<div className="empty">No coaching scheduled today.</div>}</div></div>
@@ -937,9 +941,10 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
 
   function ScheduleView(){
     const dayNames=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-    const visibleScheduled=isAdmin?scheduleScope:scheduleScope.filter(s=>s.profile_id===initialProfile.id);
+    const rotaCoachId=initialProfile.id;
+    const visibleScheduled=isAdmin&&!adminPersonalRota?scheduleScope:scheduleScope.filter(s=>s.profile_id===rotaCoachId);
     const grouped=visibleScheduled.reduce((m:Record<string,ScheduledShift[]>,s)=>{(m[s.shift_date]||=[]).push(s);return m},{});
-    if(!isAdmin){
+    if(!isAdmin||adminPersonalRota){
       const allMine=scheduleScope.filter(s=>s.profile_id===initialProfile.id);
       const [ry,rm,rd]=rotaDate.split("-").map(Number);
       const selected=new Date(ry,rm-1,rd,12);
@@ -958,15 +963,25 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
         setRotaDate(d.toISOString().slice(0,10));
         if(rotaView==="month")setMonth(monthKey(d));
       };
-      return <><PageHead title="My Rota" sub="Your planned work. Confirm what you actually worked each day."><MonthSelect/></PageHead>
+      return <><PageHead title="My Schedule" sub="Your planned work. Confirm what you actually worked each day."><div className="row">{isAdmin&&adminPersonalRota&&<button className="btn btnSecondary" onClick={()=>setAdminPersonalRota(false)}>← Admin Schedule</button>}<MonthSelect/></div></PageHead>
         <div className="rotaControls"><div className="rotaViewTabs"><button className={`btn ${rotaView==="month"?"btnPrimary":"btnSecondary"}`} onClick={()=>setRotaView("month")}>Month</button><button className={`btn ${rotaView==="week"?"btnPrimary":"btnSecondary"}`} onClick={()=>setRotaView("week")}>Week</button><button className={`btn ${rotaView==="day"?"btnPrimary":"btnSecondary"}`} onClick={()=>setRotaView("day")}>Day</button></div><div className="row"><button className="btn btnSecondary" onClick={()=>moveRota(-1)}>←</button><input className="rotaDateInput" type="date" value={rotaDate} onChange={e=>setRotaDate(e.target.value)}/><button className="btn btnSecondary" onClick={()=>moveRota(1)}>→</button></div></div>
-        <div className="grid grid3 scheduleSummary"><StatCard label="Rota hours" value={allMine.filter(s=>s.status!=="cancelled").reduce((a,s)=>a+scheduleHours(s),0).toFixed(2)} foot={monthLabel(month)} icon={<CalendarIcon/>}/><StatCard label="Confirmed" value={allMine.filter(s=>s.status==="confirmed").reduce((a,s)=>a+scheduleHours(s),0).toFixed(2)} foot="In your timesheet" icon={<CheckIcon/>}/><StatCard label="To action" value={String(allMine.filter(s=>s.status==="scheduled"||s.adjustment_status==="pending").length)} foot="Confirm or awaiting approval" icon={<ClockIcon/>}/></div>
+        <div className="grid grid3 scheduleSummary">{(()=>{
+          const today=new Date().toISOString().slice(0,10);
+          const now=new Date(`${today}T12:00:00`);
+          const ws=new Date(now);ws.setDate(now.getDate()-((now.getDay()+6)%7));
+          const we=new Date(ws);we.setDate(ws.getDate()+6);
+          const active=allMine.filter(s=>s.status!=="cancelled");
+          const todayH=active.filter(s=>s.shift_date===today).reduce((a,s)=>a+scheduleHours(s),0);
+          const weekH=active.filter(s=>{const d=new Date(`${s.shift_date}T12:00:00`);return d>=ws&&d<=we}).reduce((a,s)=>a+scheduleHours(s),0);
+          const monthH=active.reduce((a,s)=>a+scheduleHours(s),0);
+          return <><StatCard label="Today" value={`${todayH.toFixed(2)}h`} foot={todayH?"Scheduled coaching":"No coaching today"} icon={<ClockIcon/>}/><StatCard label="This week" value={`${weekH.toFixed(2)}h`} foot="Planned rota hours" icon={<CalendarIcon/>}/><StatCard label="This month" value={`${monthH.toFixed(2)}h`} foot={`${allMine.filter(s=>s.status==="confirmed").length} sessions confirmed`} icon={<CheckIcon/>}/></>
+        })()}</div>
         <div className="staffRotaList section">{Object.entries(groupedMine).map(([date,items])=><div className="staffRotaDay" key={date}><div className="staffRotaDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</strong></div>{items.map(s=><div className={`staffRotaCard ${s.status} ${venueColourClass(s.venue_id)}`} key={s.id}><div className="staffRotaMain"><div><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</strong><span>{s.class_name}</span><small>{venueName(s.venue_id)}</small></div><span className={`scheduleStatus ${s.adjustment_status==="pending"?"scheduled":s.status}`}>{s.adjustment_status==="pending"?"Approval pending":s.status}</span></div><div className="staffRotaActions">
           {s.status==="scheduled"&&s.adjustment_status!=="pending"&&<><button className="btn btnPrimary" onClick={()=>confirmScheduled(s)}>Confirm as planned</button><button className="btn btnSecondary" onClick={()=>openAdjustment(s)}>Adjust actual time</button></>}
           {s.adjustment_status==="pending"&&<><span className="rotaPendingText">Extra time awaiting admin approval</span><button className="btn btnDanger" onClick={()=>undoOwnRota(s)}>Cancel request</button></>}
           {s.status==="confirmed"&&<><span className="rotaConfirmedText">Confirmed into timesheet</span><button className="btn btnSecondary" onClick={()=>undoOwnRota(s)}>Undo</button></>}
         </div></div>)}</div>)}{!visible.length&&<div className="card empty">No rota sessions in this view.</div>}</div>
-        <div className="card section rotaExtraCard"><div><strong>Worked something that wasn't on your rota?</strong><p>Use Add extra shift for cover, camps, meetings or other unscheduled work. It will be sent to an admin for approval.</p></div><button className="btn btnAccent" onClick={()=>{setTab("timesheets");setShiftModal({coach_id:initialProfile.id,shift_date:rotaDate,start_time:"16:30",finish_time:"18:00",break_minutes:0,venue_id:profileVenues(initialProfile.id)[0]?.id||null,session_location:"",notes:"",source:"extra",approval_status:"pending"})}}><PlusIcon/>Add extra shift</button></div>
+        <div className="card section rotaExtraCard"><div><strong>Need to record work that wasn't on your rota?</strong><p>Use Record Additional Work for cover, camps, competitions, meetings, admin or anything else that was not on your rota. It will be sent to an admin for approval.</p></div><button className="btn btnAccent" onClick={()=>{setTab("timesheets");setShiftModal({coach_id:initialProfile.id,shift_date:rotaDate,start_time:"16:30",finish_time:"18:00",break_minutes:0,venue_id:profileVenues(initialProfile.id)[0]?.id||null,session_location:"",notes:"",source:"extra",approval_status:"pending"})}}><PlusIcon/>Record Additional Work</button></div>
       </>;
     }
 
@@ -991,12 +1006,12 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   function TimesheetView(){
     if(isAdmin&&!viewingOther)return <><PageHead title="Timesheets" sub="Open a coach to review, add, edit or delete their shifts."><MonthSelect/></PageHead><div className="card"><div className="sectionHeader"><div><h2>{monthLabel(month)}</h2><p>{submittedCount} of {adminRows.length} coaches submitted.</p></div></div><div className="mobileDataList">{adminRows.map(r=><div className="mobileAdminCard" key={r.coach.id}><div className="mobileAdminHead"><div><strong>{r.coach.full_name}</strong><span>{r.coach.email}</span></div><StatusPill status={r.timesheet?.status}/></div><div className="mobileAdminStats"><span><small>Hours</small><strong>{r.hours.toFixed(2)}</strong></span><span><small>Value</small><strong>{money(r.value)}</strong></span></div><div className="mobileAdminActions"><button className="btn btnSecondary" onClick={()=>selectCoach(r.coach)}>Open / edit</button>{(!r.timesheet||r.timesheet.status==="draft")&&r.hours>0&&<button className="btn btnPrimary" onClick={()=>adminSubmitMonth(r.coach.id)}>Submit on behalf</button>}{r.timesheet?.status==="submitted"&&<><button className="btn btnSecondary" onClick={()=>reopen(r)}>Reopen</button><button className="btn btnPrimary" onClick={()=>markPaid(r)}>Mark paid</button></>}{r.timesheet?.status==="paid"&&<button className="btn btnDanger" onClick={()=>reopen(r)}>Reopen paid month</button>}</div></div>)}</div><div className="tableWrap desktopDataTable"><table><thead><tr><th>Coach</th><th className="num">Hours</th><th className="num">Value</th><th>Status</th><th>Actions</th></tr></thead><tbody>{adminRows.map(r=><tr key={r.coach.id}><td><strong>{r.coach.full_name}</strong><div className="muted" style={{fontSize:11}}>{r.coach.email}</div></td><td className="num">{r.hours.toFixed(2)}</td><td className="num">{money(r.value)}</td><td><StatusPill status={r.timesheet?.status}/></td><td><div className="row"><button className="btn btnSecondary" onClick={()=>selectCoach(r.coach)}>Open / edit</button>{(!r.timesheet||r.timesheet.status==="draft")&&r.hours>0&&<button className="btn btnPrimary" onClick={()=>adminSubmitMonth(r.coach.id)}>Submit on behalf</button>}{r.timesheet?.status==="submitted"&&<><button className="btn btnSecondary" onClick={()=>reopen(r)}>Reopen</button><button className="btn btnPrimary" onClick={()=>markPaid(r)}>Mark paid</button></>}{r.timesheet?.status==="paid"&&<button className="btn btnDanger" onClick={()=>reopen(r)}>Reopen paid month</button>}</div></td></tr>)}</tbody></table></div></div></>;
 
-    return <><PageHead title={viewingOther?`${activeCoach.full_name}'s timesheet`:"My timesheet"} sub={viewingOther?"Admin view — reopen submitted months before changing them.":"Add, check and submit your monthly hours."}><div className="row">{viewingOther&&<button className="btn btnSecondary" onClick={backToAdmin}>← All coaches</button>}<MonthSelect/></div></PageHead>{TimesheetCalendar({})}</>
+    return <><PageHead title={viewingOther?`${activeCoach.full_name}'s timesheet`:"My Timesheet"} sub={viewingOther?"Admin view — reopen submitted months before changing them.":"Confirmed rota work and approved additional work appear here automatically. Submit the month when everything is correct."}><div className="row">{viewingOther&&<button className="btn btnSecondary" onClick={backToAdmin}>← All coaches</button>}<MonthSelect/></div></PageHead>{TimesheetCalendar({})}</>
   }
 
   function TimesheetCalendar({compact=false}:{compact?:boolean}){
     const[y,m]=month.split("-").map(Number),last=new Date(y,m,0).getDate(),start=(new Date(y,m-1,1).getDay()+6)%7;
-    const canEdit=isAdmin ? timesheet?.status!=="submitted"&&timesheet?.status!=="paid" : !locked;
+    const canEdit=isAdmin && timesheet?.status!=="submitted"&&timesheet?.status!=="paid";
     const defaultVenue=(isAdmin?adminVenues()[0]:profileVenues(activeCoach.id)[0])?.id||null;
     const newShift=(date=`${month}-${String(Math.min(new Date().getDate(),last)).padStart(2,"0")}`)=>setShiftModal({coach_id:activeCoach.id,shift_date:date,start_time:"16:30",finish_time:"20:30",break_minutes:0,venue_id:defaultVenue,session_location:"",notes:""});
     const sorted=[...shifts].sort((a,b)=>`${a.shift_date}${a.start_time}`.localeCompare(`${b.shift_date}${b.start_time}`));
@@ -1016,7 +1031,7 @@ export default function Dashboard({initialProfile}:{initialProfile:Profile}){
   }
 
   function InvoicesView(){
-    return <><PageHead title="Invoices" sub={isAdmin?"All generated coach invoices and payment history.":"Your generated invoice archive."}/>
+    return <><PageHead title={isAdmin?"Invoices":"My Payslips"} sub={isAdmin?"All generated coach invoices and payment history.":"Your monthly pay/invoice archive."}/>
       <div className="card"><div className="mobileDataList">{allInvoices.map((inv:any)=>{const coach=isAdmin?({...staff.find(s=>s.id===inv.coach_id),...(inv.profiles||{})} as Profile):ownProfile;return <div className="mobileAdminCard" key={inv.id}><div className="mobileAdminHead"><div><strong>{inv.invoice_number}</strong><span>{isAdmin?`${inv.profiles?.full_name||coach.full_name} · `:""}{inv.venues?.name||venueName(inv.venue_id)}</span></div><StatusPill status={inv.status==="awaiting_payment"?"submitted":inv.status}/></div><div className="mobileAdminStats"><span><small>Hours</small><strong>{Number(inv.hours).toFixed(2)}</strong></span><span><small>Amount</small><strong>{money(inv.total_amount)}</strong></span></div><div className="mobileAdminActions"><button className="btn btnSecondary" onClick={()=>downloadPDF(inv,coach)}>Download PDF</button>{isAdmin&&inv.status==="awaiting_payment"&&<button className="btn btnPrimary" onClick={()=>markInvoicePaid(inv)}>Mark paid</button>}</div></div>})}{!allInvoices.length&&<div className="empty">No invoices yet.</div>}</div><div className="tableWrap desktopDataTable"><table><thead><tr><th>Invoice</th>{isAdmin&&<th>Coach</th>}<th>Organisation</th><th>Date</th><th className="num">Hours</th><th className="num">Amount</th><th>Status</th><th></th></tr></thead><tbody>{allInvoices.map((inv:any)=>{const coach=isAdmin?({...staff.find(s=>s.id===inv.coach_id),...(inv.profiles||{})} as Profile):ownProfile;return <tr key={inv.id}><td><strong>{inv.invoice_number}</strong></td>{isAdmin&&<td>{inv.profiles?.full_name||coach.full_name}</td>}<td>{inv.venues?.name||venueName(inv.venue_id)}</td><td>{dateText(inv.invoice_date)}</td><td className="num">{Number(inv.hours).toFixed(2)}</td><td className="num"><strong>{money(inv.total_amount)}</strong></td><td><StatusPill status={inv.status==="awaiting_payment"?"submitted":inv.status}/></td><td><div className="row"><button className="btn btnSecondary" onClick={()=>downloadPDF(inv,coach)}>Download PDF</button>{isAdmin&&inv.status==="awaiting_payment"&&<button className="btn btnPrimary" onClick={()=>markInvoicePaid(inv)}>Mark paid</button>}</div></td></tr>})}{!allInvoices.length&&<tr><td colSpan={isAdmin?8:7} className="empty">No invoices yet.</td></tr>}</tbody></table></div></div>
     </>
   }

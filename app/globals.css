@@ -623,3 +623,17 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);box-shadow:0 0 
  .rotaExtraCard{align-items:stretch;flex-direction:column}.rotaExtraCard .btn{width:100%}
 }
 /* AV_V2_1_STAFF_ROTA_END */
+
+/* AV_V2_2_COACH_EXPERIENCE_START */
+/* AV v2.2.0 coach experience */
+.coachMobileNav{grid-template-columns:repeat(5,1fr)}
+.rotaExtraCard{border:1px dashed #d9cbe3;background:#fcfafd}
+.rotaExtraCard strong{color:var(--navy)}
+.staffRotaCard.confirmed{background:#fbfefc}
+.staffRotaCard .btnPrimary{min-width:150px}
+@media(max-width:760px){
+  .staffRotaMain{gap:8px}
+  .staffRotaMain>div{min-width:0}
+  .staffRotaCard{padding:13px}
+}
+/* AV_V2_2_COACH_EXPERIENCE_END */
