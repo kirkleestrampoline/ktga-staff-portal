@@ -1929,3 +1929,122 @@ td .btn{min-height:36px;padding:7px 11px;font-size:11.5px}
  .v436MasterTimetableCard .masterTime{font-size:12px}
  .v436MasterTimetableCard .masterClassInfo strong{font-size:15px}
 }
+
+/* v5.0.3 — schedule ranges, approvals and desktop timetable collapse */
+.v503ScheduleRange{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:12px 0 16px;padding:10px 12px;border:1px solid #e5e7ec;border-radius:15px;background:#fff;box-shadow:0 6px 20px rgba(28,22,38,.04)}
+.v503RangeTabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px;border-radius:11px;background:#f4f1f7}
+.v503RangeTabs button{min-height:38px;padding:7px 15px;border:0;border-radius:8px;background:transparent;color:#6d7480;font-weight:780;font-size:12px}
+.v503RangeTabs button.active{background:#fff;color:#603394;box-shadow:0 3px 10px rgba(54,35,74,.09)}
+.v503RangeNav{display:grid;grid-template-columns:44px minmax(190px,auto) 44px;align-items:center;gap:6px}
+.v503RangeNav button{min-width:44px;min-height:44px;border:1px solid #e0e3e8;border-radius:10px;background:#fff;color:#596270;font-size:17px}
+.v503RangeNav strong{text-align:center;font-size:13px;color:#303641;white-space:nowrap}
+.staffingBoard.v503Range-day{grid-template-columns:minmax(0,1fr)}
+.staffingBoard.v503Range-week{grid-template-columns:repeat(7,minmax(130px,1fr))}
+.staffingBoard.v503Range-month .staffingBoardDay{min-height:88px}
+.staffingBoard.v503Range-month .staffingCalendarShift{padding:6px 7px;margin:0}
+.v503ApprovalActions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap}
+.v503ApprovalActions .btn{min-height:36px;padding:7px 10px;font-size:11px}
+
+@media(min-width:821px){
+ .v436MasterDayToggle{pointer-events:auto;cursor:pointer;width:100%}
+ .v436MasterDayToggle b{display:grid;place-items:center;width:30px;height:30px;margin-left:auto;border-radius:8px;background:#f2edf8;color:#68409e;transform:rotate(-90deg)}
+ .masterDay.expanded .v436MasterDayToggle b{transform:rotate(0)}
+ .masterDay.collapsed .masterDayClasses{display:none}
+ .masterDayHead{display:grid;grid-template-columns:minmax(0,1fr) auto}
+}
+@media(max-width:1100px) and (min-width:821px){.staffingBoard.v503Range-week{grid-template-columns:repeat(4,minmax(150px,1fr))}}
+@media(max-width:820px){
+ .v503ScheduleRange{align-items:stretch;flex-direction:column;padding:10px;margin:10px 0 14px}
+ .v503RangeTabs{width:100%}.v503RangeTabs button{min-height:44px;padding-inline:8px}
+ .v503RangeNav{grid-template-columns:48px minmax(0,1fr) 48px;width:100%}
+ .v503RangeNav button{min-width:48px;min-height:48px}
+ .v503RangeNav strong{min-width:0;white-space:normal;line-height:1.3}
+ .staffingBoard.v503Range-week{grid-template-columns:1fr}
+ .staffingBoard.v503Range-day{padding:0 12px 12px}
+ .staffingBoard.v503Range-day .staffingBoardDay.emptyDay,.staffingBoard.v503Range-week .staffingBoardDay.emptyDay{display:block}
+ .v503ApprovalActions{display:grid;grid-template-columns:1fr 1fr;width:100%}
+ .v503ApprovalActions .btn{min-height:44px}.v503ApprovalActions .btnSecondary{grid-column:1/-1}
+}
+
+/* v5.0.4 — desktop Weekly Master Timetable hierarchy */
+.v504DesktopClassContext{display:none}
+@media(min-width:821px){
+ .v436MasterTimetableCard .masterTimetable{gap:10px;padding:0 16px 16px}
+ .v436MasterTimetableCard .masterDay{border-radius:13px;box-shadow:0 3px 14px rgba(31,24,42,.035)}
+ .v436MasterTimetableCard .masterDayHead{grid-template-columns:minmax(0,1fr) 158px;align-items:center;gap:12px;min-height:64px;padding:8px 10px 8px 15px;background:linear-gradient(100deg,#fbf8fd,#fff 55%,#f7fbf8)}
+ .v436MasterTimetableCard .v436MasterDayToggle{display:grid;grid-template-columns:minmax(0,1fr) 34px;grid-template-rows:auto auto;column-gap:14px;align-items:center;min-width:0;min-height:46px;padding:0;text-align:left}
+ .v436MasterTimetableCard .v436MasterDayToggle strong{grid-column:1;grid-row:1;align-self:end;font-size:15px;font-weight:820;line-height:1.2;letter-spacing:-.02em;color:#30263b}
+ .v436MasterTimetableCard .v436MasterDayToggle span{grid-column:1;grid-row:2;align-self:start;margin-top:3px;min-width:0;font-size:11px;font-weight:700;line-height:1.2;color:#7d8591;white-space:nowrap}
+ .v436MasterTimetableCard .v436MasterDayToggle b{grid-column:2;grid-row:1/3;align-self:center;justify-self:end;width:32px;height:32px;margin:0;border:1px solid #e1d7eb;border-radius:9px;background:#f5f0f9;color:#68409a;font-size:17px}
+ .v436MasterTimetableCard .masterDayHead>.v501DesktopDayAdd{width:158px!important;min-width:158px!important;min-height:40px;padding:8px 11px;white-space:nowrap}
+ .v436MasterTimetableCard .masterDayClasses{display:flex!important;max-height:2400px;opacity:1;overflow:hidden;transition:max-height .24s ease,opacity .16s ease}
+ .v436MasterTimetableCard .masterDay.collapsed .masterDayClasses{display:flex!important;max-height:0;opacity:0}
+ .v436MasterTimetableCard .masterClassRow{grid-template-columns:minmax(0,1fr) 300px!important;align-items:center!important;gap:16px!important;padding:12px 14px!important}
+ .v436MasterTimetableCard .masterTime{display:none}
+ .v436MasterTimetableCard .masterClassInfo{grid-column:1;gap:3px}
+ .v436MasterTimetableCard .masterClassInfo strong{font-size:14px;font-weight:810;line-height:1.3;color:#292e37}
+ .v436MasterTimetableCard .v504DesktopClassContext{display:block;font-size:11.5px;font-weight:700;color:#6c7481}
+ .v436MasterTimetableCard .v504MobileOrganisation{display:none}
+ .v436MasterTimetableCard .masterClassInfo small{font-size:10.5px;line-height:1.35;color:#89919d}
+ .v436MasterTimetableCard .masterClassInfo em{display:none}
+ .v436MasterTimetableCard .masterClassActions{grid-column:2!important;display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;align-self:center;gap:6px!important;padding:0;border:0}
+ .v436MasterTimetableCard .masterClassActions .btn{min-height:38px!important;padding:7px 9px!important;font-size:11.5px}
+}
+@media(min-width:821px) and (max-width:1120px){
+ .v436MasterTimetableCard .masterClassRow{grid-template-columns:minmax(0,1fr)!important}
+ .v436MasterTimetableCard .masterClassActions{grid-column:1!important;width:min(100%,420px)!important}
+}
+
+/* v5.0.4 — global collapsed defaults and accordion consistency */
+.v406SectionToggle>b,.v430AvailabilityColumn>header button>b,.v436MasterDayToggle>b,.v504AccordionToggle>b{transition:transform .18s ease}
+.v406IssueSection.collapsed .v406SectionToggle>b,.v430AvailabilityColumn.collapsed>header button>b,.masterDay.collapsed .v436MasterDayToggle>b,.v504AccordionToggle[aria-expanded="false"]>b{transform:rotate(-90deg)}
+.v406IssueSection.expanded .v406SectionToggle>b,.v430AvailabilityColumn.expanded>header button>b,.masterDay.expanded .v436MasterDayToggle>b,.v504AccordionToggle[aria-expanded="true"]>b{transform:rotate(0)}
+.v430AvailabilityColumn>header button{cursor:pointer}
+.v430AvailabilityColumn>header button>b{display:block}
+.v430AvailabilityColumn .v432AvailabilityContents{display:grid!important;max-height:5000px;opacity:1;overflow:hidden;transition:max-height .22s ease,opacity .16s ease,padding .18s ease}
+.v430AvailabilityColumn.collapsed .v432AvailabilityContents{display:grid!important;max-height:0;opacity:0;padding-top:0;padding-bottom:0}
+.v430AvailabilityColumn.collapsed{min-height:0}
+.v504AccordionToggle{display:inline-flex;align-items:center;gap:9px}
+.v504AccordionToggle>b{font-size:15px;line-height:1;color:#74528b}
+@media(max-width:820px){
+ .v436MasterTimetableCard .masterDayClasses{display:flex!important;max-height:5000px;opacity:1;overflow:hidden;transition:max-height .22s ease,opacity .16s ease,padding .18s ease}
+ .v436MasterTimetableCard .masterDay.collapsed .masterDayClasses{display:flex!important;max-height:0;opacity:0;padding-top:0!important;padding-bottom:0!important;border-top-color:transparent}
+}
+
+/* v5.0.4 — compact operational staffing workspace */
+.v436StaffingCard .staffingBoard{gap:9px;padding:0 14px 14px}
+.v436StaffingCard .staffingBoardDay{border-radius:12px;border-color:#e4e7ec;box-shadow:0 2px 9px rgba(31,24,42,.025)}
+.v436StaffingCard .staffingBoardDate{min-height:42px;padding:8px 9px;background:linear-gradient(100deg,#faf8fc,#f8fbf9)}
+.v436StaffingCard .staffingBoardDate strong{font-size:11.5px}.v436StaffingCard .staffingBoardDate span{font-size:9.5px}
+.v436StaffingCard .staffingBoardShifts{gap:5px;padding:6px}
+.v436StaffingCard .staffingCalendarShift{gap:2px;padding:7px 8px;border-radius:9px;box-shadow:none}
+.v436StaffingCard .staffingCalendarShift strong{font-size:10.5px;line-height:1.35}
+.v436StaffingCard .staffingCalendarShift span,.v436StaffingCard .staffingCalendarShift small{font-size:9px;line-height:1.35}
+.v436StaffingCard .staffingBoard.v503Range-day .staffingCalendarShift,.v436StaffingCard .staffingBoard.v503Range-week .staffingCalendarShift{padding:9px 10px}
+@media(max-width:820px){
+ .v436StaffingCard .staffingBoard{gap:8px;padding:0 10px 12px}
+ .v436StaffingCard .staffingBoardDate{min-height:46px;padding:9px 10px}
+ .v436StaffingCard .staffingCalendarShift{min-height:44px;padding:8px 9px}
+}
+
+/* v5.1 — schedule workspace and master timetable sheet */
+.v510MasterLauncher{display:grid;grid-template-columns:44px minmax(0,1fr) auto;align-items:center;gap:14px;padding:16px 18px;border-color:#e4d9ef;background:radial-gradient(circle at 100% 0,rgba(56,169,98,.09),transparent 35%),linear-gradient(120deg,#fff,#fbf8fd);box-shadow:0 8px 26px rgba(48,34,66,.055)}
+.v510MasterLauncherIcon{display:grid;place-items:center;width:44px;height:44px;border:1px solid #dfd1ec;border-radius:13px;background:linear-gradient(145deg,#f1e9f8,#edf8f0);color:#663a98}
+.v510MasterLauncherIcon svg{width:20px;height:20px}.v510MasterLauncher h2{margin:0;font-size:16px;letter-spacing:-.02em;color:#30263b}.v510MasterLauncher p{margin:3px 0 0;font-size:12px;color:#7c8491}
+.scheduleAdminGrid{grid-template-columns:minmax(0,1fr)!important}.scheduleAdminGrid>.v436MasterTimetableCard{display:none!important}.v436StaffingCard{min-width:0}
+.v510MasterOverlay{position:fixed;inset:0;z-index:70;display:flex;overflow:hidden;background:rgba(22,17,30,.28);backdrop-filter:blur(2px);animation:v510Fade .18s ease both}
+.v510MasterPanel{display:flex;flex-direction:column;width:min(500px,calc(100vw - 36px));height:100dvh;max-height:100dvh;min-height:0;overflow:hidden;border-right:1px solid rgba(221,214,229,.95);background:#f8f7fa;box-shadow:24px 0 70px rgba(28,20,39,.2);animation:v510SlideLeft .24s cubic-bezier(.2,.8,.2,1) both;overscroll-behavior:contain}
+.v510MasterPanelHandle{display:none}.v510MasterPanelHead{display:flex;flex:0 0 auto;align-items:flex-start;justify-content:space-between;gap:16px;padding:24px 24px 20px;border-bottom:1px solid #e6e2e9;background:rgba(255,255,255,.93)}
+.v510MasterPanelHead span{display:block;margin-bottom:5px;color:#6d4397;font-size:10px;font-weight:850;letter-spacing:.1em;text-transform:uppercase}.v510MasterPanelHead h2{margin:0;font-size:23px;letter-spacing:-.04em;color:#292331}.v510MasterPanelHead p{margin:5px 0 0;color:#7d8490;font-size:12px}.v510MasterPanelHead .iconButton{flex:0 0 auto;min-width:44px;min-height:44px}
+.v510MasterPanelBody{display:flex;flex:1 1 auto;min-height:0;flex-direction:column;gap:10px;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;scrollbar-gutter:stable;padding:16px 18px 34px}
+.v510MasterDay{flex:0 0 auto;overflow:hidden;border:1px solid #e3dfe7;border-radius:15px;background:#fff;box-shadow:0 4px 16px rgba(37,27,49,.04)}.v510MasterDay.expanded{border-color:#d8c7e8;box-shadow:0 9px 25px rgba(84,49,117,.08)}
+.v510MasterDayHead{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:66px;padding:12px 14px;border:0;background:linear-gradient(105deg,#fff,#fbf8fd 68%,#f3faf5);color:inherit;text-align:left;cursor:pointer}.v510MasterDayHead span{display:grid;gap:3px}.v510MasterDayHead strong{font-size:15px;color:#31283a}.v510MasterDayHead small{font-size:11px;font-weight:720;color:#818894}.v510MasterDayHead b{display:grid;place-items:center;width:34px;height:34px;border:1px solid #e1d5ec;border-radius:10px;background:#f4eef9;color:#673b96;font-size:17px;transition:transform .18s ease}.v510MasterDay:not(.expanded) .v510MasterDayHead b{transform:rotate(-90deg)}
+.v510MasterDayContent{display:grid;gap:10px;padding:11px;border-top:1px solid #ece7f0;background:linear-gradient(180deg,#f8f5fb,#f6f9f7)}.v510AddClass{justify-self:stretch;min-height:44px}
+.v510MasterClass{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 12px;padding:14px;border:1px solid #e2e4e9;border-left:4px solid #7544a8;border-radius:14px;background:#fff;box-shadow:0 4px 13px rgba(31,24,42,.04)}.v510MasterClass time{grid-column:1/-1;justify-self:start;padding:5px 8px;border:1px solid #e1d5ed;border-radius:8px;background:#f4eef9;color:#5e328e;font-size:12px;font-weight:850}.v510MasterClass h3{grid-column:1;margin:3px 0 0;font-size:16px;line-height:1.3;overflow-wrap:anywhere;color:#292e37}.v510Organisation{grid-column:1;justify-self:start;padding:4px 8px;border-radius:999px;background:#f3eef7;color:#68428d;font-size:10.5px;font-weight:790}.v510MasterClass>div{grid-column:1;display:grid;gap:2px;margin-top:4px;padding:7px 9px;border-radius:9px}.v510MasterClass>div small{font-size:9px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}.v510MasterClass>div strong{font-size:11.5px}.v510MasterClass>div.assigned{border:1px solid #cfe8d7;background:#eef8f1;color:#277448}.v510MasterClass>div.unassigned{border:1px solid #eadbb7;background:#fff8e9;color:#876018}.v510MasterClass>.btn{grid-column:2;grid-row:2/5;align-self:end;min-width:76px;min-height:42px}
+.v510MasterEmpty{display:grid;gap:4px;padding:22px 14px;border:1px dashed #d9d8df;border-radius:13px;background:#fff;text-align:center}.v510MasterEmpty strong{font-size:13px}.v510MasterEmpty span{font-size:11px;color:#818894}
+.v510ClassModalFoot{gap:12px}.v510ClassManagement{display:flex;flex-wrap:wrap;gap:7px}
+@keyframes v510Fade{from{opacity:0}to{opacity:1}}@keyframes v510SlideLeft{from{transform:translateX(-100%)}to{transform:translateX(0)}}@keyframes v510SlideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@media(max-width:820px){
+ .v510MasterLauncher{grid-template-columns:40px minmax(0,1fr);gap:11px;padding:14px}.v510MasterLauncherIcon{width:40px;height:40px}.v510MasterLauncher .btn{grid-column:1/-1;width:100%;min-height:46px}.v510MasterLauncher h2{font-size:15px}
+ .v510MasterOverlay{z-index:170;align-items:flex-end;background:rgba(20,15,27,.38);backdrop-filter:blur(3px)}.v510MasterPanel{width:100%;height:100dvh;border:0;border-radius:22px 22px 0 0;box-shadow:0 -20px 60px rgba(26,18,37,.24);animation-name:v510SlideUp}.v510MasterPanelHandle{display:block;flex:0 0 auto;width:42px;height:5px;margin:9px auto 0;border-radius:99px;background:#d4cfd8}.v510MasterPanelHead{padding:13px 16px 15px}.v510MasterPanelHead h2{font-size:21px}.v510MasterPanelBody{padding:12px 12px calc(28px + env(safe-area-inset-bottom))}.v510MasterDayHead{min-height:64px}.v510MasterClass{padding:13px}.v510ClassModalFoot{align-items:stretch}.v510ClassManagement{display:grid;grid-template-columns:1fr 1fr 1fr;width:100%}.v510ClassManagement .btn{width:100%;min-width:0;padding-inline:7px}
+}
