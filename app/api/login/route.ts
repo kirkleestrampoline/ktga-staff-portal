@@ -19,6 +19,7 @@ export async function POST(req:NextRequest){
     : await query.ilike("username",identifier).maybeSingle();
 
   if(lookupError||!profile)return NextResponse.json({error:"Invalid username or password"},{status:401});
+  if(!profile.username)return NextResponse.json({error:"This staff profile does not have portal access."},{status:403});
   if(!profile.is_active)return NextResponse.json({error:"This account is inactive. Contact an administrator."},{status:403});
 
   let authEmail=String(profile.auth_email||"").trim().toLowerCase();

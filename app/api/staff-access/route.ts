@@ -44,31 +44,38 @@ export async function POST(req: NextRequest) {
     const username=String(body.username||"").trim().toLowerCase();
     const password=String(body.password||"");
     const contactEmail=String(body.email||"").trim().toLowerCase();
+    const portalAccess=body.portal_access!==false;
     const venueIds:string[]=Array.isArray(body.venue_ids)?body.venue_ids:[];
     const role=actorRole==="admin"&&body.role==="org_admin"?"org_admin":"coach";
     const forcePasswordReset=body.force_password_reset!==false;
 
     if(!fullName)return NextResponse.json({error:"Name is required"},{status:400});
-    if(!USERNAME_RE.test(username))return NextResponse.json({error:"Username must be 3–32 characters using letters, numbers, dots, dashes or underscores"},{status:400});
-    if(password.length<8)return NextResponse.json({error:"Password must be at least 8 characters"},{status:400});
+    if(portalAccess&&!USERNAME_RE.test(username))return NextResponse.json({error:"Username must be 3–32 characters using letters, numbers, dots, dashes or underscores"},{status:400});
+    if(portalAccess&&password.length<8)return NextResponse.json({error:"Password must be at least 8 characters"},{status:400});
     if(venueIds.some(id=>!allowed.includes(id)))return NextResponse.json({error:"You cannot add staff to that organisation"},{status:403});
 
-    const{data:existing}=await admin.from("profiles").select("id").ilike("username",username).maybeSingle();
-    if(existing)return NextResponse.json({error:"That username is already in use"},{status:409});
+    if(portalAccess){
+      const{data:existing}=await admin.from("profiles").select("id").ilike("username",username).maybeSingle();
+      if(existing)return NextResponse.json({error:"That username is already in use"},{status:409});
+    }
 
-    const authEmail=contactEmail||`${username}.${randomUUID().slice(0,8)}@login.avgymnastics.invalid`;
+    // Every profile currently shares its id with auth.users. Staff without portal
+    // access therefore receive an inaccessible Auth shell, but no login username.
+    const accountKey=portalAccess?username:`staff.${randomUUID().slice(0,8)}`;
+    const authEmail=portalAccess&&contactEmail?contactEmail:`${accountKey}.${randomUUID().slice(0,8)}@login.avgymnastics.invalid`;
+    const authPassword=portalAccess?password:randomUUID()+randomUUID();
     const{data:created,error:createError}=await admin.auth.admin.createUser({
-      email:authEmail,password,email_confirm:true,
-      user_metadata:{full_name:fullName,username}
+      email:authEmail,password:authPassword,email_confirm:true,
+      user_metadata:{full_name:fullName,username:portalAccess?username:null,portal_access:portalAccess}
     });
     if(createError||!created.user)return NextResponse.json({error:createError?.message||"Could not create staff account"},{status:400});
 
     const id=created.user.id;
     const{error:profileError}=await admin.from("profiles").upsert({
-      id,full_name:fullName,username,
+      id,full_name:fullName,username:portalAccess?username:null,
       email:contactEmail||null,contact_email:contactEmail||null,auth_email:authEmail,
       role,hourly_rate:Number(body.hourly_rate||0),is_active:true,
-      force_password_reset:forcePasswordReset,password_changed_at:new Date().toISOString()
+      force_password_reset:portalAccess&&forcePasswordReset,password_changed_at:portalAccess?new Date().toISOString():null
     });
     if(profileError){
       await admin.auth.admin.deleteUser(id);
@@ -80,9 +87,18 @@ export async function POST(req: NextRequest) {
       const{error}=await admin.from("staff_venues").insert(venueIds.map(venue_id=>({
         profile_id:id,venue_id,is_admin:role==="org_admin"&&adminVenueIds.includes(venue_id)
       })));
-      if(error)return NextResponse.json({error:error.message},{status:400});
+      if(error){
+        await admin.auth.admin.deleteUser(id);
+        return NextResponse.json({error:`Staff member was not created because organisation assignment failed: ${error.message}`},{status:400});
+      }
     }
-    return NextResponse.json({ok:true,id,username});
+    const{data:savedLinks,error:verifyError}=await admin.from("staff_venues").select("venue_id").eq("profile_id",id);
+    const savedIds=new Set((savedLinks||[]).map((link:any)=>link.venue_id));
+    if(verifyError||savedIds.size!==new Set(venueIds).size||venueIds.some(venueId=>!savedIds.has(venueId))){
+      await admin.auth.admin.deleteUser(id);
+      return NextResponse.json({error:"Staff member was not created because not all organisation assignments could be verified."},{status:400});
+    }
+    return NextResponse.json({ok:true,id,username:portalAccess?username:null,portal_access:portalAccess,venue_ids:venueIds});
   }
 
   if(body.action==="set_password"){
@@ -119,10 +135,12 @@ export async function POST(req: NextRequest) {
 
     const username=body.action==="update_identity"?String(body.username||"").trim().toLowerCase():String(person.username||"").trim().toLowerCase();
     const contactEmail=String(body.email||"").trim().toLowerCase();
-    if(!USERNAME_RE.test(username))return NextResponse.json({error:"Username must be 3–32 characters using letters, numbers, dots, dashes or underscores"},{status:400});
+    if(username&&!USERNAME_RE.test(username))return NextResponse.json({error:"Username must be 3–32 characters using letters, numbers, dots, dashes or underscores"},{status:400});
 
-    const{data:usernameOwner}=await admin.from("profiles").select("id").ilike("username",username).neq("id",profileId).maybeSingle();
-    if(usernameOwner)return NextResponse.json({error:"That username is already in use"},{status:409});
+    if(username){
+      const{data:usernameOwner}=await admin.from("profiles").select("id").ilike("username",username).neq("id",profileId).maybeSingle();
+      if(usernameOwner)return NextResponse.json({error:"That username is already in use"},{status:409});
+    }
 
     const authEmail=contactEmail||person.auth_email||`${username}.${profileId.slice(0,8)}@login.avgymnastics.invalid`;
     if(contactEmail&&authEmail!==person.auth_email){
@@ -134,35 +152,10 @@ export async function POST(req: NextRequest) {
     }
 
     const{error:profileError}=await admin.from("profiles").update({
-      username,email:contactEmail||null,contact_email:contactEmail||null,auth_email:authEmail
+      username:username||null,email:contactEmail||null,contact_email:contactEmail||null,auth_email:authEmail
     }).eq("id",profileId);
     if(profileError)return NextResponse.json({error:profileError.message},{status:400});
     return NextResponse.json({ok:true});
-  }
-
-  if(body.action==="send_reset_email"){
-    const profileId=String(body.profile_id||"");
-    if(!profileId)return NextResponse.json({error:"Staff member is required"},{status:400});
-    if(profileId===actorId)return NextResponse.json({error:"Use the Forgot password link or My Profile for your own account"},{status:400});
-    if(!(await canManage(profileId)))return NextResponse.json({error:"You do not manage this staff member"},{status:403});
-
-    const{data:person}=await admin.from("profiles").select("email,contact_email,auth_email").eq("id",profileId).single();
-    const recovery=String(person?.contact_email||person?.email||"").trim().toLowerCase();
-    if(!recovery)return NextResponse.json({error:"This staff member does not have a recovery email"},{status:400});
-
-    if(person?.auth_email!==recovery){
-      const{error:updateError}=await admin.auth.admin.updateUserById(profileId,{email:recovery,email_confirm:true});
-      if(updateError)return NextResponse.json({error:updateError.message},{status:400});
-      await admin.from("profiles").update({auth_email:recovery,email:recovery,contact_email:recovery}).eq("id",profileId);
-    }
-
-    const siteUrl=process.env.NEXT_PUBLIC_SITE_URL||"https://staff.avgymnastics.co.uk";
-    const{error}=await admin.auth.resetPasswordForEmail(recovery,{redirectTo:`${siteUrl}/set-password?mode=recovery`});
-    if(error){
-      const suffix=(error as any)?.code?` (${(error as any).code})`:"";
-      return NextResponse.json({error:`Password reset email was not sent: ${error.message}${suffix}`},{status:400});
-    }
-    return NextResponse.json({ok:true,email:recovery});
   }
 
   return NextResponse.json({error:"Unknown action"},{status:400});

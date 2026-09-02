@@ -31,14 +31,5 @@ export async function POST(req:NextRequest){
     const{error}=await admin.auth.admin.deleteUser(targetId);
     return error?NextResponse.json({error:error.message},{status:400}):NextResponse.json({ok:true});
   }
-  if(body.action==="setup_link"){
-    const email=String(body.email||"").trim().toLowerCase();if(!email)return NextResponse.json({error:"Email required"},{status:400});
-    const{data:target}=await admin.from("profiles").select("id").eq("email",email).maybeSingle();
-    if(!target||!await canManageTarget(target.id))return NextResponse.json({error:"No permission for this staff member"},{status:403});
-    const redirectTo=`${req.nextUrl.origin}/set-password?mode=recovery&email=${encodeURIComponent(email)}`;
-    const{data,error}=await admin.auth.admin.generateLink({type:"recovery",email,options:{redirectTo}});
-    if(error)return NextResponse.json({error:error.message},{status:400});
-    return NextResponse.json({ok:true,link:data.properties?.action_link});
-  }
   return NextResponse.json({error:"Unknown action"},{status:400});
 }

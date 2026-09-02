@@ -15,6 +15,7 @@ export default function LoginPage(){
   const[message,setMessage]=useState("");
   const[busy,setBusy]=useState(false);
   const[showPassword,setShowPassword]=useState(false);
+  const[recovering,setRecovering]=useState(false);
 
   async function signIn(event:FormEvent){
     event.preventDefault();setBusy(true);setMessage("");
@@ -25,11 +26,16 @@ export default function LoginPage(){
     window.location.href=body.force_password_reset?"/set-password?mode=forced":"/dashboard";
   }
 
-  async function resetPassword(){
-    if(!identifier){setMessage("Enter your username or recovery email first.");return}
-    const res=await fetch("/api/password-reset",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({identifier})});
-    const body=await res.json();
-    setMessage(body.message||body.error||"If a recovery email is available, a reset link has been sent.");
+  async function requestRecovery(event:FormEvent){
+    event.preventDefault();
+    if(!identifier.trim()){setMessage("Enter your username or recovery email first.");return}
+    setBusy(true);setMessage("");
+    try{
+      const res=await fetch("/api/password-reset",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"request",identifier})});
+      if(!res.ok)throw new Error("Password recovery is temporarily unavailable. Please try again.");
+      sessionStorage.setItem("av-recovery-identifier",identifier.trim().toLowerCase());
+      window.location.href="/set-password?mode=recovery";
+    }catch(error:any){setMessage(error?.message||"Password recovery is temporarily unavailable. Please try again.");setBusy(false)}
   }
 
   return <main className="v3LoginPage">
@@ -44,12 +50,13 @@ export default function LoginPage(){
 
     <section className="v3LoginFormPanel">
       <div className="v3MobileBrand"><AvLogo size={52} showWordmark/></div>
-      <form className="v3LoginCard" onSubmit={signIn}>
-        <div className="v3LoginHeading"><span className="v3Eyebrow">AV Gymnastics</span><h2>Welcome back</h2><p>Sign in to continue to your workspace.</p></div>
+      <form className="v3LoginCard" onSubmit={recovering?requestRecovery:signIn}>
+        <div className="v3LoginHeading"><span className="v3Eyebrow">AV Gymnastics</span><h2>{recovering?"Recover your account":"Welcome back"}</h2><p>{recovering?"Enter your username or recovery email and we will send an 8-digit code.":"Sign in to continue to your workspace."}</p></div>
         <div className="v3Field"><label>Username or email</label><div className="v3InputShell"><span className="v3InputIcon"><MailGlyph/></span><input type="text" autoCapitalize="none" autoCorrect="off" autoComplete="username" placeholder="e.g. gabby" value={identifier} onChange={e=>setIdentifier(e.target.value)} required/></div></div>
-        <div className="v3Field"><div className="v3FieldHead"><label>Password</label><button type="button" className="v3TextButton" onClick={resetPassword}>Forgot password?</button></div><div className="v3InputShell"><span className="v3InputIcon"><LockGlyph/></span><input type={showPassword?"text":"password"} autoComplete="current-password" placeholder="Enter your password" value={password} onChange={e=>setPassword(e.target.value)} required/><button className="v3PasswordToggle" type="button" aria-label={showPassword?"Hide password":"Show password"} onClick={()=>setShowPassword(!showPassword)}><EyeGlyph off={showPassword}/></button></div></div>
+        {!recovering&&<div className="v3Field"><div className="v3FieldHead"><label>Password</label><button type="button" className="v3TextButton" onClick={()=>{setRecovering(true);setMessage("")}}>Forgot password?</button></div><div className="v3InputShell"><span className="v3InputIcon"><LockGlyph/></span><input type={showPassword?"text":"password"} autoComplete="current-password" placeholder="Enter your password" value={password} onChange={e=>setPassword(e.target.value)} required/><button className="v3PasswordToggle" type="button" aria-label={showPassword?"Hide password":"Show password"} onClick={()=>setShowPassword(!showPassword)}><EyeGlyph off={showPassword}/></button></div></div>}
         {message&&<div className="v3LoginNotice">{message}</div>}
-        <button className="v3SignInButton" disabled={busy}>{busy?<><span className="v3Spinner"/>Signing in…</>:"Sign in"}</button>
+        <button className="v3SignInButton" disabled={busy}>{busy?<><span className="v3Spinner"/>{recovering?"Sending…":"Signing in…"}</>:recovering?"Send Recovery Code":"Sign in"}</button>
+        {recovering&&<button className="v3TextButton v521BackToLogin" type="button" onClick={()=>{setRecovering(false);setMessage("")}}>Back to sign in</button>}
         <p className="v3LoginSupport">Secure access for AV Gymnastics staff and coaches.</p>
       </form>
       <div className="v3LoginFooter"><span>AV Gymnastics</span><span>Coach. Schedule. Perform.</span></div>
