@@ -2199,3 +2199,13 @@ td .btn{min-height:36px;padding:7px 11px;font-size:11.5px}
  .v513ScheduleWorkspace>.pageHead{border-radius:0 0 18px 18px}
  .v518OneOffActions{display:grid;grid-template-columns:1fr 1fr}.v518OneOffActions>span{grid-column:1/-1}
 }
+
+/* v5.1.9 — one Schedule heading per viewport */
+.v513ScheduleWorkspace>.pageHead{overflow:visible;border:0;background:transparent;box-shadow:none}
+.v513ScheduleWorkspace>.pageHead:before{inset:auto auto 0;width:76px;height:2px;border-radius:999px;background:linear-gradient(90deg,#67379b,#3da563)}
+@media(max-width:820px){
+ .v513ScheduleWorkspace>.pageHead{min-height:0;margin:0 0 12px;padding:0;border-radius:0}
+ .v513ScheduleWorkspace>.pageHead:before{display:none}
+ .v513ScheduleWorkspace>.pageHead>div:first-child{display:none}
+ .v513ScheduleWorkspace>.pageHead>.v500MonthNavigation{width:100%;margin:0}
+}

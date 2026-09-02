@@ -98,7 +98,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   const [resetRemoveStaff,setResetRemoveStaff]=useState(false);
   const [resetBusy,setResetBusy]=useState(false);
   const [scheduleView,setScheduleView]=useState<"calendar"|"agenda">("calendar");
-  const [adminScheduleRange,setAdminScheduleRange]=useState<"day"|"week"|"month">("week");
+  const [adminScheduleRange,setAdminScheduleRange]=useState<"day"|"week"|"month">("day");
   const [adminScheduleDate,setAdminScheduleDate]=useState(localDateKey());
   const [dragShiftId,setDragShiftId]=useState<string|null>(null);
   const [rotaView,setRotaView]=useState<"month"|"week"|"day">("day");
