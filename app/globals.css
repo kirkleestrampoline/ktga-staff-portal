@@ -20,6 +20,441 @@
   --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 8px 24px rgba(16, 24, 40, .04);
 }
 
+/* v5.3 — AV Design System
+   Desktop-only consistency layer. Schedule & Staffing remains the benchmark and
+   is deliberately excluded; the established mobile layouts are unchanged. */
+@media (min-width: 821px) {
+  .main:not(:has(.v513ScheduleWorkspace)) {
+    --av-purple: #6f2dbd;
+    --av-purple-deep: #55208f;
+    --av-purple-soft: #f5effc;
+    --av-green: #58a618;
+    --av-green-deep: #39780c;
+    --av-green-soft: #f1f8e9;
+    --av-ink: #1f2937;
+    --av-muted: #667085;
+    --av-line: #e4e7ec;
+    --av-surface: #ffffff;
+    --av-surface-soft: #f8f9fb;
+    --av-radius: 18px;
+    --av-shadow: 0 8px 24px rgba(31, 41, 55, 0.06);
+    --av-shadow-hover: 0 12px 30px rgba(79, 42, 122, 0.1);
+    --page-gap: 20px;
+    color: var(--av-ink);
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) > .pageHead,
+  .main:not(:has(.v513ScheduleWorkspace)) .pageHead:not(.v303MobilePageHero) {
+    position: relative;
+    min-height: 0;
+    margin-bottom: 20px;
+    padding: 4px 0 18px;
+    border-bottom: 1px solid var(--av-line);
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) > .pageHead::after,
+  .main:not(:has(.v513ScheduleWorkspace)) .pageHead:not(.v303MobilePageHero)::after {
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    width: 72px;
+    height: 3px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--av-purple), var(--av-green));
+    content: "";
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .pageHead h1 {
+    margin: 0;
+    color: #261634;
+    font-size: clamp(28px, 2.2vw, 36px);
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    line-height: 1.08;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .pageHead p {
+    max-width: 720px;
+    margin: 8px 0 0;
+    color: var(--av-muted);
+    font-size: 15px;
+    line-height: 1.55;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .section {
+    margin-top: var(--page-gap);
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .sectionHeader {
+    gap: 16px;
+    padding: 18px 20px;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .sectionTitle,
+  .main:not(:has(.v513ScheduleWorkspace)) .sectionHeader h2,
+  .main:not(:has(.v513ScheduleWorkspace)) .sectionHeader h3 {
+    color: #2d193c;
+    font-size: 18px;
+    font-weight: 750;
+    letter-spacing: -0.015em;
+    line-height: 1.25;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .card,
+  .main:not(:has(.v513ScheduleWorkspace)) .section,
+  .main:not(:has(.v513ScheduleWorkspace)) .panel {
+    border: 1px solid var(--av-line);
+    border-radius: var(--av-radius);
+    background: var(--av-surface);
+    box-shadow: var(--av-shadow);
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .statGrid,
+  .main:not(:has(.v513ScheduleWorkspace)) .kpiGrid {
+    gap: 16px;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .statCard {
+    position: relative;
+    min-height: 132px;
+    overflow: hidden;
+    padding: 18px 20px;
+    border-color: var(--av-line);
+    border-radius: var(--av-radius);
+    box-shadow: var(--av-shadow);
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .statCard::before {
+    position: absolute;
+    inset: 0 0 auto;
+    height: 3px;
+    background: linear-gradient(90deg, var(--av-purple), var(--av-green));
+    content: "";
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .statTop {
+    align-items: center;
+    gap: 12px;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .statLabel {
+    color: var(--av-muted);
+    font-size: 12px;
+    font-weight: 750;
+    letter-spacing: 0.055em;
+    text-transform: uppercase;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .statIcon {
+    display: grid;
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
+    place-items: center;
+    border: 1px solid #e7daf5;
+    border-radius: 11px;
+    background: var(--av-purple-soft);
+    color: var(--av-purple);
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .statValue {
+    margin-top: 12px;
+    color: #251630;
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .statFoot,
+  .main:not(:has(.v513ScheduleWorkspace)) .muted,
+  .main:not(:has(.v513ScheduleWorkspace)) .subtle {
+    color: var(--av-muted);
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .v500ActionBar,
+  .main:not(:has(.v513ScheduleWorkspace)) .v500FilterBar,
+  .main:not(:has(.v513ScheduleWorkspace)) .toolbar,
+  .main:not(:has(.v513ScheduleWorkspace)) .filters {
+    gap: 10px;
+    padding: 12px 14px;
+    border: 1px solid var(--av-line);
+    border-radius: 14px;
+    background: var(--av-surface);
+    box-shadow: 0 4px 16px rgba(31, 41, 55, 0.04);
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .btn,
+  .main:not(:has(.v513ScheduleWorkspace)) .iconButton {
+    min-height: 40px;
+    border-radius: 11px;
+    font-size: 13px;
+    font-weight: 750;
+    transition: border-color 140ms ease, background-color 140ms ease,
+      box-shadow 140ms ease, color 140ms ease, transform 140ms ease;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .btn:hover:not(:disabled),
+  .main:not(:has(.v513ScheduleWorkspace)) .iconButton:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(52, 31, 70, 0.1);
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .btn:focus-visible,
+  .main:not(:has(.v513ScheduleWorkspace)) .iconButton:focus-visible,
+  .main:not(:has(.v513ScheduleWorkspace)) input:focus-visible,
+  .main:not(:has(.v513ScheduleWorkspace)) select:focus-visible,
+  .main:not(:has(.v513ScheduleWorkspace)) textarea:focus-visible {
+    outline: 3px solid rgba(111, 45, 189, 0.18);
+    outline-offset: 2px;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .btn.primary {
+    border-color: var(--av-purple);
+    background: var(--av-purple);
+    color: #fff;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .btn.primary:hover:not(:disabled) {
+    border-color: var(--av-purple-deep);
+    background: var(--av-purple-deep);
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .btn.secondary,
+  .main:not(:has(.v513ScheduleWorkspace)) .btn:not(.primary):not(.danger):not(.success) {
+    border-color: #d9dce3;
+    background: #fff;
+    color: #43334f;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .btn.success {
+    border-color: var(--av-green);
+    background: var(--av-green);
+    color: #fff;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .btn.danger {
+    border-color: #f1c5ca;
+    background: #fff5f5;
+    color: #b4232f;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) label {
+    color: #3e3248;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) input,
+  .main:not(:has(.v513ScheduleWorkspace)) select,
+  .main:not(:has(.v513ScheduleWorkspace)) textarea {
+    border-color: #d9dce3;
+    border-radius: 11px;
+    background: #fff;
+    color: var(--av-ink);
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) input:not([type="checkbox"]):not([type="radio"]),
+  .main:not(:has(.v513ScheduleWorkspace)) select {
+    min-height: 42px;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) input:focus,
+  .main:not(:has(.v513ScheduleWorkspace)) select:focus,
+  .main:not(:has(.v513ScheduleWorkspace)) textarea:focus {
+    border-color: var(--av-purple);
+    box-shadow: 0 0 0 3px rgba(111, 45, 189, 0.1);
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .v33Segmented,
+  .main:not(:has(.v513ScheduleWorkspace)) .v430PeriodTabs,
+  .main:not(:has(.v513ScheduleWorkspace)) .segmented {
+    gap: 3px;
+    padding: 4px;
+    border: 1px solid var(--av-line);
+    border-radius: 12px;
+    background: #f5f3f7;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .v33Segmented button,
+  .main:not(:has(.v513ScheduleWorkspace)) .v430PeriodTabs button,
+  .main:not(:has(.v513ScheduleWorkspace)) .segmented button {
+    min-height: 36px;
+    border-radius: 8px;
+    font-weight: 700;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .v33Segmented button.active,
+  .main:not(:has(.v513ScheduleWorkspace)) .v430PeriodTabs button.active,
+  .main:not(:has(.v513ScheduleWorkspace)) .segmented button.active {
+    background: var(--av-purple);
+    color: #fff;
+    box-shadow: 0 4px 10px rgba(111, 45, 189, 0.2);
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .tableWrap {
+    overflow: hidden auto;
+    border: 1px solid var(--av-line);
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: var(--av-shadow);
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) table {
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) th {
+    height: 44px;
+    border-bottom: 1px solid var(--av-line);
+    background: #f7f5f9;
+    color: #62576b;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.055em;
+    text-transform: uppercase;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) td {
+    height: 52px;
+    border-bottom-color: #eceef2;
+    color: #344054;
+    font-size: 13px;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) tbody tr {
+    transition: background-color 130ms ease;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) tbody tr:hover {
+    background: #fbf9fd;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .pill,
+  .main:not(:has(.v513ScheduleWorkspace)) .v33Status,
+  .main:not(:has(.v513ScheduleWorkspace)) .venueBadge,
+  .main:not(:has(.v513ScheduleWorkspace)) .v33CountBadge {
+    min-height: 24px;
+    padding: 4px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 750;
+    line-height: 1.2;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .pillPaid,
+  .main:not(:has(.v513ScheduleWorkspace)) .pillSubmitted {
+    border-color: #c9e7b5;
+    background: var(--av-green-soft);
+    color: var(--av-green-deep);
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .pillDraft {
+    border-color: #e0d2ef;
+    background: var(--av-purple-soft);
+    color: var(--av-purple-deep);
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .pillWarning {
+    border-color: #f4d8a7;
+    background: #fff8e8;
+    color: #9a5b08;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .modalCard {
+    border: 1px solid var(--av-line);
+    border-radius: 20px;
+    background: #fff;
+    box-shadow: 0 24px 70px rgba(35, 22, 45, 0.2);
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .modalHeader,
+  .main:not(:has(.v513ScheduleWorkspace)) .modalFooter {
+    border-color: var(--av-line);
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .v32PersonCard,
+  .main:not(:has(.v513ScheduleWorkspace)) .v430AvailabilityCard,
+  .main:not(:has(.v513ScheduleWorkspace)) .orgCard {
+    border-color: var(--av-line);
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 5px 18px rgba(31, 41, 55, 0.05);
+    transition: border-color 140ms ease, box-shadow 140ms ease,
+      transform 140ms ease;
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .v32PersonCard:hover,
+  .main:not(:has(.v513ScheduleWorkspace)) .v430AvailabilityCard:hover,
+  .main:not(:has(.v513ScheduleWorkspace)) .orgCard:hover {
+    border-color: #d8c5eb;
+    box-shadow: var(--av-shadow-hover);
+    transform: translateY(-1px);
+  }
+
+  .main:not(:has(.v513ScheduleWorkspace)) .emptyState,
+  .main:not(:has(.v513ScheduleWorkspace)) .v430EmptyState {
+    border: 1px dashed #d8cce4;
+    border-radius: 16px;
+    background: #fbf9fd;
+    color: var(--av-muted);
+  }
+
+  .v321PasswordPage {
+    --auth-purple: #6f2dbd;
+    --auth-purple-deep: #55208f;
+    --auth-green: #58a618;
+    --auth-line: #e4e7ec;
+    background: #f7f6f9;
+  }
+
+  .v321PasswordCard {
+    border: 1px solid var(--auth-line);
+    border-radius: 22px;
+    background: #fff;
+    box-shadow: 0 22px 60px rgba(47, 29, 60, 0.12);
+  }
+
+  .v321PasswordCard::before {
+    display: block;
+    width: 76px;
+    height: 4px;
+    margin-bottom: 20px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--auth-purple), var(--auth-green));
+    content: "";
+  }
+
+  .v321PasswordCard h1 {
+    color: #261634;
+    font-weight: 800;
+    letter-spacing: -0.035em;
+  }
+
+  .v321PasswordCard input {
+    min-height: 46px;
+    border-color: #d9dce3;
+    border-radius: 12px;
+  }
+
+  .v321PasswordCard input:focus {
+    border-color: var(--auth-purple);
+    box-shadow: 0 0 0 3px rgba(111, 45, 189, 0.11);
+  }
+
+  .v321PasswordCard .btn.primary {
+    min-height: 46px;
+    border-color: var(--auth-purple);
+    border-radius: 12px;
+    background: var(--auth-purple);
+    color: #fff;
+    font-weight: 750;
+  }
+}
+
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; background: var(--canvas); color: var(--ink); }
 body { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
