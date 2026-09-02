@@ -2174,3 +2174,28 @@ td .btn{min-height:36px;padding:7px 11px;font-size:11.5px}
  .v515FilterRow .v514ViewToggle{min-width:0}
  .v515FilterRow .v514ViewToggle .btn{min-width:0}
 }
+
+/* v5.1.8 — one-off shift workflow and restrained AV schedule polish */
+.v513ScheduleWorkspace>.pageHead{position:relative;overflow:hidden;border-color:#e4d9ee;background:radial-gradient(circle at 94% 15%,rgba(52,166,94,.1),transparent 25%),linear-gradient(120deg,#fff,#fbf8fd)}
+.v513ScheduleWorkspace>.pageHead:before{content:"";position:absolute;inset:0 0 auto;height:3px;background:linear-gradient(90deg,#63339a,#8a5bbb 55%,#38a660)}
+.v436StaffingCard>.sectionHeader{border-bottom:1px solid #e8e1ed;background:radial-gradient(circle at 96% 0,rgba(54,168,97,.1),transparent 35%),linear-gradient(110deg,#fcf9fe,#fff 58%,#f7fbf8)}
+.v513ScheduleWorkspace .v503RangeTabs{border-color:#ded3e8;background:linear-gradient(135deg,#f5f0f9,#f0f7f2)}
+.v513ScheduleWorkspace .v503RangeTabs button.active{background:linear-gradient(135deg,#623494,#7445aa 66%,#497f66);color:#fff;box-shadow:0 5px 13px rgba(92,48,143,.18)}
+.v513ScheduleWorkspace .scheduleToolbar,.v515FilterRow .v514ViewToggle{border-color:#e2d8eb;background:linear-gradient(135deg,#fff,#faf7fc 62%,#f5faf6)}
+.v513ScheduleWorkspace .scheduleToolbar .btnPrimary,.v515FilterRow .v514ViewToggle .btnPrimary{background:linear-gradient(135deg,#633598,#7446aa 72%,#4d8068);color:#fff}
+.v513ScheduleWorkspace>.scheduleSummary>.statCard{border-top:3px solid #7040a1;background:radial-gradient(circle at 100% 0,rgba(105,57,155,.075),transparent 38%),#fff}
+.v513ScheduleWorkspace>.scheduleSummary>.statCard:nth-child(even){border-top-color:#3b9e5e;background:radial-gradient(circle at 100% 0,rgba(53,160,91,.075),transparent 38%),#fff}
+.v513ScheduleWorkspace>.scheduleSummary .statIcon{background:linear-gradient(145deg,#f1e9f8,#eaf7ee);color:#653996}
+.v515Configuration{border-color:#e2d6ec;background:radial-gradient(circle at 0 50%,rgba(108,59,158,.07),transparent 24%),linear-gradient(110deg,#fff,#faf7fc 65%,#f5faf7)}
+.v515ConfigurationActions>.btnAccent{background:linear-gradient(135deg,#65359a,#7647ad);box-shadow:0 6px 16px rgba(92,48,143,.15)}
+.v515ConfigurationActions>.btnSecondary{border-color:#d8c5e8;background:linear-gradient(135deg,#f5eef9,#edf7f0);color:#5e318d}
+.v436StaffingCard .staffingCalendarShift{border-left-color:var(--org-colour,#71419e)}
+.v436StaffingCard .staffingCalendarShift.confirmed{border-left-color:#39a35e;background:linear-gradient(105deg,#fff,#f3faf5)}
+.v436StaffingCard .staffingCalendarShift.scheduled{background:linear-gradient(105deg,#fff,#faf7fc)}
+.v518OneOffActions{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e2d7eb;border-radius:12px;background:linear-gradient(110deg,#f8f3fb,#f3faf5)}.v518OneOffActions>span{margin-right:auto;font-size:10px;font-weight:850;letter-spacing:.08em;text-transform:uppercase;color:#673c91}
+@media(max-width:820px){
+ .v514StaffingActions>.btnAccent{background:linear-gradient(135deg,#65359a,#7647ad);box-shadow:0 5px 13px rgba(92,48,143,.14)}
+ .v514StaffingActions>.btnSecondary{border-color:#d7c4e7;background:linear-gradient(135deg,#f5eef9,#edf7f0);color:#5d3289;font-weight:800}
+ .v513ScheduleWorkspace>.pageHead{border-radius:0 0 18px 18px}
+ .v518OneOffActions{display:grid;grid-template-columns:1fr 1fr}.v518OneOffActions>span{grid-column:1/-1}
+}
