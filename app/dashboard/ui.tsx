@@ -18,6 +18,7 @@ type Profile={
   dbs_expiry?:string|null;first_aid_expiry?:string|null;safeguarding_expiry?:string|null;qualifications?:string|null;
   job_title?:string|null;employment_status?:string|null;start_date?:string|null;payroll_id?:string|null;
   last_login_at?:string|null;force_password_reset?:boolean|null;password_changed_at?:string|null;admin_notes?:string|null;username?:string|null;contact_email?:string|null;auth_email?:string|null;
+  coaching_types?:string[];
 };
 type Venue={id:string;name:string;slug:string;active:boolean;brand_color:string|null;legal_name?:string|null;invoice_address?:string|null;invoice_prefix?:string|null;payment_note?:string|null};
 type ShiftTemplate={id:string;profile_id:string;venue_id:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;session_location:string|null;notes:string|null;active:boolean};
@@ -27,12 +28,14 @@ type Invoice={id:string;coach_id:string;timesheet_id:string;venue_id?:string|nul
 type Business={id:number;business_name:string;business_address:string|null;payment_note:string|null;cutoff_day:number};
 type AdminRow={coach:Profile;hours:number;value:number;timesheet:Timesheet|null;invoice:Invoice|null};
 type Audit={id:string;actor_id:string|null;subject_id:string|null;action:string;entity_type:string;entity_id:string|null;details:any;created_at:string};
-type ClassTemplate={id:string;venue_id:string;name:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;active:boolean;notes:string|null};
+type ClassTemplate={id:string;venue_id:string;name:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;active:boolean;notes:string|null;lead_coaches_required?:number;assistant_coaches_required?:number;minimum_coaches?:number;maximum_coaches?:number;lead_recommended_qualification_id?:string|null;assistant_recommended_qualification_id?:string|null};
 type ClassStaffingSlot={id:string;class_id:string;slot_number:number;default_profile_id:string|null};
+type QualificationType={id:string;name:string;description:string|null;active:boolean;qualification_family:string|null;qualification_level:number|null};
+type CoachQualification={id:string;coach_id:string;qualification_id:string;awarded_date:string|null;expiry_date:string|null;notes:string|null};
 type ScheduledShift={id:string;class_id:string|null;staffing_slot_id:string|null;venue_id:string;profile_id:string|null;original_profile_id:string|null;shift_date:string;start_time:string;finish_time:string;break_minutes:number;class_name:string;status:"scheduled"|"confirmed"|"cancelled";actual_shift_id:string|null;notes:string|null;adjustment_status?:"none"|"pending"|null;requested_start_time?:string|null;requested_finish_time?:string|null;requested_break_minutes?:number|null;adjustment_reason?:string|null};
 type RemovedOccurrence={class_id:string;shift_date:string;class_name:string;venue_id:string;start_time:string;finish_time:string;removed_slots:number};
 type TimeAwayRequest={id:string;profile_id:string;request_type:"holiday"|"sickness"|"appointment"|"compassionate"|"unavailable"|"other";start_date:string;end_date:string;all_day:boolean;start_time:string|null;end_time:string|null;notes:string|null;status:"pending"|"approved"|"declined"|"cancelled";reviewed_by:string|null;reviewed_at:string|null;created_at:string};
-type ClassOccurrenceDraft={key:string;id?:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;coach_ids:string[];notes:string};
+type ClassOccurrenceDraft={key:string;id?:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;coach_ids:string[];notes:string;lead_coaches_required:number;assistant_coaches_required:number;minimum_coaches:number;maximum_coaches:number;lead_recommended_qualification_id:string;assistant_recommended_qualification_id:string};
 type ClassDraft={id?:string;original_ids?:string[];venue_id:string;name:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;notes:string;coach_ids:string[];occurrences?:ClassOccurrenceDraft[]};
 type OneOffShiftDraft={id?:string;venue_id:string;shift_date:string;start_time:string;finish_time:string;class_name:string;notes:string;profile_id:string};
 
@@ -89,6 +92,13 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   const [managedVenueIds,setManagedVenueIds]=useState<string[]>([]);
   const [classes,setClasses]=useState<ClassTemplate[]>([]);
   const [classSlots,setClassSlots]=useState<ClassStaffingSlot[]>([]);
+  const [qualificationTypes,setQualificationTypes]=useState<QualificationType[]>([]);
+  const [coachQualifications,setCoachQualifications]=useState<CoachQualification[]>([]);
+  const [staffEditQualificationIds,setStaffEditQualificationIds]=useState<string[]>([]);
+  const [staffEditQualificationDetails,setStaffEditQualificationDetails]=useState<Record<string,{awarded_date:string;expiry_date:string;notes:string}>>({});
+  const [qualificationDraft,setQualificationDraft]=useState<{id?:string;name:string;description:string;qualification_family:string;qualification_level:string}>({name:"",description:"",qualification_family:"",qualification_level:""});
+  const [staffProfileFoundationAvailable,setStaffProfileFoundationAvailable]=useState(false);
+  const [classStaffingFoundationAvailable,setClassStaffingFoundationAvailable]=useState(false);
   const [scheduledShifts,setScheduledShifts]=useState<ScheduledShift[]>([]);
   const [futureScheduledShifts,setFutureScheduledShifts]=useState<ScheduledShift[]>([]);
   const [classModal,setClassModal]=useState<ClassDraft|null>(null);
@@ -116,7 +126,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   const [pendingExtraShifts,setPendingExtraShifts]=useState<Shift[]>([]);
   const [monthActionsOpen,setMonthActionsOpen]=useState(false);
   const [removedOccurrences,setRemovedOccurrences]=useState<RemovedOccurrence[]>([]);
-  const [staffPanel,setStaffPanel]=useState<"profile"|"employment"|"security"|"notes">("profile");
+  const [staffPanel,setStaffPanel]=useState<"profile"|"coaching"|"employment"|"security"|"notes">("profile");
   const [newPassword,setNewPassword]=useState("");
   const [confirmNewPassword,setConfirmNewPassword]=useState("");
   const [passwordBusy,setPasswordBusy]=useState(false);
@@ -289,7 +299,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     else if(next==="timesheets")await Promise.all([loadBusiness(),loadCoachMonth(activeCoach.id),loadTemplates(activeCoach.id),isAdmin?loadAdmin(true):Promise.resolve()]);
     else if(next==="invoices")await Promise.all([loadBusiness(),loadInvoices()]);
     else if(next==="reports"&&isAdmin)await loadAudits();
-    else if(next==="settings"&&isAdmin)await loadBusiness();
+    else if(next==="settings"&&isAdmin)await Promise.all([loadBusiness(),loadQualificationLibrary()]);
   }
 
   async function reloadLoadedTab(current:Tab){
@@ -515,6 +525,10 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   }
   function profileVenues(id:string){return (staffVenueMap[id]||[]).map(v=>venues.find(x=>x.id===v)).filter(Boolean) as Venue[]}
   function adminVenues(){return isGlobalAdmin?venues:venues.filter(v=>managedVenueIds.includes(v.id))}
+  function sortedQualifications(items:QualificationType[]){
+    return [...items].sort((a,b)=>Number(b.active)-Number(a.active)||(a.qualification_family||"Other").localeCompare(b.qualification_family||"Other")||(b.qualification_level??-1)-(a.qualification_level??-1)||a.name.localeCompare(b.name));
+  }
+  function selectableQualifications(selectedId?:string){return sortedQualifications(qualificationTypes.filter(q=>q.active||q.id===selectedId))}
 
   async function loadTemplates(profileId:string){
     const{data}=await supabase.from("shift_templates").select("*").eq("profile_id",profileId).eq("active",true).order("weekday").order("start_time");
@@ -522,9 +536,61 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   }
 
   async function loadStaff(){
-    const{data,error}=await supabase.from("profiles").select("*").neq("role","admin").order("full_name");
+    const[{data,error},{data:qualificationData,error:qualificationError},{data:heldData,error:heldError}]=await Promise.all([
+      supabase.from("profiles").select("*").neq("role","admin").order("full_name"),
+      supabase.from("qualification_types").select("*").order("active",{ascending:false}).order("qualification_family").order("qualification_level",{ascending:false,nullsFirst:false}).order("name"),
+      supabase.from("coach_qualifications").select("*")
+    ]);
     if(error)throw error;
     setStaff((data||[]) as Profile[]);
+    const profileColumnsReady=!(data||[]).length||Object.prototype.hasOwnProperty.call((data||[])[0],"coaching_types");
+    const foundationReady=!qualificationError&&!heldError&&profileColumnsReady;
+    setStaffProfileFoundationAvailable(foundationReady);
+    if(foundationReady){
+      setQualificationTypes(sortedQualifications((qualificationData||[]) as QualificationType[]));
+      setCoachQualifications((heldData||[]) as CoachQualification[]);
+    }else if(process.env.NODE_ENV!=="production")console.info("[staffing-foundation] optional schema unavailable; legacy staff loading retained");
+  }
+
+  async function loadQualificationLibrary(){
+    const[{data,error},{error:profileCapabilityError}]=await Promise.all([
+      supabase.from("qualification_types").select("*").order("active",{ascending:false}).order("qualification_family").order("qualification_level",{ascending:false,nullsFirst:false}).order("name"),
+      supabase.from("profiles").select("coaching_types").limit(1)
+    ]);
+    if(error||profileCapabilityError){
+      setStaffProfileFoundationAvailable(false);
+      if(process.env.NODE_ENV!=="production")console.info("[staffing-foundation] qualification library unavailable",error?.message||profileCapabilityError?.message);
+      return;
+    }
+    setQualificationTypes(sortedQualifications((data||[]) as QualificationType[]));
+    setStaffProfileFoundationAvailable(true);
+  }
+
+  async function saveQualificationType(){
+    const name=qualificationDraft.name.trim(),description=qualificationDraft.description.trim()||null;
+    const qualification_family=qualificationDraft.qualification_family.trim()||null;
+    const qualification_level=qualificationDraft.qualification_level===""?null:Number(qualificationDraft.qualification_level);
+    if(!name){flash("Enter a qualification name.");return}
+    if(qualification_level!=null&&(!Number.isInteger(qualification_level)||qualification_level<=0)){flash("Qualification level must be a positive whole number.");return}
+    if(qualification_level!=null&&!qualification_family){flash("Enter a qualification family when supplying a level.");return}
+    setSaving(true);
+    const request=qualificationDraft.id
+      ?supabase.from("qualification_types").update({name,description,qualification_family,qualification_level,updated_at:new Date().toISOString()}).eq("id",qualificationDraft.id)
+      :supabase.from("qualification_types").insert({name,description,qualification_family,qualification_level});
+    const{error}=await request;
+    setSaving(false);
+    if(error){flash(error.code==="23505"?"That qualification name or family level already exists.":error.message);return}
+    setQualificationDraft({name:"",description:"",qualification_family:"",qualification_level:""});
+    await loadQualificationLibrary();
+    flash(qualificationDraft.id?"Qualification updated.":"Qualification created.");
+  }
+
+  async function setQualificationActive(qualification:QualificationType,active:boolean){
+    const{error}=await supabase.from("qualification_types").update({active,updated_at:new Date().toISOString()}).eq("id",qualification.id);
+    if(error){flash(error.message);return}
+    if(qualificationDraft.id===qualification.id)setQualificationDraft({name:"",description:"",qualification_family:"",qualification_level:""});
+    await loadQualificationLibrary();
+    flash(active?"Qualification restored.":"Qualification archived.");
   }
 
   async function loadBusiness(){
@@ -594,10 +660,43 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     setTemporaryPasswordConfirm("");
     setForceTempPasswordChange(true);
     setStaffEdit({...s});setStaffEditVenueIds(staffVenueMap[s.id]||[]);
+    const held=coachQualifications.filter(x=>x.coach_id===s.id);
+    setStaffEditQualificationIds(held.map(x=>x.qualification_id));
+    setStaffEditQualificationDetails(Object.fromEntries(held.map(x=>[x.qualification_id,{awarded_date:x.awarded_date||"",expiry_date:x.expiry_date||"",notes:x.notes||""}])));
     const{data}=await supabase.from("staff_venues").select("venue_id,is_admin").eq("profile_id",s.id);
     setStaffEditAdminVenueIds((data||[]).filter((x:any)=>x.is_admin).map((x:any)=>x.venue_id));
   }
   function backToAdmin(){setActiveCoach(initialProfile)}
+
+  function logCoachQualificationError(operation:"insert"|"update"|"delete",error:unknown,context:Record<string,unknown>){
+    if(process.env.NODE_ENV!=="production")console.error("[coach-qualifications] save failed",{table:"coach_qualifications",operation,context,error});
+  }
+
+  async function saveCoachQualifications(coachId:string){
+    const existing=coachQualifications.filter(x=>x.coach_id===coachId);
+    const removed=existing.filter(x=>!staffEditQualificationIds.includes(x.qualification_id)).map(x=>x.qualification_id);
+    const added=staffEditQualificationIds.filter(id=>!existing.some(x=>x.qualification_id===id));
+    const retained=staffEditQualificationIds.filter(id=>existing.some(x=>x.qualification_id===id));
+
+    if(removed.length){
+      const{error}=await supabase.from("coach_qualifications").delete().eq("coach_id",coachId).in("qualification_id",removed);
+      if(error){logCoachQualificationError("delete",error,{coachId,qualificationIds:removed});throw error}
+    }
+    if(added.length){
+      const rows=added.map(qualification_id=>{
+        const details=staffEditQualificationDetails[qualification_id];
+        return{coach_id:coachId,qualification_id,awarded_date:details?.awarded_date||null,expiry_date:details?.expiry_date||null,notes:details?.notes?.trim()||null};
+      });
+      const{error}=await supabase.from("coach_qualifications").insert(rows);
+      if(error){logCoachQualificationError("insert",error,{coachId,rows});throw error}
+    }
+    for(const qualification_id of retained){
+      const details=staffEditQualificationDetails[qualification_id]||{awarded_date:"",expiry_date:"",notes:""};
+      const values={awarded_date:details.awarded_date||null,expiry_date:details.expiry_date||null,notes:details.notes.trim()||null,updated_at:new Date().toISOString()};
+      const{error}=await supabase.from("coach_qualifications").update(values).eq("coach_id",coachId).eq("qualification_id",qualification_id);
+      if(error){logCoachQualificationError("update",error,{coachId,qualificationId:qualification_id,values});throw error}
+    }
+  }
 
   async function saveOwnProfile(){
     setSaving(true);
@@ -640,10 +739,12 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       account_name:staffEdit.account_name,sort_code:staffEdit.sort_code,account_number:staffEdit.account_number,utr:staffEdit.utr,invoice_prefix:staffEdit.invoice_prefix,
       emergency_contact_name:staffEdit.emergency_contact_name||null,emergency_contact_phone:staffEdit.emergency_contact_phone||null,
       dbs_expiry:staffEdit.dbs_expiry||null,first_aid_expiry:staffEdit.first_aid_expiry||null,safeguarding_expiry:staffEdit.safeguarding_expiry||null,qualifications:staffEdit.qualifications||null,
+      ...(staffProfileFoundationAvailable?{coaching_types:staffEdit.coaching_types||[]}:{}),
       job_title:staffEdit.job_title||null,employment_status:staffEdit.employment_status||"active",start_date:staffEdit.start_date||null,payroll_id:staffEdit.payroll_id||null,
       force_password_reset:Boolean(staffEdit.force_password_reset),admin_notes:staffEdit.admin_notes||null
     };
     const{error}=await supabase.from("profiles").update(payload).eq("id",staffEdit.id);
+    if(!error&&staffProfileFoundationAvailable){try{await saveCoachQualifications(staffEdit.id)}catch(qualificationError:any){setSaving(false);flash(qualificationError?.message||"Could not save coach qualifications.");return}}
     setSaving(false);
     flash(error?error.message:"Staff profile saved.");
     if(!error){const ve=await saveVenueMemberships(staffEdit.id,staffEditVenueIds,staffEdit.role==="org_admin"?staffEditAdminVenueIds:[]);if(ve){flash(ve.message);return}setStaffEdit(null);void loadStaff();void loadAdmin();void loadAudits()}
@@ -1001,11 +1102,12 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     const requestedMonth=month;
     const requestId=beginScheduleRequest(requestedMonth,"schedule");
     const {from,to}=monthRange(requestedMonth);
-    const [{data:c,error:classesError},{data:slots,error:slotsError},{data:ss,error:scheduleError},{data:removed,error:removedError}]=await Promise.all([
+    const [{data:c,error:classesError},{data:slots,error:slotsError},{data:ss,error:scheduleError},{data:removed,error:removedError},{data:qualificationData,error:qualificationError}]=await Promise.all([
       supabase.from("classes").select("*").eq("active",true).order("weekday").order("start_time"),
       supabase.from("class_staffing_slots").select("*").order("slot_number"),
       supabase.from("scheduled_shifts").select("*").gte("shift_date",from).lte("shift_date",to).order("shift_date").order("start_time"),
-      isAdmin?supabase.rpc("get_removed_schedule_occurrences",{p_month_start:`${requestedMonth}-01`}):Promise.resolve({data:[],error:null} as any)
+      isAdmin?supabase.rpc("get_removed_schedule_occurrences",{p_month_start:`${requestedMonth}-01`}):Promise.resolve({data:[],error:null} as any),
+      supabase.from("qualification_types").select("*").order("active",{ascending:false}).order("qualification_family").order("qualification_level",{ascending:false,nullsFirst:false}).order("name")
     ]);
     if(classesError)throw classesError;
     if(slotsError)throw slotsError;
@@ -1016,10 +1118,15 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     setClassSlots((slots||[]) as ClassStaffingSlot[]);
     setScheduledShifts((ss||[]) as ScheduledShift[]);
     setRemovedOccurrences((removed||[]) as RemovedOccurrence[]);
+    const classColumnsReady=!(c||[]).length||Object.prototype.hasOwnProperty.call((c||[])[0],"lead_coaches_required");
+    const foundationReady=!qualificationError&&classColumnsReady;
+    setClassStaffingFoundationAvailable(foundationReady);
+    if(foundationReady)setQualificationTypes(sortedQualifications((qualificationData||[]) as QualificationType[]));
+    else if(process.env.NODE_ENV!=="production")console.info("[staffing-foundation] optional schema unavailable; legacy schedule loading retained");
   }
 
   function blankClassOccurrence(weekday=1):ClassOccurrenceDraft{
-    return{key:crypto.randomUUID(),weekday,start_time:"16:30",finish_time:"18:00",break_minutes:0,coaches_required:1,coach_ids:[],notes:""};
+    return{key:crypto.randomUUID(),weekday,start_time:"16:30",finish_time:"18:00",break_minutes:0,coaches_required:1,coach_ids:[],notes:"",lead_coaches_required:1,assistant_coaches_required:0,minimum_coaches:1,maximum_coaches:1,lead_recommended_qualification_id:"",assistant_recommended_qualification_id:""};
   }
 
   function openNewClass(defaultDay=1){
@@ -1094,7 +1201,13 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
         break_minutes:Number(x.break_minutes||0),
         coaches_required:Number(x.coaches_required||1),
         coach_ids:slots.map(s=>s.default_profile_id||""),
-        notes:x.notes||""
+        notes:x.notes||"",
+        lead_coaches_required:Number(x.lead_coaches_required??x.coaches_required??1),
+        assistant_coaches_required:Number(x.assistant_coaches_required||0),
+        minimum_coaches:Number(x.minimum_coaches??x.coaches_required??1),
+        maximum_coaches:Number(x.maximum_coaches??x.coaches_required??1),
+        lead_recommended_qualification_id:x.lead_recommended_qualification_id||"",
+        assistant_recommended_qualification_id:x.assistant_recommended_qualification_id||""
       };
     });
 
@@ -1129,7 +1242,13 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
         break_minutes:x.break_minutes,
         coaches_required:x.coaches_required,
         coach_ids:slots.map(s=>s.default_profile_id||""),
-        notes:x.notes||""
+        notes:x.notes||"",
+        lead_coaches_required:Number(x.lead_coaches_required??x.coaches_required??1),
+        assistant_coaches_required:Number(x.assistant_coaches_required||0),
+        minimum_coaches:Number(x.minimum_coaches??x.coaches_required??1),
+        maximum_coaches:Number(x.maximum_coaches??x.coaches_required??1),
+        lead_recommended_qualification_id:x.lead_recommended_qualification_id||"",
+        assistant_recommended_qualification_id:x.assistant_recommended_qualification_id||""
       };
     });
     setClassModal({
@@ -1142,13 +1261,14 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       coaches_required:occurrences[0]?.coaches_required||1,
       notes:"",
       coach_ids:occurrences[0]?.coach_ids||[],
-      occurrences:occurrences.length?occurrences:[{key:crypto.randomUUID(),weekday:1,start_time:"16:30",finish_time:"18:00",break_minutes:0,coaches_required:1,coach_ids:[],notes:""}]
+      occurrences:occurrences.length?occurrences:[blankClassOccurrence(1)]
     });
   }
 
   async function saveClass(){
     if(!classModal||!classModal.name.trim()||!classModal.venue_id)return;
     const occurrences=(classModal.occurrences?.length?classModal.occurrences:[{
+      ...blankClassOccurrence(classModal.weekday),
       key:crypto.randomUUID(),
       id:classModal.id,
       weekday:classModal.weekday,
@@ -1172,6 +1292,14 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
         finish_time:occurrence.finish_time,
         break_minutes:Number(occurrence.break_minutes||0),
         coaches_required:Math.max(1,Number(occurrence.coaches_required||1)),
+        ...(classStaffingFoundationAvailable?{
+          lead_coaches_required:Math.max(0,Number(occurrence.lead_coaches_required||0)),
+          assistant_coaches_required:Math.max(0,Number(occurrence.assistant_coaches_required||0)),
+          minimum_coaches:Math.max(0,Number(occurrence.minimum_coaches||0)),
+          maximum_coaches:Math.max(Number(occurrence.minimum_coaches||0),Number(occurrence.maximum_coaches||0)),
+          lead_recommended_qualification_id:occurrence.lead_recommended_qualification_id||null,
+          assistant_recommended_qualification_id:occurrence.assistant_recommended_qualification_id||null
+        }:{}),
         notes:occurrence.notes||null,
         active:true,
         updated_at:new Date().toISOString()
@@ -1984,6 +2112,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       <div className="formSection"><div className="formSectionTitle"><h3>Organisation</h3><p>Shown on generated invoices.</p></div><div className="field"><label>Business name</label><input value={business.business_name} onChange={e=>setBusiness({...business,business_name:e.target.value})}/></div><div className="field"><label>Business address</label><textarea value={business.business_address||""} onChange={e=>setBusiness({...business,business_address:e.target.value})}/></div></div>
       <div className="formSection"><div className="formSectionTitle"><h3>Timesheets & payment</h3><p>Submission is due on this day of the following month.</p></div><div className="grid grid2"><div className="field"><label>Cut-off day</label><select value={business.cutoff_day} onChange={e=>setBusiness({...business,cutoff_day:Number(e.target.value)})}>{Array.from({length:7},(_,i)=>i+1).map(d=><option value={d} key={d}>{d}{d===1?"st":d===2?"nd":d===3?"rd":"th"} of following month</option>)}</select></div><div className="field"><label>Payment note</label><input value={business.payment_note||""} onChange={e=>setBusiness({...business,payment_note:e.target.value})}/></div></div><button className="btn btnPrimary" onClick={saveBusiness} disabled={saving}>{saving?"Saving…":"Save settings"}</button></div>
     </div></>}
+    {isGlobalAdmin&&<div className="section"><PageHead title="Qualifications" sub="Manage the qualification options used by coach and class staffing profiles."/><div className="grid grid2 v101QualificationLayout"><div className="card"><div className="formSection"><div className="formSectionTitle"><h3>{qualificationDraft.id?"Edit qualification":"Add qualification"}</h3><p>Qualifications inform recommendations but never prevent assignment.</p></div><div className="field"><label>Name</label><input value={qualificationDraft.name} onChange={e=>setQualificationDraft({...qualificationDraft,name:e.target.value})} placeholder="e.g. Level 2 Trampoline"/></div><div className="grid grid2"><div className="field"><label>Qualification family <span className="muted">(optional)</span></label><input value={qualificationDraft.qualification_family} onChange={e=>setQualificationDraft({...qualificationDraft,qualification_family:e.target.value})} placeholder="e.g. Trampoline"/></div><div className="field"><label>Qualification level <span className="muted">(optional)</span></label><input type="number" min="0" step="1" value={qualificationDraft.qualification_level} onChange={e=>setQualificationDraft({...qualificationDraft,qualification_level:e.target.value})} placeholder="e.g. 3"/></div></div><div className="field"><label>Description <span className="muted">(optional)</span></label><textarea value={qualificationDraft.description} onChange={e=>setQualificationDraft({...qualificationDraft,description:e.target.value})}/></div><div className="row"><button className="btn btnPrimary" type="button" disabled={saving||!qualificationDraft.name.trim()} onClick={()=>void saveQualificationType()}>{saving?"Saving…":qualificationDraft.id?"Save qualification":"Add qualification"}</button>{qualificationDraft.id&&<button className="btn btnSecondary" type="button" onClick={()=>setQualificationDraft({name:"",description:"",qualification_family:"",qualification_level:""})}>Cancel</button>}</div></div></div><div className="card"><div className="sectionHeader"><div><h2>Qualification library</h2><p>{qualificationTypes.filter(q=>q.active).length} active · {qualificationTypes.filter(q=>!q.active).length} archived</p></div></div><div className="v101QualificationList">{sortedQualifications(qualificationTypes).map(q=><article className={`v101QualificationItem ${q.active?"active":"archived"}`} key={q.id}><div><strong>{q.name}</strong><span>{q.qualification_family?`${q.qualification_family}${q.qualification_level!=null?` · Level ${q.qualification_level}`:""}`:"Standalone qualification"}</span><span>{q.description||"No description"}</span><small>{q.active?"Active":"Inactive"}</small></div><div className="row"><button className="btn btnSecondary" type="button" onClick={()=>setQualificationDraft({id:q.id,name:q.name,description:q.description||"",qualification_family:q.qualification_family||"",qualification_level:q.qualification_level?.toString()||""})}>Edit</button><button className={`btn ${q.active?"btnDanger":"btnAccent"}`} type="button" onClick={()=>void setQualificationActive(q,!q.active)}>{q.active?"Archive":"Restore"}</button></div></article>)}{!qualificationTypes.length&&<div className="empty">No qualifications configured yet.</div>}</div></div></div></div>}
     <div className="section"><PageHead title="Organisation invoice settings" sub="Each organisation gets its own legal name and invoice address. A coach working at both gets separate invoices automatically."/><div className="grid grid2">{editableOrgs.map(v=>{const d=venueDrafts[v.id]||v;return <div className="card" key={v.id}><div className="formSection"><div className="formSectionTitle"><h3>{v.name}</h3><p>Used only for shifts/invoices belonging to this organisation.</p></div><div className="field"><label>Legal / invoice name</label><input value={d.legal_name||""} onChange={e=>setVenueDrafts({...venueDrafts,[v.id]:{...d,legal_name:e.target.value}})}/></div><div className="field"><label>Invoice address</label><textarea value={d.invoice_address||""} onChange={e=>setVenueDrafts({...venueDrafts,[v.id]:{...d,invoice_address:e.target.value}})}/></div><div className="grid grid2"><div className="field"><label>Invoice prefix</label><input value={d.invoice_prefix||""} onChange={e=>setVenueDrafts({...venueDrafts,[v.id]:{...d,invoice_prefix:e.target.value.toUpperCase()}})}/></div><div className="field"><label>Payment note</label><input value={d.payment_note||""} onChange={e=>setVenueDrafts({...venueDrafts,[v.id]:{...d,payment_note:e.target.value}})}/></div></div><button className="btn btnPrimary" onClick={()=>saveOrganisation(d)}>Save {v.name}</button></div></div>})}</div></div></>
   }
 
@@ -2198,6 +2327,19 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
                 <div className="field"><label>Break minutes</label><input type="number" min={0} value={o.break_minutes} onChange={e=>updateOccurrence(o.key,{break_minutes:Number(e.target.value)})}/></div>
                 <div className="field"><label>Coaches required</label><input type="number" min={1} max={12} value={o.coaches_required} onChange={e=>{const n=Math.max(1,Number(e.target.value)||1);updateOccurrence(o.key,{coaches_required:n,coach_ids:ids.slice(0,n)})}}/></div>
               </div>
+              {classStaffingFoundationAvailable&&<><div className="formSectionTitle"><h3>Staffing profile</h3><p>Recommendation metadata only. Existing schedule generation continues to use Coaches required.</p></div>
+              <div className="grid grid2">
+                <div className="field"><label>Lead coaches required</label><input type="number" min={0} max={12} value={o.lead_coaches_required} onChange={e=>{const lead=Math.max(0,Number(e.target.value)||0),total=lead+o.assistant_coaches_required;updateOccurrence(o.key,{lead_coaches_required:lead,minimum_coaches:total,maximum_coaches:Math.max(total,o.maximum_coaches)})}}/></div>
+                <div className="field"><label>Assistant coaches required</label><input type="number" min={0} max={12} value={o.assistant_coaches_required} onChange={e=>{const assistant=Math.max(0,Number(e.target.value)||0),total=o.lead_coaches_required+assistant;updateOccurrence(o.key,{assistant_coaches_required:assistant,minimum_coaches:total,maximum_coaches:Math.max(total,o.maximum_coaches)})}}/></div>
+              </div>
+              <div className="grid grid2">
+                <div className="field"><label>Minimum coaches</label><input type="number" min={0} max={24} value={o.minimum_coaches} onChange={e=>{const minimum=Math.max(0,Number(e.target.value)||0);updateOccurrence(o.key,{minimum_coaches:minimum,maximum_coaches:Math.max(minimum,o.maximum_coaches)})}}/></div>
+                <div className="field"><label>Maximum coaches</label><input type="number" min={o.minimum_coaches} max={24} value={o.maximum_coaches} onChange={e=>updateOccurrence(o.key,{maximum_coaches:Math.max(o.minimum_coaches,Number(e.target.value)||0)})}/></div>
+              </div>
+              <div className="grid grid2">
+                <div className="field"><label>Lead recommended qualification</label><select value={o.lead_recommended_qualification_id} onChange={e=>updateOccurrence(o.key,{lead_recommended_qualification_id:e.target.value})}><option value="">No recommendation</option>{selectableQualifications(o.lead_recommended_qualification_id).map(q=><option key={q.id} value={q.id} disabled={!q.active}>{q.name}{q.qualification_family?` · ${q.qualification_family}${q.qualification_level!=null?` L${q.qualification_level}`:""}`:""}{q.active?"":" (Inactive)"}</option>)}</select></div>
+                <div className="field"><label>Assistant recommended qualification</label><select value={o.assistant_recommended_qualification_id} onChange={e=>updateOccurrence(o.key,{assistant_recommended_qualification_id:e.target.value})}><option value="">No recommendation</option>{selectableQualifications(o.assistant_recommended_qualification_id).map(q=><option key={q.id} value={q.id} disabled={!q.active}>{q.name}{q.qualification_family?` · ${q.qualification_family}${q.qualification_level!=null?` L${q.qualification_level}`:""}`:""}{q.active?"":" (Inactive)"}</option>)}</select></div>
+              </div></>}
               <div className="grid grid2">{Array.from({length:o.coaches_required},(_,i)=><div className="field" key={i}><label>Default coach {i+1}</label><select value={ids[i]||""} onChange={e=>{const next=[...ids];next[i]=e.target.value;updateOccurrence(o.key,{coach_ids:next})}}><option value="">Unassigned</option>{eligible.map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select></div>)}</div>
               <div className="field"><label>Session notes</label><input value={o.notes} onChange={e=>updateOccurrence(o.key,{notes:e.target.value})} placeholder="Optional"/></div>
             </div>
@@ -2237,9 +2379,10 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     const hasPortal=Boolean(s.username);
     return <div className="modalBackdrop"><div className="modal modalWide v32StaffModal v322StaffModalShell">
       <div className="v32StaffHero"><div className="v32StaffHeroIdentity"><div className="v32StaffHeroAvatar">{initials(s.full_name)}</div><div><span>{s.job_title||roleLabel}</span><h2>{s.full_name}</h2><p>@{s.username||"username"}{(s.email||s.contact_email)?` · ${s.email||s.contact_email}`:""}</p></div></div><button className="iconButton" onClick={()=>setStaffEdit(null)}>×</button></div>
-      <div className="v32ProfileTabs"><button className={staffPanel==="profile"?"active":""} onClick={()=>setStaffPanel("profile")}>Profile</button><button className={staffPanel==="employment"?"active":""} onClick={()=>setStaffPanel("employment")}>Employment</button><button className={staffPanel==="security"?"active":""} onClick={()=>setStaffPanel("security")}>Account Access</button><button className={staffPanel==="notes"?"active":""} onClick={()=>setStaffPanel("notes")}>Notes</button></div>
-      <div className="modalBody v32StaffBody v322StaffModalBody">
-        {staffPanel==="profile"&&<><div className="grid grid2"><div className="field"><label>Name</label><input value={s.full_name} onChange={e=>setStaffEdit({...s,full_name:e.target.value})}/></div><div className="field"><label>Username</label><div className="v323UsernameInput"><span>@</span><input value={s.username||""} autoCapitalize="none" onChange={e=>setStaffEdit({...s,username:e.target.value.toLowerCase().replace(/\s+/g,"")})}/></div></div></div><div className="grid grid2"><div className="field"><label>Recovery email <span className="muted">(optional)</span></label><input type="email" value={s.email||s.contact_email||""} onChange={e=>setStaffEdit({...s,email:e.target.value,contact_email:e.target.value})}/></div><div className="field"><label>Phone</label><input value={s.phone||""} onChange={e=>setStaffEdit({...s,phone:e.target.value})}/></div></div><div className="field"><label>Address</label><textarea value={s.address||""} onChange={e=>setStaffEdit({...s,address:e.target.value})}/></div><div className="grid grid2"><div className="field"><label>Emergency contact</label><input value={s.emergency_contact_name||""} onChange={e=>setStaffEdit({...s,emergency_contact_name:e.target.value})}/></div><div className="field"><label>Emergency phone</label><input value={s.emergency_contact_phone||""} onChange={e=>setStaffEdit({...s,emergency_contact_phone:e.target.value})}/></div></div><div className="grid grid3"><div className="field"><label>DBS expiry</label><input type="date" value={s.dbs_expiry||""} onChange={e=>setStaffEdit({...s,dbs_expiry:e.target.value})}/></div><div className="field"><label>First Aid</label><input type="date" value={s.first_aid_expiry||""} onChange={e=>setStaffEdit({...s,first_aid_expiry:e.target.value})}/></div><div className="field"><label>Safeguarding</label><input type="date" value={s.safeguarding_expiry||""} onChange={e=>setStaffEdit({...s,safeguarding_expiry:e.target.value})}/></div></div></>}
+      <div className="v32ProfileTabs"><button className={staffPanel==="profile"?"active":""} onClick={()=>setStaffPanel("profile")}>Profile</button><button className={staffPanel==="coaching"?"active":""} onClick={()=>setStaffPanel("coaching")}>Coaching</button><button className={staffPanel==="employment"?"active":""} onClick={()=>setStaffPanel("employment")}>Employment</button><button className={staffPanel==="security"?"active":""} onClick={()=>setStaffPanel("security")}>Account Access</button><button className={staffPanel==="notes"?"active":""} onClick={()=>setStaffPanel("notes")}>Notes</button></div>
+      <div className={`modalBody v32StaffBody v322StaffModalBody staffPanel-${staffPanel}`}>
+        {staffPanel==="coaching"&&<>{!staffProfileFoundationAvailable?<div className="notice">Intelligent Staffing database setup is not available yet. Existing staff and scheduling functionality is unaffected.</div>:<><div className="formSectionTitle"><h3>Coaching capabilities</h3><p>Capability tags improve future recommendations and never restrict assignment.</p></div><div className="checkGrid">{([['lead_coach','Lead Coach'],['assistant_coach','Assistant Coach'],['preschool','Preschool'],['recreational','Recreational'],['performance','Performance'],['dmt','DMT'],['gymnastics','Gymnastics'],['disability','Disability'],['other','Other']] as const).map(([key,label])=><label className="checkCard" key={key}><input type="checkbox" checked={(s.coaching_types||[]).includes(key)} onChange={e=>setStaffEdit({...s,coaching_types:e.target.checked?[...(s.coaching_types||[]),key]:(s.coaching_types||[]).filter(x=>x!==key)})}/><span><strong>{label}</strong></span></label>)}</div><div className="formSectionTitle"><h3>Qualifications</h3><p>Select all qualifications held and record optional award, expiry and notes.</p></div><div className="v101CoachQualifications">{qualificationTypes.filter(q=>q.active||staffEditQualificationIds.includes(q.id)).map(q=>{const selected=staffEditQualificationIds.includes(q.id),details=staffEditQualificationDetails[q.id]||{awarded_date:"",expiry_date:"",notes:""};return <div className={`v101CoachQualification ${selected?"selected":""}`} key={q.id}><label className="checkCard"><input type="checkbox" checked={selected} onChange={e=>{setStaffEditQualificationIds(e.target.checked?[...staffEditQualificationIds,q.id]:staffEditQualificationIds.filter(id=>id!==q.id));if(e.target.checked&&!staffEditQualificationDetails[q.id])setStaffEditQualificationDetails({...staffEditQualificationDetails,[q.id]:details})}}/><span><strong>{q.name}</strong><small>{q.active?q.description||"Active qualification":"Archived qualification"}</small></span></label>{selected&&<div className="v101QualificationDetails"><div className="field"><label>Awarded date</label><input type="date" value={details.awarded_date} onChange={e=>setStaffEditQualificationDetails({...staffEditQualificationDetails,[q.id]:{...details,awarded_date:e.target.value}})}/></div><div className="field"><label>Expiry date</label><input type="date" value={details.expiry_date} onChange={e=>setStaffEditQualificationDetails({...staffEditQualificationDetails,[q.id]:{...details,expiry_date:e.target.value}})}/></div><div className="field"><label>Notes</label><input value={details.notes} onChange={e=>setStaffEditQualificationDetails({...staffEditQualificationDetails,[q.id]:{...details,notes:e.target.value}})} placeholder="Optional"/></div></div>}</div>})}{!qualificationTypes.length&&<div className="empty">No qualifications have been created in Settings.</div>}</div></>}</>}
+        {staffPanel==="profile"&&<><div className="grid grid2"><div className="field"><label>Name</label><input value={s.full_name} onChange={e=>setStaffEdit({...s,full_name:e.target.value})}/></div><div className="field"><label>Username</label><div className="v323UsernameInput"><span>@</span><input value={s.username||""} autoCapitalize="none" onChange={e=>setStaffEdit({...s,username:e.target.value.toLowerCase().replace(/\s+/g,"")})}/></div></div></div><div className="grid grid2"><div className="field"><label>Recovery email <span className="muted">(optional)</span></label><input type="email" value={s.email||s.contact_email||""} onChange={e=>setStaffEdit({...s,email:e.target.value,contact_email:e.target.value})}/></div><div className="field"><label>Phone</label><input value={s.phone||""} onChange={e=>setStaffEdit({...s,phone:e.target.value})}/></div></div><div className="field"><label>Address</label><textarea value={s.address||""} onChange={e=>setStaffEdit({...s,address:e.target.value})}/></div><div className="grid grid2"><div className="field"><label>Emergency contact</label><input value={s.emergency_contact_name||""} onChange={e=>setStaffEdit({...s,emergency_contact_name:e.target.value})}/></div><div className="field"><label>Emergency phone</label><input value={s.emergency_contact_phone||""} onChange={e=>setStaffEdit({...s,emergency_contact_phone:e.target.value})}/></div></div><div className="grid grid3"><div className="field"><label>DBS expiry</label><input type="date" value={s.dbs_expiry||""} onChange={e=>setStaffEdit({...s,dbs_expiry:e.target.value})}/></div><div className="field"><label>First Aid</label><input type="date" value={s.first_aid_expiry||""} onChange={e=>setStaffEdit({...s,first_aid_expiry:e.target.value})}/></div><div className="field"><label>Safeguarding</label><input type="date" value={s.safeguarding_expiry||""} onChange={e=>setStaffEdit({...s,safeguarding_expiry:e.target.value})}/></div></div><div className="formSectionTitle"><h3>Coaching capabilities</h3><p>Used for future recommendations only. These tags do not grant or restrict access.</p></div><div className="checkGrid">{([['lead_coach','Lead Coach'],['assistant_coach','Assistant Coach'],['preschool','Preschool'],['recreational','Recreational'],['performance','Performance'],['dmt','DMT'],['gymnastics','Gymnastics'],['disability','Disability'],['other','Other']] as const).map(([key,label])=><label className="checkCard" key={key}><input type="checkbox" checked={(s.coaching_types||[]).includes(key)} onChange={e=>setStaffEdit({...s,coaching_types:e.target.checked?[...(s.coaching_types||[]),key]:(s.coaching_types||[]).filter(x=>x!==key)})}/><span><strong>{label}</strong></span></label>)}</div><div className="field"><label>Qualifications</label>{qualificationTypes.length?<div className="checkGrid">{qualificationTypes.map(q=><label className="checkCard" key={q.id}><input type="checkbox" checked={staffEditQualificationIds.includes(q.id)} onChange={e=>setStaffEditQualificationIds(e.target.checked?[...staffEditQualificationIds,q.id]:staffEditQualificationIds.filter(id=>id!==q.id))}/><span><strong>{q.name}</strong>{q.description&&<small>{q.description}</small>}</span></label>)}</div>:<div className="fieldHint">No qualification types have been configured yet.</div>}</div></>}
         {staffPanel==="employment"&&<><div className="grid grid2"><div className="field"><label>Job title</label><input value={s.job_title||""} onChange={e=>setStaffEdit({...s,job_title:e.target.value})} placeholder="e.g. Head Coach"/></div><div className="field"><label>Employment status</label><select value={s.employment_status||"active"} onChange={e=>setStaffEdit({...s,employment_status:e.target.value})}><option value="active">Active</option><option value="casual">Casual</option><option value="contractor">Contractor</option><option value="leaver">Leaver</option></select></div></div><div className="grid grid2"><div className="field"><label>Start date</label><input type="date" value={s.start_date||""} onChange={e=>setStaffEdit({...s,start_date:e.target.value})}/></div><div className="field"><label>Payroll ID</label><input value={s.payroll_id||""} onChange={e=>setStaffEdit({...s,payroll_id:e.target.value})}/></div></div><div className="grid grid2"><div className="field"><label>Hourly rate</label><input type="number" step="0.01" value={s.hourly_rate} onChange={e=>setStaffEdit({...s,hourly_rate:Number(e.target.value)})}/></div>{isGlobalAdmin&&<div className="field"><label>Account type</label><select value={s.role} onChange={e=>setStaffEdit({...s,role:e.target.value as any})}><option value="coach">Coach</option><option value="org_admin">Organisation admin</option><option value="admin">Super admin</option></select></div>}</div><div className="field"><label>Works at</label><div className="checkGrid">{adminVenues().map(v=><label className="checkCard" key={v.id}><input type="checkbox" checked={staffEditVenueIds.includes(v.id)} onChange={e=>{const ids=e.target.checked?[...staffEditVenueIds,v.id]:staffEditVenueIds.filter(x=>x!==v.id);setStaffEditVenueIds(ids);if(!ids.includes(v.id))setStaffEditAdminVenueIds(staffEditAdminVenueIds.filter(x=>x!==v.id))}}/><span><strong>{v.name}</strong>{s.role==="org_admin"&&isGlobalAdmin&&<small><input type="checkbox" checked={staffEditAdminVenueIds.includes(v.id)} onChange={e=>setStaffEditAdminVenueIds(e.target.checked?[...new Set([...staffEditAdminVenueIds,v.id])]:staffEditAdminVenueIds.filter(x=>x!==v.id))}/> Admin for this organisation</small>}</span></label>)}</div></div><div className="grid grid2"><div className="field"><label>Account name</label><input value={s.account_name||""} onChange={e=>setStaffEdit({...s,account_name:e.target.value})}/></div><div className="field"><label>UTR</label><input value={s.utr||""} onChange={e=>setStaffEdit({...s,utr:e.target.value})}/></div></div></>}
         {staffPanel==="security"&&<><div className="v32SecurityOverview"><div><span>Status</span><strong>{!hasPortal?"No Portal Access":!s.is_active?"Disabled":s.force_password_reset?"Password Change Required":"Active"}</strong></div><div><span>Username</span><strong>{s.username?`@${s.username}`:"Not set"}</strong></div><div><span>Recovery email</span><strong>{s.email||s.contact_email||"Not set"}</strong></div><div><span>Last login</span><strong>{s.last_login_at?new Date(s.last_login_at).toLocaleString("en-GB"):"Never"}</strong></div></div>
         {hasPortal?<><div className="v321Credentials"><div className="v321CredentialsHead"><div><span>Account recovery</span><strong>Reset temporary password</strong><p>Set a temporary password for the staff member to use once.</p></div><button className="btn btnSecondary" type="button" onClick={generateTemporaryPassword}>Generate</button></div><div className="grid grid2"><div className="field"><label>Temporary password</label><input type="text" autoComplete="off" value={temporaryPassword} onChange={e=>setTemporaryPassword(e.target.value)} placeholder="Minimum 8 characters"/></div><div className="field"><label>Confirm password</label><input type="text" autoComplete="off" value={temporaryPasswordConfirm} onChange={e=>setTemporaryPasswordConfirm(e.target.value)}/></div></div><label className="v321ForceCheck"><input type="checkbox" checked={forceTempPasswordChange} onChange={e=>setForceTempPasswordChange(e.target.checked)}/><span><strong>Require password change on next login</strong><small>Enabled by default for temporary passwords.</small></span></label><div className="v321CredentialButtons"><button className="btn btnSecondary" type="button" disabled={!temporaryPassword} onClick={copyTemporaryPassword}>Copy password</button><button className="btn btnPrimary" type="button" disabled={temporaryPasswordBusy} onClick={()=>setStaffTemporaryPassword(s)}>{temporaryPasswordBusy?"Setting…":"Reset temporary password"}</button></div></div>
