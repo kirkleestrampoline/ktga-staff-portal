@@ -643,6 +643,20 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#f1f3f5;
   .calendarToolbar .btn,.calendarFooter .btn{flex:1}
 }
 
+/* Version 1.2 Sprint 1 — Employment & Pay Foundation */
+.v12EmploymentTypes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}.v12EmploymentTypes .checkCard.selected{border-color:#6b3b92;background:#f6f0fa;box-shadow:0 0 0 1px #6b3b92 inset}.v12CalculatedCost{display:grid;gap:3px;padding:15px 16px;border:1px solid #dceadf;border-radius:14px;background:#f3faf5}.v12CalculatedCost span,.v12EmploymentSummary>span{font-size:10px;font-weight:850;letter-spacing:.08em;text-transform:uppercase;color:#68756b}.v12CalculatedCost strong{font-size:24px;color:#286b45}.v12CalculatedCost small{color:var(--muted)}.v12EmploymentSummary{display:grid;gap:8px;padding:16px;border:1px solid #e4dce8;border-radius:15px;background:linear-gradient(135deg,#faf7fb,#f4f8f5)}.v12EmploymentSummary>strong{font-size:20px;color:#593271}.v12EmploymentSummary>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px 16px}.v12EmploymentSummary small{color:var(--muted)}.v12EmploymentSummary b{text-align:right;color:#33253a}
+.v12Records,.v12RecordList{display:grid;gap:12px}.v12RecordCard{display:flex;justify-content:space-between;gap:16px;padding:15px;border:1px solid #e5dfe8;border-radius:15px;background:#fff}.v12RecordCard.current{border-color:#69a77d;background:#f4fbf6;box-shadow:inset 4px 0 #5b9b70}.v12RecordCard>div{display:grid;gap:4px}.v12RecordCard>div:last-child{justify-items:end;align-content:space-between}.v12RecordCard span{font-size:9px;font-weight:850;letter-spacing:.08em;text-transform:uppercase;color:#4f865f}.v12RecordCard h3{margin:0}.v12RecordCard small{color:var(--muted)}.v12Historic summary{padding:12px 0;cursor:pointer;font-weight:800;color:#633080}.v12Historic>div{padding-top:5px}.v12RecordEditor{display:grid;gap:13px;padding:16px;border:1px solid #d9cce1;border-radius:16px;background:#faf7fc}.v12StaffPanelSummary{display:grid;gap:13px;align-content:start}.v12StaffPanelSummary h3,.v12StaffPanelSummary p{margin:0}
+.employment-records-ready.staffPanel-employment>:not(.v12Records){display:none}
+@media(max-width:700px){.v12EmploymentTypes{grid-template-columns:1fr 1fr}.v12EmploymentSummary>div{gap:8px 12px}}
+@media(max-width:700px){.v12RecordCard{flex-direction:column}.v12RecordCard>div:last-child{justify-items:start}.v12RecordCard .btn{width:100%}}
+
+/* v1.2 Workforce management dashboard */
+.v12WorkforcePage{display:grid;gap:18px}.v12WorkforcePage>.pageHead{margin-bottom:0}.v12WorkforceFilters{display:flex;justify-content:flex-end}.v12WorkforceFilters label{display:grid;gap:5px;font-size:10px;font-weight:850;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}.v12WorkforceFilters select{min-width:220px;text-transform:none;letter-spacing:normal}
+.v12WorkforceSummary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.v12WorkforceSummary .statCard:last-child{border-color:#cbb7d8;background:linear-gradient(135deg,#fff,#f7f0fa)}.v12WorkforceBreakdown{overflow:hidden}.v12EmploymentBreakdown{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:0 20px 20px}.v12EmploymentBreakdown article{display:grid;gap:7px;padding:16px;border:1px solid #e4dce8;border-radius:14px;background:linear-gradient(145deg,#fff,#faf7fb)}.v12EmploymentBreakdown article>span{font-size:10px;font-weight:850;letter-spacing:.08em;text-transform:uppercase;color:#6c477e}.v12EmploymentBreakdown article>strong{font-size:19px}.v12EmploymentBreakdown article>div{display:grid;grid-template-columns:1fr auto;gap:5px 10px;padding-top:5px}.v12EmploymentBreakdown small{color:var(--muted)}.v12EmploymentBreakdown b{text-align:right}
+.v12WorkforceDetails{display:grid;grid-template-columns:1fr 1fr;gap:16px}.v12WorkforceDetail{min-width:0;overflow:hidden}.v12WorkforceDetail:nth-child(1){grid-column:1/-1}.v12WorkforceDetail table{min-width:560px}.v12WorkforceTable{overflow:hidden}.v12WorkforceTable .searchBar{width:min(320px,100%)}.v12WorkforceTable table{min-width:1040px}.v12WorkforceRow{cursor:pointer}.v12WorkforceRow:hover td{background:#faf7fc}.v12WorkforceRow td:first-child button{appearance:none;border:0;background:none;padding:0;color:#62357a;font:inherit;font-weight:800;cursor:pointer}.v12WorkforceInsights{overflow:hidden}.v12WorkforceInsights>.sectionHeader{border-bottom:1px solid var(--line)}.v12WorkforceInsights>div:last-child{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}.v12WorkforceInsights article{display:grid;gap:6px;padding:18px 20px;border-right:1px solid var(--line)}.v12WorkforceInsights article:last-child{border-right:0}.v12WorkforceInsights article span{font-size:10px;font-weight:850;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}.v12WorkforceInsights article strong{font-size:14px}
+@media(max-width:900px){.v12WorkforceSummary{grid-template-columns:repeat(2,minmax(0,1fr))}.v12EmploymentBreakdown,.v12WorkforceInsights>div:last-child{grid-template-columns:repeat(2,minmax(0,1fr))}.v12WorkforceInsights article:nth-child(2){border-right:0}.v12WorkforceInsights article:nth-child(-n+2){border-bottom:1px solid var(--line)}.v12WorkforceDetails{grid-template-columns:1fr}.v12WorkforceDetail:nth-child(1){grid-column:auto}}
+@media(max-width:700px){.v12WorkforcePage{gap:14px}.v12WorkforceFilters,.v12WorkforceFilters label,.v12WorkforceFilters select{width:100%}.v12WorkforceSummary{grid-template-columns:1fr 1fr;gap:10px}.v12WorkforceSummary .statCard{min-height:116px;padding:15px}.v12WorkforceSummary .statValue{font-size:22px}.v12EmploymentBreakdown{grid-template-columns:1fr 1fr;padding:0 14px 14px;gap:9px}.v12EmploymentBreakdown article{padding:13px}.v12WorkforceTable .sectionHeader{align-items:stretch;flex-direction:column}.v12WorkforceTable .searchBar{width:100%}.v12WorkforceInsights>div:last-child{grid-template-columns:1fr}.v12WorkforceInsights article{border-right:0;border-bottom:1px solid var(--line)!important}.v12WorkforceInsights article:last-child{border-bottom:0!important}}
+
 
 /* AV Gymnastics Solutions branding + venue + mobile release */
 :root{
@@ -919,25 +933,17 @@ input:focus,select:focus,textarea:focus{border-color:var(--navy);box-shadow:0 0 
 }
 /* AV Gymnastics Solutions v2.0.4 — master sync + responsive staffing board */
 
-/* Organisation colour coding */
+/* Active Club colour coding */
 .orgKirklees{--org-colour:#6d3a91;--org-soft:#f5eff9}
-.orgGreenhead{--org-colour:#2f8f4e;--org-soft:#edf8f0}
-.orgOther{--org-colour:#667085;--org-soft:#f4f5f6}
 
-.staffingCalendarShift.orgKirklees,
-.staffingCalendarShift.orgGreenhead,
-.staffingCalendarShift.orgOther{
+.staffingCalendarShift.orgKirklees{
   border-left:5px solid var(--org-colour);
   background:var(--org-soft);
 }
-.scheduleShift.orgKirklees,
-.scheduleShift.orgGreenhead,
-.scheduleShift.orgOther{
+.scheduleShift.orgKirklees{
   border-left:5px solid var(--org-colour);
 }
-.masterClassRow.orgKirklees,
-.masterClassRow.orgGreenhead,
-.masterClassRow.orgOther{
+.masterClassRow.orgKirklees{
   border-left:4px solid var(--org-colour);
 }
 
@@ -1105,6 +1111,11 @@ button,input,select,textarea{font:inherit}
 .portal{grid-template-columns:264px minmax(0,1fr);background:radial-gradient(circle at 80% 5%,rgba(111,60,195,.055),transparent 26%),radial-gradient(circle at 98% 52%,rgba(53,168,96,.04),transparent 22%),var(--canvas)}
 .v3Sidebar{background:linear-gradient(180deg,#10182a 0%,#11192b 48%,#0b1220 100%);padding:20px 14px;border-right:0;box-shadow:16px 0 55px rgba(13,18,31,.055)}
 .v3SidebarBrand{padding:3px 8px 22px;display:flex;align-items:flex-start;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.075)}
+.v121ClubIdentity{display:flex;align-items:flex-start;gap:10px;min-width:0}.v121ClubIdentity>div{display:grid;gap:3px;min-width:0;padding-top:2px}.v121ClubIdentity strong{color:#fff;font-size:12px;line-height:1.2}.v121ClubIdentity span{color:#d8cae5;font-size:9px;line-height:1.35}.v121ClubIdentity small{color:#bda6d0;font-size:8px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+.v12ActiveWorkforce{display:grid;grid-template-columns:1fr auto;gap:10px;padding:16px}.v12ActiveWorkforce>div{display:flex;align-items:center;gap:8px;color:#68428d;font-size:11px;font-weight:850;text-transform:uppercase;letter-spacing:.05em}.v12ActiveWorkforce>div svg{width:17px}.v12ActiveWorkforce>strong{grid-column:2;grid-row:1/3;display:grid;align-content:center;text-align:right;font-size:28px;color:#262b34}.v12ActiveWorkforce>strong small{font-size:8px;color:#858b94;text-transform:uppercase}.v12ActiveWorkforce dl{display:flex;gap:6px;margin:0}.v12ActiveWorkforce dl div{display:grid;min-width:54px;padding:6px 7px;border-radius:8px;background:#f5eff9}.v12ActiveWorkforce dt{font-size:8px;color:#777}.v12ActiveWorkforce dd{margin:0;font-size:13px;font-weight:850;color:#49305f}
+.v12ClassProfileSections{display:grid;gap:4px;margin-bottom:18px;padding:0 14px 14px;border:1px solid #e8e1ec;border-radius:14px;background:#fbf9fc}
+.v12CreateSource{display:grid;gap:14px}.v12CreateChoice{min-height:118px;text-align:left;cursor:pointer}.v12CopyExisting{display:grid;gap:10px;padding:14px;border:1px solid #e4dce9;border-radius:13px;background:#fff}.v12CopyExisting>div:last-child{display:grid;gap:6px;max-height:230px;overflow:auto}.v12CopyExisting>div:last-child>button{display:grid;grid-template-columns:10px 1fr;gap:2px 9px;padding:9px;border:1px solid #ebe5ee;border-radius:9px;background:#fff;text-align:left;cursor:pointer}.v12CopyExisting>div:last-child>button span{grid-row:1/3;width:8px;height:100%;min-height:31px;border-radius:999px}.v12CopyExisting>div:last-child>button small{color:#7d7582}.v12WizardProgress{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin-bottom:12px}.v12WizardProgress span{padding:7px 5px;border-radius:8px;background:#f2edf6;color:#68428d;font-size:9px;font-weight:800;text-align:center}
+@media(max-width:820px){.modalWide:has(.v12WizardProgress),.modalWide:has(.v12CreateSource){width:100%;max-width:none;height:100dvh;max-height:none;border-radius:0}.v12WizardProgress{grid-template-columns:1fr}.v12WizardProgress span{display:none}.v12WizardProgress span:first-child{display:block}.v12CreateSource>.grid{grid-template-columns:1fr}}
 .v3Nav{gap:3px;padding-top:18px}.v3Nav .navLabel{font-size:9px;letter-spacing:.12em;color:#78869a;padding:12px 11px 8px}.v3Nav .navButton{min-height:45px;padding:10px 11px;border-radius:11px;color:#b7c0ce;font-weight:650;transition:background .16s ease,color .16s ease,transform .16s ease}.v3Nav .navButton:hover{background:rgba(255,255,255,.055);color:#fff;transform:translateX(1px)}.v3Nav .navButton.active{background:linear-gradient(100deg,rgba(111,60,195,.78),rgba(111,60,195,.48));color:#fff;box-shadow:0 8px 20px rgba(51,23,87,.23),inset 0 0 0 1px rgba(255,255,255,.06)}.v3NavIcon{display:grid;place-items:center;width:22px;height:22px}.v3NavIcon svg{width:17px;height:17px}.v3SidebarFooter{padding:14px 8px 0}.v3UserAvatar{background:linear-gradient(135deg,#7950c7,#42ad6b);box-shadow:0 6px 18px rgba(0,0,0,.16)}.v3SignOut{border-color:rgba(255,255,255,.1);background:rgba(255,255,255,.025);transition:.15s ease}.v3SignOut:hover{background:rgba(255,255,255,.07);color:white}
 .topbar{height:66px;padding:0 28px;border-bottom:1px solid rgba(226,229,236,.8);background:rgba(255,255,255,.79);backdrop-filter:blur(18px) saturate(1.25);box-shadow:0 1px 0 rgba(255,255,255,.8);z-index:25}.v3TopMark{background:linear-gradient(135deg,var(--purple-deep),var(--green));box-shadow:0 7px 20px rgba(75,33,128,.18)}.topTitle{font-size:14px;font-weight:800;color:#242a36;letter-spacing:-.025em}.versionBadge{background:#f5f0fb;border-color:#e7dcf5;color:#6940a2;padding:4px 8px}.main{padding:30px 32px 44px;max-width:1500px}.pageHead{margin-bottom:22px;align-items:center}.pageHead h1{font-size:clamp(27px,3vw,36px);font-weight:800;letter-spacing:-.045em}.pageHead p{font-size:13px;color:#7b8493;line-height:1.5;max-width:660px}
 
@@ -1479,6 +1490,22 @@ table{background:#fff}th{background:#fafbfc;color:#858e9c;letter-spacing:.07em}t
 .v313MoreMenu button.danger{color:#a5362d}
 .v313MoreMenu button.danger:hover{background:#fff1ef}
 .v313MenuDivider{height:1px;margin:5px;background:#ece8ef}
+
+.v12ArchiveToggle{display:inline-flex;align-items:center;gap:7px;color:#666e7a;font-size:12px;font-weight:750;white-space:nowrap}
+.v12ArchiveToggle input{width:16px;height:16px;accent-color:#6d3a91}
+.v12MasterHeadActions{display:flex;align-items:flex-end;flex-direction:column;gap:9px}
+.v12ClassCardActions{display:flex;align-items:center;gap:8px}
+.v12ClassCardActions>.btn,.v12ClassCardActions>.v313MoreWrap{flex:1}
+.v12ClassCardActions .v313MoreWrap>.btn{width:100%}
+.v12ArchivedClass{opacity:.68;filter:saturate(.55);background:#f3f2f4!important}
+.v12ArchivedBadge{display:inline-flex;margin-left:8px;padding:3px 7px;border:1px solid #d8d3dc;border-radius:999px;background:#ebe9ed;color:#69636e;font-size:9px;font-style:normal;font-weight:850;letter-spacing:.05em;text-transform:uppercase;vertical-align:middle}
+
+@media(max-width:820px){
+ .v12MasterHeadActions{align-items:flex-end}
+ .v12MasterHeadActions>.row{gap:7px}
+ .v12MasterHeadActions .btn{padding-inline:10px}
+ .v12ArchiveToggle{white-space:normal}
+}
 
 .v313ApprovedExtra{
   cursor:pointer;

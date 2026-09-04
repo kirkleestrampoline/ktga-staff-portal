@@ -6,7 +6,7 @@ import type { DashboardTab as Tab } from "@/types/navigation";
 type Props={tab:Tab;setTab:(t:Tab)=>void;role:string;name:string;open:boolean;setOpen:(v:boolean)=>void;onSignOut:()=>void};
 
 export default function MobileNav({tab,setTab,role,name,open,setOpen,onSignOut}:Props){
-  const admin=role==="admin"||role==="org_admin";
+  const admin=role==="admin"||role==="club_owner"||role==="org_admin";
   const choose=(t:Tab)=>{setTab(t);setOpen(false)};
   if(!admin)return <>
     <nav className="mobileBottomNav coachMobileNav" aria-label="Mobile navigation">
@@ -37,7 +37,7 @@ export default function MobileNav({tab,setTab,role,name,open,setOpen,onSignOut}:
       <button className={tab==="schedule"?"active":""} onClick={()=>choose("schedule")}><CalendarIcon/><span>Schedule</span></button>
       <button className={tab==="timesheets"?"active":""} onClick={()=>choose("timesheets")}><ClockIcon/><span>Payroll</span></button>
       <button className={tab==="staff"?"active":""} onClick={()=>choose("staff")}><UsersIcon/><span>People</span></button>
-      <button className={open||(["availability","leave","invoices","reports","settings","profile"] as string[]).includes(tab)?"active":""} onClick={()=>setOpen(!open)}><span className="moreGlyph">•••</span><span>More</span></button>
+      <button className={open||(["availability","leave","invoices","workforce","reports","settings","profile"] as string[]).includes(tab)?"active":""} onClick={()=>setOpen(!open)}><span className="moreGlyph">•••</span><span>More</span></button>
     </nav>
     {open&&<button className="mobileMoreScrim" aria-label="Close more menu" onClick={()=>setOpen(false)}/>}
     <section className={`mobileMoreSheet ${open?"open":""}`} aria-hidden={!open}>
@@ -47,6 +47,7 @@ export default function MobileNav({tab,setTab,role,name,open,setOpen,onSignOut}:
         <button onClick={()=>choose("availability")}><UsersIcon/><span><strong>Staff Availability</strong><small>Who can coach today and this week</small></span></button>
         <button onClick={()=>choose("leave")}><ClockIcon/><span><strong>Leave Management</strong><small>Approve leave and availability</small></span></button>
         <button onClick={()=>choose("invoices")}><InvoiceIcon/><span><strong>Invoices</strong><small>Coach invoices and payment history</small></span></button>
+        <button onClick={()=>choose("workforce")}><ChartIcon/><span><strong>Workforce</strong><small>People, hours and employment costs</small></span></button>
         <button onClick={()=>choose("reports")}><ChartIcon/><span><strong>Reports</strong><small>Hours and costs</small></span></button>
         <button onClick={()=>choose("settings")}><SettingsIcon/><span><strong>Settings</strong><small>Portal and invoice settings</small></span></button>
         <button onClick={()=>choose("profile")}><UserIcon/><span><strong>My Profile</strong><small>Personal and payment details</small></span></button>

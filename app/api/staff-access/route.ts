@@ -10,13 +10,13 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
-  const { data: me } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-  if (!me || !["admin","org_admin"].includes(me.role)) {
+  const { data: me } = await supabase.from("profiles").select("role,club_id").eq("id", user.id).single();
+  if (!me || !["admin","club_owner","org_admin"].includes(me.role)) {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 
   const actorId=user.id;
-  const actorRole=me.role as "admin"|"org_admin";
+  const actorRole=me.role as "admin"|"club_owner"|"org_admin";
   const url=process.env.NEXT_PUBLIC_SUPABASE_URL;
   const secret=process.env.SUPABASE_SECRET_KEY;
   if(!url||!secret)return NextResponse.json({error:"Supabase server configuration is missing"},{status:500});
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   const body=await req.json();
 
   async function allowedVenueIds(){
-    if(actorRole==="admin"){
+    if(actorRole==="admin"||actorRole==="club_owner"){
       const{data}=await admin.from("venues").select("id").eq("active",true);
       return(data||[]).map((x:any)=>x.id);
     }
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
   const allowed=await allowedVenueIds();
 
   async function canManage(profileId:string){
-    if(actorRole==="admin")return true;
+    if(actorRole==="admin"||actorRole==="club_owner")return true;
     const{data:links}=await admin.from("staff_venues").select("venue_id").eq("profile_id",profileId);
     return!(links||[]).some((x:any)=>!allowed.includes(x.venue_id));
   }
@@ -46,13 +46,13 @@ export async function POST(req: NextRequest) {
     const contactEmail=String(body.email||"").trim().toLowerCase();
     const portalAccess=body.portal_access!==false;
     const venueIds:string[]=Array.isArray(body.venue_ids)?body.venue_ids:[];
-    const role=actorRole==="admin"&&body.role==="org_admin"?"org_admin":"coach";
+    const role=(actorRole==="admin"||actorRole==="club_owner")&&body.role==="org_admin"?"org_admin":"coach";
     const forcePasswordReset=body.force_password_reset!==false;
 
     if(!fullName)return NextResponse.json({error:"Name is required"},{status:400});
     if(portalAccess&&!USERNAME_RE.test(username))return NextResponse.json({error:"Username must be 3–32 characters using letters, numbers, dots, dashes or underscores"},{status:400});
     if(portalAccess&&password.length<8)return NextResponse.json({error:"Password must be at least 8 characters"},{status:400});
-    if(venueIds.some(id=>!allowed.includes(id)))return NextResponse.json({error:"You cannot add staff to that organisation"},{status:403});
+    if(venueIds.some(id=>!allowed.includes(id)))return NextResponse.json({error:"You cannot add staff to that club"},{status:403});
 
     if(portalAccess){
       const{data:existing}=await admin.from("profiles").select("id").ilike("username",username).maybeSingle();
@@ -71,10 +71,13 @@ export async function POST(req: NextRequest) {
     if(createError||!created.user)return NextResponse.json({error:createError?.message||"Could not create staff account"},{status:400});
 
     const id=created.user.id;
+    const hourlyRate=Number(body.hourly_rate||0);
     const{error:profileError}=await admin.from("profiles").upsert({
       id,full_name:fullName,username:portalAccess?username:null,
       email:contactEmail||null,contact_email:contactEmail||null,auth_email:authEmail,
-      role,hourly_rate:Number(body.hourly_rate||0),is_active:true,
+      role,hourly_rate:hourlyRate,is_active:true,
+      ...(me.club_id?{club_id:me.club_id}:{}),
+      ...(body.employment_foundation_available===true?{employment_type:"hourly",standard_rate:hourlyRate,enhanced_rate:hourlyRate,can_volunteer:false,invoice_required:false}:{}),
       force_password_reset:portalAccess&&forcePasswordReset,password_changed_at:portalAccess?new Date().toISOString():null
     });
     if(profileError){
@@ -83,20 +86,20 @@ export async function POST(req: NextRequest) {
     }
 
     if(venueIds.length){
-      const adminVenueIds:string[]=actorRole==="admin"&&Array.isArray(body.admin_venue_ids)?body.admin_venue_ids:[];
+      const adminVenueIds:string[]=(actorRole==="admin"||actorRole==="club_owner")&&Array.isArray(body.admin_venue_ids)?body.admin_venue_ids:[];
       const{error}=await admin.from("staff_venues").insert(venueIds.map(venue_id=>({
         profile_id:id,venue_id,is_admin:role==="org_admin"&&adminVenueIds.includes(venue_id)
       })));
       if(error){
         await admin.auth.admin.deleteUser(id);
-        return NextResponse.json({error:`Staff member was not created because organisation assignment failed: ${error.message}`},{status:400});
+        return NextResponse.json({error:`Staff member was not created because legacy venue assignment failed: ${error.message}`},{status:400});
       }
     }
     const{data:savedLinks,error:verifyError}=await admin.from("staff_venues").select("venue_id").eq("profile_id",id);
     const savedIds=new Set((savedLinks||[]).map((link:any)=>link.venue_id));
     if(verifyError||savedIds.size!==new Set(venueIds).size||venueIds.some(venueId=>!savedIds.has(venueId))){
       await admin.auth.admin.deleteUser(id);
-      return NextResponse.json({error:"Staff member was not created because not all organisation assignments could be verified."},{status:400});
+      return NextResponse.json({error:"Staff member was not created because its club setup could not be verified."},{status:400});
     }
     return NextResponse.json({ok:true,id,username:portalAccess?username:null,portal_access:portalAccess,venue_ids:venueIds});
   }
