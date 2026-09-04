@@ -51,8 +51,8 @@ type ScheduledShift={id:string;class_id:string|null;staffing_slot_id:string|null
 type StaffingQualificationContext={classId:string|null;staffingSlotId:string|null;role:"lead"|"assistant";recommendedQualificationId:string|null;recommendedQualification:QualificationType|null};
 type RemovedOccurrence={class_id:string;shift_date:string;class_name:string;venue_id:string;start_time:string;finish_time:string;removed_slots:number};
 type TimeAwayRequest={id:string;profile_id:string;request_type:"holiday"|"sickness"|"appointment"|"compassionate"|"unavailable"|"other";start_date:string;end_date:string;all_day:boolean;start_time:string|null;end_time:string|null;notes:string|null;status:"pending"|"approved"|"declined"|"cancelled";reviewed_by:string|null;reviewed_at:string|null;created_at:string};
-type ClassOccurrenceDraft={key:string;id?:string;venue_id:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;coach_ids:string[];notes:string;lead_coaches_required:number;assistant_coaches_required:number;minimum_coaches:number;maximum_coaches:number;lead_recommended_qualification_id:string;assistant_recommended_qualification_id:string};
-type ClassDraft={id?:string;class_profile_id?:string;original_ids?:string[];venue_id:string;name:string;programme:string;minimum_age:number|null;maximum_age:number|null;active:boolean;session_colour:string;capacity:number|null;warn_if_understaffed:boolean;critical_if_no_lead:boolean;allow_below_recommended_qualification:boolean;lead_coaches_required:number;assistant_coaches_required:number;minimum_coaches:number;maximum_coaches:number;lead_recommended_qualification_id:string;assistant_recommended_qualification_id:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;notes:string;coach_ids:string[];occurrences?:ClassOccurrenceDraft[]};
+type ClassOccurrenceDraft={key:string;id?:string;venue_id:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;coach_ids:string[];payment_types:("standard"|"enhanced"|"volunteer")[];notes:string;lead_coaches_required:number;assistant_coaches_required:number;minimum_coaches:number;maximum_coaches:number;lead_recommended_qualification_id:string;assistant_recommended_qualification_id:string};
+type ClassDraft={id?:string;class_profile_id?:string;original_ids?:string[];venue_id:string;name:string;programme:string;minimum_age:number|null;maximum_age:number|null;active:boolean;session_colour:string;capacity:number|null;warn_if_understaffed:boolean;critical_if_no_lead:boolean;allow_below_recommended_qualification:boolean;lead_coaches_required:number;assistant_coaches_required:number;minimum_coaches:number;maximum_coaches:number;lead_recommended_qualification_id:string;assistant_recommended_qualification_id:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;notes:string;coach_ids:string[];payment_types:("standard"|"enhanced"|"volunteer")[];occurrences?:ClassOccurrenceDraft[]};
 type OneOffShiftDraft={id?:string;venue_id:string;shift_date:string;start_time:string;finish_time:string;class_name:string;notes:string;profile_id:string};
 
 const STAFFING_RULES=[
@@ -176,6 +176,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   const [adminScheduleShift,setAdminScheduleShift]=useState<ScheduledShift|null>(null);
   const [staffingRecommendationShift,setStaffingRecommendationShift]=useState<ScheduledShift|null>(null);
   const [staffingQualificationContext,setStaffingQualificationContext]=useState<StaffingQualificationContext|null>(null);
+  const [paymentAssignment,setPaymentAssignment]=useState<{shift:ScheduledShift;profile:Profile;paymentType:"standard"|"enhanced"|"volunteer"}|null>(null);
   const [highlightedScheduleShiftId,setHighlightedScheduleShiftId]=useState<string|null>(null);
   const [expandedSchedulingSections,setExpandedSchedulingSections]=useState<Record<"critical"|"warning"|"reminder",boolean>>({critical:false,warning:false,reminder:false});
   const [pendingExtraShifts,setPendingExtraShifts]=useState<Shift[]>([]);
@@ -218,7 +219,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   const rotaDatePickerRef=useRef<HTMLInputElement|null>(null);
 
   const totalHours=useMemo(()=>shifts.filter(s=>!s.approval_status||s.approval_status==="approved").reduce((a,s)=>a+shiftHours(s),0),[shifts]);
-  const totalValue=totalHours*Number(activeCoach.hourly_rate||0);
+  const totalValue=shifts.filter(s=>!s.approval_status||s.approval_status==="approved").reduce((total,shift)=>total+payForWorkedShift(shift,activeCoach),0);
   function setMonth(next:string){
     if(next===currentMonthRef.current)return;
     currentMonthRef.current=next;
@@ -523,7 +524,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     return{state:"available" as const,label:"Available"};
   }
 
-  async function reassignScheduledWithAvailability(s:ScheduledShift,profileId:string){
+  async function reassignScheduledWithAvailability(s:ScheduledShift,profileId:string,paymentType?:ScheduledShift["payment_type"]){
     if(!profileId){await reassignScheduled(s,profileId);return true}
     const state=coachAssignmentState(profileId,s);
     if(state.state!=="available"){
@@ -532,7 +533,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       const ok=confirm(`${name} ${title}.\n\n${state.label}\n\nAssign anyway?`);
       if(!ok)return false;
     }
-    await reassignScheduled(s,profileId);return true;
+    return reassignScheduled(s,profileId,paymentType);
   }
 
 
@@ -582,6 +583,22 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   }
 
   function venueName(id?:string|null){return venues.find(v=>v.id===id)?.name||"Unassigned"}
+  function employmentTermsFor(profileId:string,date:string){
+    return allEmploymentRecords.filter(record=>record.profile_id===profileId&&record.active&&record.effective_from<=date&&(!record.effective_to||record.effective_to>=date)).sort((a,b)=>b.effective_from.localeCompare(a.effective_from))[0]||null;
+  }
+  function employmentTypeForProfile(profile:Profile,date:string){return employmentTermsFor(profile.id,date)?.employment_type||profile.employment_type||"hourly"}
+  function effectivePaymentType(profile:Profile,date:string,paymentType:ScheduledShift["payment_type"]){
+    const employmentType=employmentTypeForProfile(profile,date);
+    return employmentType==="volunteer"?"volunteer":employmentType==="salaried"?"standard":paymentType||"standard";
+  }
+  function paymentRateFor(profile:Profile,date:string,paymentType:ScheduledShift["payment_type"]){
+    const employment=employmentTermsFor(profile.id,date),employmentType=employmentTypeForProfile(profile,date),effectiveType=effectivePaymentType(profile,date,paymentType);
+    if(employmentType!=="hourly"||effectiveType==="volunteer")return 0;
+    return effectiveType==="enhanced"?Number(employment?.enhanced_rate??profile.enhanced_rate??0):Number(employment?.standard_rate??profile.standard_rate??profile.hourly_rate??0);
+  }
+  function payForWorkedShift(shift:Shift,profile:Profile){return shiftHours(shift)*paymentRateFor(profile,shift.shift_date,shift.payment_type)}
+  function costForScheduledShift(shift:ScheduledShift){const profile=profileById(shift.profile_id);return profile?scheduleHours(shift)*paymentRateFor(profile,shift.shift_date,shift.payment_type):0}
+  function paymentLabelForShift(shift:ScheduledShift){const profile=profileById(shift.profile_id);if(!profile)return null;const employmentType=employmentTypeForProfile(profile,shift.shift_date);return employmentType==="salaried"?"Salary":employmentType==="volunteer"?"Volunteer":effectivePaymentType(profile,shift.shift_date,shift.payment_type).replace(/^./,letter=>letter.toUpperCase())}
   function venueColourClass(id?:string|null){
     return "orgKirklees";
   }
@@ -769,7 +786,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       const csh=((ss||[]) as Shift[]).filter(s=>s.coach_id===c.id&&(!s.approval_status||s.approval_status==="approved"));
       const h=csh.reduce((a,s)=>a+shiftHours(s),0);
       const cts=((ts||[]) as Timesheet[]).find(t=>t.coach_id===c.id)||null;
-      return{coach:c,hours:h,value:h*Number(c.hourly_rate||0),timesheet:cts,invoice:cts?inv.find(i=>i.timesheet_id===cts.id)||null:null};
+      return{coach:c,hours:h,value:csh.reduce((total,shift)=>total+payForWorkedShift(shift,c),0),timesheet:cts,invoice:cts?inv.find(i=>i.timesheet_id===cts.id)||null:null};
     });
     setAdminRows(rows);
   }
@@ -1285,7 +1302,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   }
 
   function blankClassOccurrence(weekday=1,venueId=adminVenues()[0]?.id||""):ClassOccurrenceDraft{
-    return{key:crypto.randomUUID(),venue_id:venueId,weekday,start_time:"16:30",finish_time:"18:00",break_minutes:0,coaches_required:1,coach_ids:[],notes:"",lead_coaches_required:1,assistant_coaches_required:0,minimum_coaches:1,maximum_coaches:1,lead_recommended_qualification_id:"",assistant_recommended_qualification_id:""};
+    return{key:crypto.randomUUID(),venue_id:venueId,weekday,start_time:"16:30",finish_time:"18:00",break_minutes:0,coaches_required:1,coach_ids:[],payment_types:[],notes:"",lead_coaches_required:1,assistant_coaches_required:0,minimum_coaches:1,maximum_coaches:1,lead_recommended_qualification_id:"",assistant_recommended_qualification_id:""};
   }
 
   function openNewClass(defaultDay=1){
@@ -1304,6 +1321,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       coaches_required:1,
       notes:"",
       coach_ids:[],
+      payment_types:[],
       occurrences:[occurrence]
     });
     setClassCopySearch("");setIncludeArchivedClassCopies(false);setClassWizardStep(0);
@@ -1364,6 +1382,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
         break_minutes:Number(x.break_minutes||0),
         coaches_required:Number(x.coaches_required||1),
         coach_ids:slots.map(s=>s.default_profile_id||""),
+        payment_types:slots.map(slot=>scheduledShifts.find(shift=>shift.staffing_slot_id===slot.id&&shift.profile_id===slot.default_profile_id&&shift.status==="scheduled")?.payment_type||"standard"),
         notes:x.notes||"",
         lead_coaches_required:Number(x.lead_coaches_required??x.coaches_required??1),
         assistant_coaches_required:Number(x.assistant_coaches_required||0),
@@ -1392,7 +1411,8 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       coaches_required:first.coaches_required,
       notes:first.notes,
       coach_ids:[...first.coach_ids],
-      occurrences:(occurrences.length?occurrences:[first]).map(occurrence=>({...occurrence,coaches_required:sharedCoachCount,coach_ids:occurrence.coach_ids.slice(0,sharedCoachCount)}))
+      payment_types:[...first.payment_types],
+      occurrences:(occurrences.length?occurrences:[first]).map(occurrence=>({...occurrence,coaches_required:sharedCoachCount,coach_ids:occurrence.coach_ids.slice(0,sharedCoachCount),payment_types:occurrence.payment_types.slice(0,sharedCoachCount)}))
     });
     setClassWizardStep(1);
   }
@@ -1412,6 +1432,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
         break_minutes:x.break_minutes,
         coaches_required:x.coaches_required,
         coach_ids:slots.map(s=>s.default_profile_id||""),
+        payment_types:slots.map(slot=>scheduledShifts.find(shift=>shift.staffing_slot_id===slot.id&&shift.profile_id===slot.default_profile_id&&shift.status==="scheduled")?.payment_type||"standard"),
         notes:x.notes||"",
         lead_coaches_required:Number(x.lead_coaches_required??x.coaches_required??1),
         assistant_coaches_required:Number(x.assistant_coaches_required||0),
@@ -1434,6 +1455,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       coaches_required:occurrences[0]?.coaches_required||1,
       notes:"",
       coach_ids:occurrences[0]?.coach_ids||[],
+      payment_types:occurrences[0]?.payment_types||[],
       occurrences:occurrences.length?occurrences:[blankClassOccurrence(1,c.venue_id)]
     });
     setClassWizardStep(1);
@@ -1451,6 +1473,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       break_minutes:classModal.break_minutes,
       coaches_required:classModal.coaches_required,
       coach_ids:classModal.coach_ids,
+      payment_types:classModal.payment_types,
       notes:classModal.notes
     }]) as ClassOccurrenceDraft[];
     if(!classModal.capacity||classModal.capacity<1){flash("Capacity is required.");return}
@@ -1533,6 +1556,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
 
       const existingSlots=(slotData||[]) as ClassStaffingSlot[];
       const required=Math.max(1,profilePayload.lead_coaches_required+profilePayload.assistant_coaches_required);
+      const savedSlots:ClassStaffingSlot[]=[];
 
       for(let i=0;i<required;i++){
         const slotNumber=i+1;
@@ -1545,13 +1569,15 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
             .update({default_profile_id})
             .eq("id",existing.id);
           if(error){setSaving(false);flash(error.message);return}
+          savedSlots.push({...existing,default_profile_id});
         }else{
-          const{error}=await supabase.from("class_staffing_slots").insert({
+          const{data:newSlot,error}=await supabase.from("class_staffing_slots").insert({
             class_id:classId,
             slot_number:slotNumber,
             default_profile_id
-          });
+          }).select("id,class_id,slot_number,default_profile_id").single();
           if(error){setSaving(false);flash(error.message);return}
+          savedSlots.push(newSlot as ClassStaffingSlot);
         }
       }
 
@@ -1569,6 +1595,12 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       if(occurrence.id){
         const{error:syncError}=await supabase.rpc("sync_class_schedule",{p_class_id:classId});
         if(syncError){setSaving(false);flash(syncError.message);return}
+        for(let i=0;i<savedSlots.length;i++){
+          const defaultProfileId=occurrence.coach_ids[i]||null;
+          if(!defaultProfileId)continue;
+          const{error:paymentError}=await supabase.from("scheduled_shifts").update({payment_type:occurrence.payment_types[i]||"standard",updated_at:new Date().toISOString()}).eq("staffing_slot_id",savedSlots[i].id).eq("profile_id",defaultProfileId).eq("status","scheduled");
+          if(paymentError){setSaving(false);flash(paymentError.message);return}
+        }
       }
     }
 
@@ -1810,9 +1842,26 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     if(!error){setShiftModal(null);if(activeCoach.id===s.coach_id)await loadCoachMonth(s.coach_id);await loadAdmin();await loadPendingExtraShifts();await loadSchedule()}
   }
 
-  async function reassignScheduled(sch:ScheduledShift,profileId:string){
+  async function reassignScheduled(sch:ScheduledShift,profileId:string,paymentType?:ScheduledShift["payment_type"]){
     const{error}=await supabase.rpc("reassign_scheduled_shift",{p_scheduled_id:sch.id,p_profile_id:profileId||null});
-    flash(error?error.message:"Scheduled coach changed.");if(!error)await loadSchedule();
+    if(error){flash(error.message);return false}
+    if(profileId&&paymentType){
+      const paymentUpdate=await supabase.from("scheduled_shifts").update({payment_type:paymentType,updated_at:new Date().toISOString()}).eq("id",sch.id);
+      if(paymentUpdate.error){flash(paymentUpdate.error.message);return false}
+    }
+    flash("Scheduled coach changed.");await loadSchedule();return true;
+  }
+
+  async function updateScheduledPaymentType(sch:ScheduledShift,paymentType:ScheduledShift["payment_type"]){
+    const profile=profileById(sch.profile_id);
+    if(!profile){flash("Assign a coach before selecting payment type.");return}
+    const employmentType=employmentTypeForProfile(profile,sch.shift_date);
+    const resolved=effectivePaymentType(profile,sch.shift_date,paymentType);
+    if(employmentType==="hourly"&&resolved==="volunteer"&&!Boolean(employmentTermsFor(profile.id,sch.shift_date)?.can_volunteer??profile.can_volunteer)){flash("Volunteer payment is not enabled for this coach.");return}
+    if(employmentType==="hourly"&&resolved==="enhanced"&&paymentRateFor(profile,sch.shift_date,"enhanced")<=0){flash("Add an Enhanced Rate before selecting Enhanced payment.");return}
+    const{error}=await supabase.from("scheduled_shifts").update({payment_type:resolved,updated_at:new Date().toISOString()}).eq("id",sch.id);
+    if(error){flash(error.message);return}
+    setAdminScheduleShift({...sch,payment_type:resolved});flash("Payment type updated.");await Promise.all([loadSchedule(),loadAdmin()]);
   }
 
   async function unconfirmScheduled(sch:ScheduledShift){
@@ -1885,10 +1934,10 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   const staffOptionsForVenue=(venueId:string)=>{const list=staff.filter(p=>(staffVenueMap[p.id]||[]).includes(venueId)&&isRecommendationCandidate(p));if((staffVenueMap[initialProfile.id]||[]).includes(venueId)&&isRecommendationCandidate(initialProfile)&&!list.some(p=>p.id===initialProfile.id))return [initialProfile,...list];return list};
   const scheduleScope=scheduledShifts.filter(s=>!scheduleFilter||s.venue_id===scheduleFilter);
   const plannedSchedule=scheduleScope.filter(s=>s.status!=="cancelled");
-  const forecastCost=plannedSchedule.reduce((a,s)=>a+scheduleHours(s)*Number(profileById(s.profile_id)?.hourly_rate||0),0);
-  const confirmedScheduleCost=scheduleScope.filter(s=>s.status==="confirmed").reduce((a,s)=>a+scheduleHours(s)*Number(profileById(s.profile_id)?.hourly_rate||0),0);
+  const forecastCost=plannedSchedule.reduce((a,s)=>a+costForScheduledShift(s),0);
+  const confirmedScheduleCost=scheduleScope.filter(s=>s.status==="confirmed").reduce((a,s)=>a+costForScheduledShift(s),0);
   const unassignedScheduleCount=plannedSchedule.filter(s=>!isAssignedShift(s)).length;
-  const actualScheduleCost=adminMonthShifts.filter(s=>!scheduleFilter||s.venue_id===scheduleFilter).reduce((a,s)=>a+shiftHours(s)*Number(profileById(s.coach_id)?.hourly_rate||0),0);
+  const actualScheduleCost=adminMonthShifts.filter(s=>!scheduleFilter||s.venue_id===scheduleFilter).reduce((a,s)=>{const profile=profileById(s.coach_id);return a+(profile?payForWorkedShift(s,profile):0)},0);
   const normalCost=classes.filter(c=>!scheduleFilter||c.venue_id===scheduleFilter).reduce((total,c)=>{
     const [y,m]=month.split("-").map(Number);const last=new Date(y,m,0).getDate();let occurrences=0;
     for(let d=1;d<=last;d++)if(new Date(y,m-1,d).getDay()===c.weekday)occurrences++;
@@ -2007,6 +2056,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     {oneOffShiftModal&&OneOffShiftModal()}
     {adminScheduleShift&&AdminScheduleShiftModal()}
     {staffingRecommendationShift&&IntelligentStaffingDrawer()}
+    {paymentAssignment&&PaymentAssignmentModal()}
     {confirmShift&&ConfirmShiftModal()}
     {dailyConfirmation&&DailyConfirmationModal()}
     {adjustShift&&AdjustmentModal()}
@@ -2148,7 +2198,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
           <div className="grid grid3 scheduleSummary v302DesktopStats"><StatCard label="Today" value={`${todayH.toFixed(2)}h`} foot={todayH?"Scheduled coaching":"No coaching today"} icon={<ClockIcon/>}/><StatCard label="This week" value={`${weekH.toFixed(2)}h`} foot="Planned rota hours" icon={<CalendarIcon/>}/><StatCard label="This month" value={`${monthH.toFixed(2)}h`} foot={`${allMine.filter(s=>s.status==="confirmed").length} sessions confirmed`} icon={<CheckIcon/>}/></div>
         </>;
       })()}
-        <div className="staffRotaList v31Timeline section">{Object.entries(groupedMine).map(([date,items])=><div className="staffRotaDay v31TimelineDay" key={date}><div className="staffRotaDate v31TimelineDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</strong><span>{items.length} {items.length===1?"session":"sessions"}</span></div><div className="v31TimelineItems">{items.map((s,index)=><div className="v31TimelineItem" key={s.id}><div className="v31TimelineRail"><span className={`v31TimelineDot ${s.status} ${s.adjustment_status==="pending"?"pending":""}`}/>{index<items.length-1&&<span className="v31TimelineLine"/>}</div><div className={`staffRotaCard v31RotaCard ${s.status} ${venueColourClass(s.venue_id)}`}><div className="staffRotaMain v31RotaMain"><div className="v31RotaTime"><strong>{s.start_time.slice(0,5)}</strong><small>{s.finish_time.slice(0,5)}</small></div><div className="v31RotaDetails"><span>{s.class_name}</span><small>{venueName(s.venue_id)} · {scheduleHours(s).toFixed(2)}h</small></div><span className={`scheduleStatus ${s.adjustment_status==="pending"?"scheduled":s.status}`}>{s.adjustment_status==="pending"?"Approval pending":s.status}</span></div><div className="staffRotaActions v31RotaActions">
+        <div className="staffRotaList v31Timeline section">{Object.entries(groupedMine).map(([date,items])=><div className="staffRotaDay v31TimelineDay" key={date}><div className="staffRotaDate v31TimelineDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</strong><span>{items.length} {items.length===1?"session":"sessions"}</span></div><div className="v31TimelineItems">{items.map((s,index)=><div className="v31TimelineItem" key={s.id}><div className="v31TimelineRail"><span className={`v31TimelineDot ${s.status} ${s.adjustment_status==="pending"?"pending":""}`}/>{index<items.length-1&&<span className="v31TimelineLine"/>}</div><div className={`staffRotaCard v31RotaCard ${s.status} ${venueColourClass(s.venue_id)}`}><div className="staffRotaMain v31RotaMain"><div className="v31RotaTime"><strong>{s.start_time.slice(0,5)}</strong><small>{s.finish_time.slice(0,5)}</small></div><div className="v31RotaDetails"><span>{s.class_name}</span><small>{venueName(s.venue_id)} · {scheduleHours(s).toFixed(2)}h</small></div>{paymentLabelForShift(s)&&<span className={`v13PaymentBadge ${(paymentLabelForShift(s)||"").toLowerCase()}`}>{paymentLabelForShift(s)}</span>}<span className={`scheduleStatus ${s.adjustment_status==="pending"?"scheduled":s.status}`}>{s.adjustment_status==="pending"?"Approval pending":s.status}</span></div><div className="staffRotaActions v31RotaActions">
           {s.status==="scheduled"&&s.adjustment_status!=="pending"&&<><button className="btn btnPrimary" onClick={()=>setConfirmShift(s)}>Confirm as planned</button><button className="btn btnSecondary" onClick={()=>openAdjustment(s)}>Adjust actual time</button></>}
           {s.adjustment_status==="pending"&&<><span className="rotaPendingText">Extra time awaiting admin approval</span><button className="btn btnDanger" onClick={()=>undoOwnRota(s)}>Cancel request</button></>}
           {s.status==="confirmed"&&<><span className="rotaConfirmedText">Confirmed into timesheet</span><button className="btn btnSecondary" onClick={()=>undoOwnRota(s)}>Undo</button></>}
@@ -2190,7 +2240,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
           const totalItems=items.length+extras.length;
           return <div className={`staffingBoardDay ${totalItems||removed.length?"hasShifts":"emptyDay"}`} key={date}>
             <div className="staffingBoardDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}</strong><span>{totalItems?`${totalItems} ${totalItems===1?"item":"items"}`:removed.length?`${removed.length} removed`:"No coaching"}</span></div>
-            <div className="staffingBoardShifts">{items.map(s=><div className={`staffingCalendarShift ${s.status} ${venueColourClass(s.venue_id)} ${highlightedScheduleShiftId===s.id?"v402HighlightedShift":""}`} key={s.id} draggable={s.status!=="cancelled"} onClick={()=>openAdminScheduleShift(s)} onDragStart={e=>{e.stopPropagation();setDragShiftId(s.id)}} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();e.stopPropagation();if(dragShiftId)void swapScheduledAssignments(dragShiftId,s.id);setDragShiftId(null)}}><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)} · {s.class_name}</strong><span>{profileById(s.profile_id)?.full_name||"Unassigned"}</span><small>{venueName(s.venue_id)} · Tap to manage</small>{s.profile_id&&coachAvailabilityState(s.profile_id,s.shift_date,s.start_time,s.finish_time).state!=="available"&&<span className={`v340ConflictBadge ${coachAvailabilityState(s.profile_id,s.shift_date,s.start_time,s.finish_time).state}`}>{coachAvailabilityState(s.profile_id,s.shift_date,s.start_time,s.finish_time).label}</span>}</div>)}{extras.map(s=><div className={`staffingCalendarShift ${s.approval_status==="pending"?"v311PendingExtra":"v313ApprovedExtra"}`} key={`extra-${s.id}`} onClick={()=>setShiftModal(s)}><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)} · {s.session_location||"Additional work"}</strong><span>{profileById(s.coach_id)?.full_name||"Staff member"}</span><small>{venueName(s.venue_id)} · Additional shift · {s.approval_status==="pending"?"Approval required":"Approved"}</small></div>)}{removed.map(r=><div className="staffingCalendarShift v314RemovedOccurrence" key={`removed-${r.class_id}-${r.shift_date}`}><strong>{r.start_time.slice(0,5)}–{r.finish_time.slice(0,5)} · {r.class_name}</strong><span>{venueName(r.venue_id)} · Removed from this date</span><button className="v314RestoreButton" type="button" onClick={e=>{e.stopPropagation();void restoreRemovedOccurrence(r)}}>Restore</button></div>)}</div>
+            <div className="staffingBoardShifts">{items.map(s=><div className={`staffingCalendarShift ${s.status} ${venueColourClass(s.venue_id)} ${highlightedScheduleShiftId===s.id?"v402HighlightedShift":""}`} key={s.id} draggable={s.status!=="cancelled"} onClick={()=>openAdminScheduleShift(s)} onDragStart={e=>{e.stopPropagation();setDragShiftId(s.id)}} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();e.stopPropagation();if(dragShiftId)void swapScheduledAssignments(dragShiftId,s.id);setDragShiftId(null)}}><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)} · {s.class_name}</strong><span>{profileById(s.profile_id)?.full_name||"Unassigned"}</span>{paymentLabelForShift(s)&&<span className={`v13PaymentBadge ${(paymentLabelForShift(s)||"").toLowerCase()}`}>{paymentLabelForShift(s)}</span>}<small>{venueName(s.venue_id)} · Tap to manage</small>{s.profile_id&&coachAvailabilityState(s.profile_id,s.shift_date,s.start_time,s.finish_time).state!=="available"&&<span className={`v340ConflictBadge ${coachAvailabilityState(s.profile_id,s.shift_date,s.start_time,s.finish_time).state}`}>{coachAvailabilityState(s.profile_id,s.shift_date,s.start_time,s.finish_time).label}</span>}</div>)}{extras.map(s=><div className={`staffingCalendarShift ${s.approval_status==="pending"?"v311PendingExtra":"v313ApprovedExtra"}`} key={`extra-${s.id}`} onClick={()=>setShiftModal(s)}><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)} · {s.session_location||"Additional work"}</strong><span>{profileById(s.coach_id)?.full_name||"Staff member"}</span><small>{venueName(s.venue_id)} · Additional shift · {s.approval_status==="pending"?"Approval required":"Approved"}</small></div>)}{removed.map(r=><div className="staffingCalendarShift v314RemovedOccurrence" key={`removed-${r.class_id}-${r.shift_date}`}><strong>{r.start_time.slice(0,5)}–{r.finish_time.slice(0,5)} · {r.class_name}</strong><span>{venueName(r.venue_id)} · Removed from this date</span><button className="v314RestoreButton" type="button" onClick={e=>{e.stopPropagation();void restoreRemovedOccurrence(r)}}>Restore</button></div>)}</div>
           </div>
         });
       })()}</div>:<div className="scheduleAgenda v311Agenda">{Array.from(new Set([...Object.keys(grouped),...visibleAdditionalWork.map(s=>s.shift_date),...visibleRemovedOccurrences.map(r=>r.shift_date)])).sort().map(date=>{const items=(grouped[date]||[]) as ScheduledShift[];const extras=visibleAdditionalWork.filter(s=>s.shift_date===date);const removed=visibleRemovedOccurrences.filter(r=>r.shift_date===date);return <div className="scheduleDay" key={date}><div className="scheduleDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}</strong><span>{items.length+extras.length} active{removed.length?` · ${removed.length} removed`:""}</span></div>{items.map(s=>{const allowed=staffOptionsForVenue(s.venue_id);return <div className={`scheduleShift v311ScheduleRow ${s.status} ${venueColourClass(s.venue_id)} ${highlightedScheduleShiftId===s.id?"v402HighlightedShift":""}`} key={s.id} onClick={()=>openAdminScheduleShift(s)}><div className="scheduleShiftMain"><div className="scheduleTime">{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</div><div><strong>{s.class_name}</strong><span>{venueName(s.venue_id)} · {scheduleHours(s).toFixed(2)}h</span></div></div><div className="v311RowCoach"><span>Coach</span><strong>{profileById(s.profile_id)?.full_name||"Unassigned"}</strong>{s.profile_id&&<small className={`v341CoachState ${coachAvailabilityState(s.profile_id,s.shift_date,s.start_time,s.finish_time).state}`}>{coachAvailabilityState(s.profile_id,s.shift_date,s.start_time,s.finish_time).label}</small>}</div><div className="v311RowStatus"><span className={`scheduleStatus ${s.status}`}>{s.adjustment_status==="pending"?"Approval pending":s.status}</span><button className="btn btnSecondary" type="button" onClick={e=>{e.stopPropagation();openAdminScheduleShift(s)}}>Manage</button></div></div>})}{extras.map(s=><div className={`scheduleShift v311ScheduleRow v311ExtraRow ${s.approval_status==="approved"?"v313ApprovedExtraRow":""}`} key={`extra-${s.id}`} onClick={()=>setShiftModal(s)}><div className="scheduleShiftMain"><div className="scheduleTime">{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</div><div><strong>{s.session_location||"Additional work"}</strong><span>{venueName(s.venue_id)} · {shiftHours(s).toFixed(2)}h</span></div></div><div className="v311RowCoach"><span>{s.approval_status==="pending"?"Submitted by":"Coach"}</span><strong>{profileById(s.coach_id)?.full_name||"Staff member"}</strong></div><div className="v311RowStatus"><span className={`scheduleStatus ${s.approval_status==="pending"?"v311PendingBadge":"v313ApprovedBadge"}`}>{s.approval_status==="pending"?"Approval required":"Additional shift · Approved"}</span><button className={`btn ${s.approval_status==="pending"?"btnAccent":"btnSecondary"}`} type="button" onClick={e=>{e.stopPropagation();setShiftModal(s)}}>{s.approval_status==="pending"?"Review":"View"}</button></div></div>)}{removed.map(r=><div className="scheduleShift v311ScheduleRow v314RemovedAgenda" key={`removed-${r.class_id}-${r.shift_date}`}><div className="scheduleShiftMain"><div className="scheduleTime">{r.start_time.slice(0,5)}–{r.finish_time.slice(0,5)}</div><div><strong>{r.class_name}</strong><span>{venueName(r.venue_id)} · Removed from this date</span></div></div><div className="v311RowCoach"><span>Status</span><strong>Removed occurrence</strong></div><div className="v311RowStatus"><span className="scheduleStatus v314RemovedBadge">Removed</span><button className="btn btnSecondary" type="button" onClick={()=>restoreRemovedOccurrence(r)}>Restore</button></div></div>)}</div>})}{!visibleScheduled.length&&!visibleAdditionalWork.length&&!visibleRemovedOccurrences.length&&<div className="empty">Generate {monthLabel(month)} to create the staffing rota from your regular classes.</div>}</div>}</div></div></div>;
@@ -2363,7 +2413,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   }
 
   function WorkforceView(){
-    type WorkforceRow={key:string;person:Profile;organisation:Venue|null;employmentType:EmploymentRecord["employment_type"];annualSalary:number;monthlySalary:number;internalHourlyRate:number;standardRate:number;enhancedRate:number;hours:number;volunteerHours:number;cost:number};
+    type WorkforceRow={key:string;person:Profile;organisation:Venue|null;employmentType:EmploymentRecord["employment_type"];annualSalary:number;monthlySalary:number;internalHourlyRate:number;standardRate:number;enhancedRate:number;hours:number;standardHours:number;enhancedHours:number;volunteerHours:number;salariedHours:number;cost:number};
     const{from,to}=monthRange(month);
     const permittedVenues=adminVenues();
     const selectedVenueIds=new Set((workforceVenue?permittedVenues.filter(v=>v.id===workforceVenue):permittedVenues).map(v=>v.id));
@@ -2383,14 +2433,17 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
         const employmentType:EmploymentRecord["employment_type"]=storedEmploymentType==="salaried"||storedEmploymentType==="volunteer"?storedEmploymentType:"hourly";
         const personShifts=monthShifts.filter(shift=>shift.coach_id===person.id&&shift.venue_id===organisationId);
         const hours=personShifts.reduce((total,shift)=>total+shiftHours(shift),0);
+        const standardHours=employmentType==="hourly"?personShifts.filter(shift=>(shift.payment_type||"standard")==="standard").reduce((total,shift)=>total+shiftHours(shift),0):0;
+        const enhancedHours=employmentType==="hourly"?personShifts.filter(shift=>shift.payment_type==="enhanced").reduce((total,shift)=>total+shiftHours(shift),0):0;
         const volunteerHours=employmentType==="volunteer"?hours:personShifts.filter(shift=>shift.payment_type==="volunteer").reduce((total,shift)=>total+shiftHours(shift),0);
+        const salariedHours=employmentType==="salaried"?hours:0;
         const annualSalary=Number(record?.annual_salary??person.annual_salary??0);
         const monthlySalary=employmentType==="salaried"?annualSalary/12:0;
         const standardRate=Number(record?.standard_rate??person.standard_rate??person.hourly_rate??0);
         const enhancedRate=Number(record?.enhanced_rate??person.enhanced_rate??person.hourly_rate??0);
         const internalHourlyRate=Number(record?.calculated_internal_hourly_rate??(annualSalary&&Number(record?.working_weeks_per_year??person.working_weeks_per_year)&&Number(record?.contracted_weekly_hours??person.contracted_weekly_hours)?annualSalary/Number(record?.working_weeks_per_year??person.working_weeks_per_year)/Number(record?.contracted_weekly_hours??person.contracted_weekly_hours):0));
-        const operationalCost=personShifts.reduce((total,shift)=>total+shiftHours(shift)*Number(person.hourly_rate||0),0);
-        rows.push({key:`${person.id}:${organisationId}`,person,organisation:venues.find(v=>v.id===organisationId)||null,employmentType,annualSalary,monthlySalary,internalHourlyRate,standardRate,enhancedRate,hours,volunteerHours,cost:employmentType==="salaried"?monthlySalary:employmentType==="volunteer"?0:operationalCost});
+        const operationalCost=personShifts.reduce((total,shift)=>total+payForWorkedShift(shift,person),0);
+        rows.push({key:`${person.id}:${organisationId}`,person,organisation:venues.find(v=>v.id===organisationId)||null,employmentType,annualSalary,monthlySalary,internalHourlyRate,standardRate,enhancedRate,hours,standardHours,enhancedHours,volunteerHours,salariedHours,cost:employmentType==="salaried"?monthlySalary:employmentType==="volunteer"?0:operationalCost});
       });
     });
     const visibleRows=rows.filter(row=>row.person.full_name.toLowerCase().includes(workforceSearch.trim().toLowerCase()));
@@ -2417,7 +2470,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
         <DetailTable title="Hourly staff" items={hourlyRows} columns={["Employee","Hours worked","Estimated cost","Standard rate","Enhanced rate"]} render={row=><tr key={row.key}><td>{row.person.full_name}</td><td>{row.hours.toFixed(2)}h</td><td>{money(row.cost)}</td><td>{money(row.standardRate)}</td><td>{money(row.enhancedRate)}</td></tr>}/>
         <DetailTable title="Volunteers" items={volunteerRows} columns={["Employee","Volunteer hours"]} render={row=><tr key={row.key}><td>{row.person.full_name}</td><td>{row.volunteerHours.toFixed(2)}h</td></tr>}/>
       </section>
-      <section className="card v12WorkforceTable"><div className="sectionHeader"><div><h2>Staff</h2><p>Select a row to open the existing Staff Profile.</p></div><div className="searchBar"><SearchIcon/><input value={workforceSearch} onChange={event=>setWorkforceSearch(event.target.value)} placeholder="Search workforce…"/></div></div><div className="tableWrap"><table><thead><tr><th>Name</th><th>Employment type</th><th>Monthly cost</th><th>Current rate</th><th>Hours worked</th><th>Volunteer hours</th><th>Status</th></tr></thead><tbody>{visibleRows.map(row=><tr key={row.key} onClick={()=>openStaffEdit(row.person)} className="v12WorkforceRow"><td><button type="button">{row.person.full_name}</button></td><td>{labels[row.employmentType]}</td><td>{money(row.cost)}</td><td>{row.employmentType==="salaried"?`${money(row.internalHourlyRate)}/hr`:row.employmentType==="volunteer"?money(0):`${money(row.standardRate)}/hr`}</td><td>{row.hours.toFixed(2)}h</td><td>{row.volunteerHours.toFixed(2)}h</td><td><StatusPill status={row.person.is_active?"active":"inactive"}/></td></tr>)}</tbody></table></div>{!visibleRows.length&&<div className="empty">No Data</div>}</section>
+      <section className="card v12WorkforceTable"><div className="sectionHeader"><div><h2>Staff</h2><p>Select a row to open the existing Staff Profile.</p></div><div className="searchBar"><SearchIcon/><input value={workforceSearch} onChange={event=>setWorkforceSearch(event.target.value)} placeholder="Search workforce…"/></div></div><div className="tableWrap"><table><thead><tr><th>Name</th><th>Employment type</th><th>Monthly cost</th><th>Standard</th><th>Enhanced</th><th>Volunteer</th><th>Salaried</th><th>Total hours</th><th>Status</th></tr></thead><tbody>{visibleRows.map(row=><tr key={row.key} onClick={()=>openStaffEdit(row.person)} className="v12WorkforceRow"><td><button type="button">{row.person.full_name}</button></td><td>{labels[row.employmentType]}</td><td>{money(row.cost)}</td><td>{row.standardHours.toFixed(2)}h</td><td>{row.enhancedHours.toFixed(2)}h</td><td>{row.volunteerHours.toFixed(2)}h</td><td>{row.salariedHours.toFixed(2)}h</td><td>{row.hours.toFixed(2)}h</td><td><StatusPill status={row.person.is_active?"active":"inactive"}/></td></tr>)}</tbody></table></div>{!visibleRows.length&&<div className="empty">No Data</div>}</section>
       <section className="card v12WorkforceInsights"><div className="sectionHeader"><div><h2>Insights</h2><p>Current workforce signals. Ready for richer insights as new data sources become available.</p></div></div><div>{[["Most Used Coach",mostUsed&&mostUsed.hours>0?`${mostUsed.person.full_name} · ${mostUsed.hours.toFixed(2)}h`:"No Data"],["Highest Staffing Cost",highestCost&&highestCost.cost>0?`${highestCost.person.full_name} · ${money(highestCost.cost)}`:"No Data"],["Most Volunteer Hours",mostVolunteer&&mostVolunteer.volunteerHours>0?`${mostVolunteer.person.full_name} · ${mostVolunteer.volunteerHours.toFixed(2)}h`:"No Data"],["Highest Paid Staff",highestPaid?highestPaid.person.full_name:"No Data"]].map(([label,value])=><article key={label}><span>{label}</span><strong>{value}</strong></article>)}</div></section>
     </div>
   }
@@ -2518,7 +2571,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       const sameProgrammeSessionCount=classCoachingStatistics.filter(item=>item.coach_id===coach.id&&item.class_id!==shift.class_id&&item.organisation_id===shift.venue_id&&item.programme_key===normalisedProgrammeName).reduce((total,item)=>total+Number(item.sessions_coached||0),0);
       const heldTypes=coachQualifications.filter(item=>item.coach_id===coach.id).map(item=>qualificationTypes.find(type=>type.id===item.qualification_id)).filter(Boolean) as QualificationType[];
       const hasEmploymentRecord=allEmploymentRecords.some(record=>record.profile_id===coach.id&&record.organisation_id===shift.venue_id&&record.active&&record.effective_from<=shift.shift_date&&(!record.effective_to||record.effective_to>=shift.shift_date));
-      return{coachId:coach.id,coachName:coach.full_name,role:staffingRole,classDurationHours:scheduleHours(shift),hourlyRate:Number(coach.hourly_rate||0),isAvailable:state.state==="available",isAssignedElsewhere:state.state==="working",approvedTimeAway:state.state==="away",pendingTimeAway:state.state==="pending",previousSessionCount:exactSessionCount,exactSessionCount,sameProgrammeSessionCount,programmeName:shift.class_name.trim(),worksAtOrganisation:true,qualificationIds:heldTypes.map(item=>item.id),recommendedQualificationId:recommendedId,qualifications:heldTypes.map(item=>({id:item.id,family:item.qualification_family,level:item.qualification_level})),recommendedQualification:recommendedQualification?{id:recommendedQualification.id,family:recommendedQualification.qualification_family,level:recommendedQualification.qualification_level}:null,dailyAssignedHours:assignedHours(coach.id,shift.shift_date,shift.shift_date),weeklyAssignedHours:assignedHours(coach.id,weekStart,weekEnd),hasEmploymentRecord};
+      return{coachId:coach.id,coachName:coach.full_name,role:staffingRole,classDurationHours:scheduleHours(shift),hourlyRate:paymentRateFor(coach,shift.shift_date,"standard"),isAvailable:state.state==="available",isAssignedElsewhere:state.state==="working",approvedTimeAway:state.state==="away",pendingTimeAway:state.state==="pending",previousSessionCount:exactSessionCount,exactSessionCount,sameProgrammeSessionCount,programmeName:shift.class_name.trim(),worksAtOrganisation:true,qualificationIds:heldTypes.map(item=>item.id),recommendedQualificationId:recommendedId,qualifications:heldTypes.map(item=>({id:item.id,family:item.qualification_family,level:item.qualification_level})),recommendedQualification:recommendedQualification?{id:recommendedQualification.id,family:recommendedQualification.qualification_family,level:recommendedQualification.qualification_level}:null,dailyAssignedHours:assignedHours(coach.id,shift.shift_date,shift.shift_date),weeklyAssignedHours:assignedHours(coach.id,weekStart,weekEnd),hasEmploymentRecord};
     });
     const ranked=rankCoachRecommendations(inputs,priorities);
     const coachRows=ranked.map(result=>{
@@ -2538,7 +2591,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       console.debug("[staffing-intelligence] AFTER SORT qualification status",coachRows.map(row=>({coachId:row.coach.id,recommendedQualificationId:recommendedId??null,matches:row.meetsQualification})));
       console.debug("[staffing-intelligence] FINAL RENDER qualification status",{recommendedQualificationId:recommendedId??null,recommendedQualificationName:recommendedQualification?.name??null,visible:Boolean(recommendedId)});
     }
-    const assign=async(coachId:string)=>{const changed=await reassignScheduledWithAvailability(shift,coachId);if(changed){setStaffingRecommendationShift(null);setStaffingQualificationContext(null)}};
+    const assign=(coachId:string)=>{const profile=profileById(coachId);if(!profile)return;const employmentType=employmentTypeForProfile(profile,shift.shift_date);setPaymentAssignment({shift,profile,paymentType:employmentType==="volunteer"?"volunteer":"standard"})};
     return <div className="v11DrawerBackdrop" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget){setStaffingRecommendationShift(null);setStaffingQualificationContext(null)}}}><aside className="v11StaffingDrawer" role="dialog" aria-modal="true" aria-labelledby="staffing-drawer-title">
       <header className={`v11DrawerHead ${venueColourClass(shift.venue_id)}`}><div><span>Staffing Intelligence</span><h2 id="staffing-drawer-title">{shift.class_name}</h2><p>{new Date(`${shift.shift_date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})} · {shift.start_time.slice(0,5)}–{shift.finish_time.slice(0,5)}</p><div><b>{staffingRole==="lead"?"Lead Coach":"Assistant Coach"}</b><small>{venueName(shift.venue_id)} · {assignedCount} of {totalSlots} coaches assigned</small></div></div><button className="iconButton" type="button" aria-label="Close staffing recommendations" onClick={()=>{setStaffingRecommendationShift(null);setStaffingQualificationContext(null)}}>×</button></header>
       <div className="v11DrawerBody"><div className="v420CoachSearch"><span aria-hidden="true">⌕</span><input type="search" value={coachAssignmentSearch} onChange={event=>setCoachAssignmentSearch(event.target.value)} placeholder="Search coaches..." aria-label="Search coaches"/></div>
@@ -2556,6 +2609,28 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     </aside></div>;
   }
 
+  function PaymentAssignmentModal(){
+    const assignment=paymentAssignment!,employmentType=employmentTypeForProfile(assignment.profile,assignment.shift.shift_date);
+    const confirmAssignment=async()=>{
+      const paymentType=effectivePaymentType(assignment.profile,assignment.shift.shift_date,assignment.paymentType);
+      if(employmentType==="hourly"&&paymentType==="volunteer"&&!Boolean(employmentTermsFor(assignment.profile.id,assignment.shift.shift_date)?.can_volunteer??assignment.profile.can_volunteer)){flash("Volunteer payment is not enabled for this coach.");return}
+      if(employmentType==="hourly"&&paymentType==="enhanced"&&paymentRateFor(assignment.profile,assignment.shift.shift_date,"enhanced")<=0){flash("Add an Enhanced Rate before selecting Enhanced payment.");return}
+      setSaving(true);const changed=await reassignScheduledWithAvailability(assignment.shift,assignment.profile.id,paymentType);setSaving(false);
+      if(changed){setPaymentAssignment(null);setStaffingRecommendationShift(null);setStaffingQualificationContext(null)}
+    };
+    return <div className="modalBackdrop"><div className="modal v13PaymentAssignmentModal"><div className="modalHead"><div><h2>Confirm assignment</h2><p className="muted">{assignment.profile.full_name} · {assignment.shift.class_name}</p></div><button className="iconButton" type="button" onClick={()=>setPaymentAssignment(null)}>×</button></div><div className="modalBody">
+      <PaymentTypeControl profile={assignment.profile} date={assignment.shift.shift_date} value={assignment.paymentType} name="assignment-payment-type" onChange={paymentType=>setPaymentAssignment({...assignment,paymentType})}/>
+    </div><div className="modalFoot"><button className="btn btnSecondary" type="button" onClick={()=>setPaymentAssignment(null)}>Cancel</button><button className="btn btnPrimary" type="button" disabled={saving} onClick={()=>void confirmAssignment()}>{saving?"Assigning…":"Confirm Assignment"}</button></div></div></div>;
+  }
+
+  function PaymentTypeControl({profile,date,value,name,onChange}:{profile:Profile;date:string;value:"standard"|"enhanced"|"volunteer";name:string;onChange:(value:"standard"|"enhanced"|"volunteer")=>void}){
+    const employmentType=employmentTypeForProfile(profile,date),employment=employmentTermsFor(profile.id,date);
+    if(employmentType==="salaried")return <div className="notice success"><strong>Salary Included</strong><br/>Worked hours are recorded without additional hourly pay.</div>;
+    if(employmentType==="volunteer")return <div className="notice success"><strong>Volunteer</strong><br/>Worked hours are recorded at £0.</div>;
+    const canVolunteer=Boolean(employment?.can_volunteer??profile.can_volunteer),enhancedRate=Number(employment?.enhanced_rate??profile.enhanced_rate??0);
+    return <div className="v13PaymentSelector"><span>Payment Type</span>{(["standard","enhanced","volunteer"] as const).map(type=><label className={value===type?"selected":""} key={type}><input type="radio" name={name} value={type} checked={value===type} disabled={(type==="volunteer"&&!canVolunteer)||(type==="enhanced"&&enhancedRate<=0)} onChange={()=>onChange(type)}/><strong>{type.replace(/^./,letter=>letter.toUpperCase())}</strong>{type==="enhanced"&&enhancedRate<=0&&<small>Enhanced Rate required</small>}{type==="volunteer"&&!canVolunteer&&<small>Can Volunteer must be enabled</small>}</label>)}</div>;
+  }
+
   function AdminScheduleShiftModal(){
     const s=adminScheduleShift!;
     return <div className="modalBackdrop"><div className="modal v311AdminShiftModal v405ScheduleControlModal">
@@ -2571,7 +2646,8 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
         </div>
         <div className="v311ShiftSummary"><div><span>Planned hours</span><strong>{scheduleHours(s).toFixed(2)}h</strong></div><div><span>Status</span><strong className={`scheduleStatus ${s.status}`}>{s.adjustment_status==="pending"?"Approval pending":s.status}</strong></div></div>
         {!s.class_id&&<div className="v518OneOffActions"><span>One-off shift</span><button className="btn btnSecondary" type="button" disabled={s.status==="confirmed"} title={s.status==="confirmed"?"Unconfirm this shift before editing its planned details.":undefined} onClick={()=>{setAdminScheduleShift(null);setOneOffShiftModal({id:s.id,venue_id:s.venue_id,shift_date:s.shift_date,start_time:s.start_time.slice(0,5),finish_time:s.finish_time.slice(0,5),class_name:s.class_name,notes:s.notes||"",profile_id:s.profile_id||""})}}>Edit details</button><button className="btn btnDanger" type="button" onClick={()=>void deleteOneOffShift(s)}>Delete shift</button></div>}
-        <div className="v11AssignedCoach"><span>Assigned coach</span><strong>{validAssignedProfile(s.profile_id)?.full_name||"Unassigned"}</strong>{isAssignedShift(s)&&<small>{coachAssignmentState(s.profile_id!,s).label}</small>}<button type="button" className="v400Unassign" disabled={!isAssignedShift(s)||s.status==="cancelled"||s.status==="confirmed"} onClick={async()=>{await reassignScheduledWithAvailability(s,"");setAdminScheduleShift(null)}}>Remove Coach</button></div>
+        <div className="v11AssignedCoach"><span>Assigned coach</span><strong>{validAssignedProfile(s.profile_id)?.full_name||"Unassigned"}</strong>{paymentLabelForShift(s)&&<span className={`v13PaymentBadge ${(paymentLabelForShift(s)||"").toLowerCase()}`}>{paymentLabelForShift(s)}</span>}{isAssignedShift(s)&&<small>{coachAssignmentState(s.profile_id!,s).label}</small>}<button type="button" className="v400Unassign" disabled={!isAssignedShift(s)||s.status==="cancelled"||s.status==="confirmed"} onClick={async()=>{await reassignScheduledWithAvailability(s,"");setAdminScheduleShift(null)}}>Remove Coach</button></div>
+        {s.profile_id&&validAssignedProfile(s.profile_id)&&employmentTypeForProfile(validAssignedProfile(s.profile_id)!,s.shift_date)==="hourly"&&<div className="field v13ExistingPayment"><label>Payment Type</label><select value={s.payment_type||"standard"} disabled={s.status==="confirmed"} onChange={event=>void updateScheduledPaymentType(s,event.target.value as ScheduledShift["payment_type"])}><option value="standard">Standard</option><option value="enhanced" disabled={paymentRateFor(validAssignedProfile(s.profile_id)!,s.shift_date,"enhanced")<=0}>Enhanced</option><option value="volunteer" disabled={!Boolean(employmentTermsFor(s.profile_id,s.shift_date)?.can_volunteer??validAssignedProfile(s.profile_id)!.can_volunteer)}>Volunteer</option></select></div>}
         <div className="v11ShiftManagementDetails"><div><span>Notes</span><strong>{s.notes?.trim()||"No notes"}</strong></div><div><span>Payroll</span><strong>{s.status==="confirmed"?"Included in confirmed hours":"Included when work is confirmed"}</strong></div></div>
         {s.class_id&&<div className="v311RemoveOccurrence">
           <strong>Remove from this date</strong>
@@ -2688,7 +2764,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     const setStaffingProfile=(patch:Partial<ClassDraft>)=>{
       const next={...d,...patch};
       const total=Math.max(1,Number(next.lead_coaches_required)+Number(next.assistant_coaches_required));
-      setClassModal({...next,minimum_coaches:Math.min(Math.max(0,next.minimum_coaches),next.maximum_coaches),occurrences:occurrences.map(o=>({...o,coaches_required:total,coach_ids:[...o.coach_ids].slice(0,total)}))});
+      setClassModal({...next,minimum_coaches:Math.min(Math.max(0,next.minimum_coaches),next.maximum_coaches),occurrences:occurrences.map(o=>({...o,coaches_required:total,coach_ids:[...o.coach_ids].slice(0,total),payment_types:[...o.payment_types].slice(0,total)}))});
     };
 
     const updateOccurrence=(key:string,patch:Partial<ClassOccurrenceDraft>)=>{
@@ -2701,7 +2777,8 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
         key:crypto.randomUUID(),
         id:undefined,
         weekday:(previous.weekday+1)%7,
-        coach_ids:[...previous.coach_ids]
+        coach_ids:[...previous.coach_ids],
+        payment_types:[...previous.payment_types]
       }]});
     };
     const duplicateOccurrence=(o:ClassOccurrenceDraft)=>{
@@ -2709,7 +2786,8 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
         ...o,
         key:crypto.randomUUID(),
         id:undefined,
-        coach_ids:[...o.coach_ids]
+        coach_ids:[...o.coach_ids],
+        payment_types:[...o.payment_types]
       }]});
     };
     const removeOccurrence=(key:string)=>{
@@ -2757,6 +2835,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
         <div className="classOccurrenceList">
           {occurrences.map((o,index)=>{
             const ids=[...o.coach_ids];while(ids.length<o.coaches_required)ids.push("");
+            const paymentTypes=[...o.payment_types];while(paymentTypes.length<o.coaches_required)paymentTypes.push("standard");
             return <div className="classOccurrenceCard" key={o.key}>
               <div className="classOccurrenceHead"><strong>{dayNames[o.weekday]} session {index+1}</strong><div className="row"><button className="btn btnSecondary" type="button" onClick={()=>duplicateOccurrence(o)}>Duplicate session</button>{occurrences.length>1&&<button className="btn btnDanger" type="button" onClick={()=>removeOccurrence(o.key)}>Remove</button>}</div></div>
               <div className="grid grid3">
@@ -2764,10 +2843,10 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
                 <div className="field"><label>Start</label><input type="time" value={o.start_time} onChange={e=>updateOccurrence(o.key,{start_time:e.target.value})}/></div>
                 <div className="field"><label>Finish</label><input type="time" value={o.finish_time} onChange={e=>updateOccurrence(o.key,{finish_time:e.target.value})}/></div>
               </div>
-              <div className="field"><label>Venue</label><select value={o.venue_id} onChange={e=>updateOccurrence(o.key,{venue_id:e.target.value,coach_ids:[]})}>{adminVenues().map(v=><option value={v.id} key={v.id}>{v.name}</option>)}</select></div>
+              <div className="field"><label>Venue</label><select value={o.venue_id} onChange={e=>updateOccurrence(o.key,{venue_id:e.target.value,coach_ids:[],payment_types:[]})}>{adminVenues().map(v=><option value={v.id} key={v.id}>{v.name}</option>)}</select></div>
               <div className="field"><label>Break minutes</label><input type="number" min={0} value={o.break_minutes} onChange={e=>updateOccurrence(o.key,{break_minutes:Number(e.target.value)})}/></div>
 
-              <div className="grid grid2">{Array.from({length:o.coaches_required},(_,i)=><div className="field" key={i}><label>{i<d.lead_coaches_required?`Default Lead Coach ${i+1}`:`Default Assistant Coach ${i-d.lead_coaches_required+1}`}</label><select value={ids[i]||""} onChange={e=>{const next=[...ids];next[i]=e.target.value;updateOccurrence(o.key,{coach_ids:next})}}><option value="">Unassigned</option>{staffOptionsForVenue(o.venue_id).map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select></div>)}</div>
+              <div className="grid grid2">{Array.from({length:o.coaches_required},(_,i)=>{const profile=profileById(ids[i]||null);return <div className="field v13MasterAssignment" key={i}><label>{i<d.lead_coaches_required?`Default Lead Coach ${i+1}`:`Default Assistant Coach ${i-d.lead_coaches_required+1}`}</label><select value={ids[i]||""} onChange={e=>{const next=[...ids],nextPayments=[...paymentTypes],selected=profileById(e.target.value||null);next[i]=e.target.value;nextPayments[i]=selected?effectivePaymentType(selected,localDateKey(),"standard"):"standard";updateOccurrence(o.key,{coach_ids:next,payment_types:nextPayments})}}><option value="">Unassigned</option>{staffOptionsForVenue(o.venue_id).map(p=><option key={p.id} value={p.id}>{p.full_name}</option>)}</select>{profile&&<PaymentTypeControl profile={profile} date={localDateKey()} value={effectivePaymentType(profile,localDateKey(),paymentTypes[i])} name={`master-payment-${o.key}-${i}`} onChange={paymentType=>{const next=[...paymentTypes];next[i]=paymentType;updateOccurrence(o.key,{payment_types:next})}}/>}</div>})}</div>
               <div className="field"><label>Session notes</label><input value={o.notes} onChange={e=>updateOccurrence(o.key,{notes:e.target.value})} placeholder="Optional"/></div>
             </div>
           })}

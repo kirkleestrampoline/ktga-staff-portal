@@ -3084,6 +3084,11 @@ td .btn{min-height:36px;padding:7px 11px;font-size:11.5px}
 .v13PaymentType.standard{background:#eee8f3;color:#653981}
 .v13PaymentType.enhanced{background:#fff1d9;color:#925b0e}
 .v13PaymentType.volunteer{background:#e8f6ed;color:#28754b}
+.v13PaymentBadge{display:inline-flex;width:max-content;padding:3px 7px;border-radius:999px;background:#eee8f3;color:#653981;font-size:9px;font-weight:850;letter-spacing:.05em;text-transform:uppercase}
+.v13PaymentBadge.enhanced{background:#fff1d9;color:#925b0e}.v13PaymentBadge.volunteer{background:#e8f6ed;color:#28754b}.v13PaymentBadge.salary{background:#e7f0fb;color:#315f91}
+.v13PaymentSelector{display:grid;gap:9px}.v13PaymentSelector>span{color:var(--muted);font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em}
+.v13PaymentSelector label{display:grid;grid-template-columns:22px 1fr;align-items:center;gap:3px 9px;padding:12px 13px;border:1px solid #e5dfe8;border-radius:12px;background:#faf9fb;cursor:pointer}.v13PaymentSelector label.selected{border-color:#b99bcd;background:#fcf8fe}.v13PaymentSelector input{grid-row:1/3;width:18px;height:18px;min-height:0;margin:0;accent-color:#693797}.v13PaymentSelector small{color:var(--muted)}.v13PaymentSelector label:has(input:disabled){cursor:not-allowed;opacity:.55}
+.v13ExistingPayment{margin:0;padding:12px 14px;border:1px solid #e7e1ea;border-radius:12px;background:#faf9fb}.v13ExistingPayment select{margin-top:6px}
 .v13ConfirmationTotals{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding-top:4px}
 .v13ConfirmationTotals>div{display:grid;gap:4px;padding:13px 14px;border-radius:12px;background:#f3eff5}
 .v13ConfirmationTotals span{color:var(--muted);font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase}
