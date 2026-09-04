@@ -9,6 +9,7 @@ import StatusPill from "@/components/status-pill";
 import AvLogo from "@/components/av-logo";
 import { CalendarIcon, ChartIcon, CheckIcon, ClockIcon, InvoiceIcon, MenuIcon, PlusIcon, PoundIcon, SearchIcon, UserIcon, UsersIcon } from "@/components/icons";
 import { dashboardTabForRole, type DashboardTab as Tab } from "@/types/navigation";
+import { qualificationSatisfies, rankCoachRecommendations, type RecommendationPriority } from "@/lib/staffing/recommendations";
 
 type Profile={
   id:string;full_name:string;email:string|null;phone:string|null;address:string|null;role:"coach"|"org_admin"|"admin";
@@ -32,12 +33,39 @@ type ClassTemplate={id:string;venue_id:string;name:string;weekday:number;start_t
 type ClassStaffingSlot={id:string;class_id:string;slot_number:number;default_profile_id:string|null};
 type QualificationType={id:string;name:string;description:string|null;active:boolean;qualification_family:string|null;qualification_level:number|null};
 type CoachQualification={id:string;coach_id:string;qualification_id:string;awarded_date:string|null;expiry_date:string|null;notes:string|null};
+type ClassCoachingStatistic={class_id:string;coach_id:string|null;organisation_id:string;programme_key:string;class_name:string;sessions_coached:number;last_coached_date:string|null};
+type StaffingRuleLevel="disabled"|"warning"|"critical";
+type StaffingCriterionBehaviour="score"|"threshold"|"disabled";
+type StaffingIntelligenceSettings={
+  mandatory_rules:Record<string,StaffingRuleLevel>;
+  criteria:Record<string,{weight:number;behaviour:StaffingCriterionBehaviour}>;
+  priority_order:string[];
+};
 type ScheduledShift={id:string;class_id:string|null;staffing_slot_id:string|null;venue_id:string;profile_id:string|null;original_profile_id:string|null;shift_date:string;start_time:string;finish_time:string;break_minutes:number;class_name:string;status:"scheduled"|"confirmed"|"cancelled";actual_shift_id:string|null;notes:string|null;adjustment_status?:"none"|"pending"|null;requested_start_time?:string|null;requested_finish_time?:string|null;requested_break_minutes?:number|null;adjustment_reason?:string|null};
+type StaffingQualificationContext={classId:string|null;staffingSlotId:string|null;role:"lead"|"assistant";recommendedQualificationId:string|null;recommendedQualification:QualificationType|null};
 type RemovedOccurrence={class_id:string;shift_date:string;class_name:string;venue_id:string;start_time:string;finish_time:string;removed_slots:number};
 type TimeAwayRequest={id:string;profile_id:string;request_type:"holiday"|"sickness"|"appointment"|"compassionate"|"unavailable"|"other";start_date:string;end_date:string;all_day:boolean;start_time:string|null;end_time:string|null;notes:string|null;status:"pending"|"approved"|"declined"|"cancelled";reviewed_by:string|null;reviewed_at:string|null;created_at:string};
 type ClassOccurrenceDraft={key:string;id?:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;coach_ids:string[];notes:string;lead_coaches_required:number;assistant_coaches_required:number;minimum_coaches:number;maximum_coaches:number;lead_recommended_qualification_id:string;assistant_recommended_qualification_id:string};
 type ClassDraft={id?:string;original_ids?:string[];venue_id:string;name:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;notes:string;coach_ids:string[];occurrences?:ClassOccurrenceDraft[]};
 type OneOffShiftDraft={id?:string;venue_id:string;shift_date:string;start_time:string;finish_time:string;class_name:string;notes:string;profile_id:string};
+
+const STAFFING_RULES=[
+  {key:"coach_available",label:"Coach available",description:"Warn when a coach is unavailable for the class period."},
+  {key:"recommended_qualification",label:"Meets recommended qualification",description:"Check the class recommendation, including qualification hierarchy."},
+  {key:"coaching_capability",label:"Coaching capability",description:"Compare the coach’s capability tags with the class requirements."},
+  {key:"weekly_hours_limit",label:"Weekly hours limit",description:"Warn when the configured weekly workload limit is reached."}
+] as const;
+const STAFFING_CRITERIA=[
+  {key:"availability",label:"Availability"},
+  {key:"previous_coach",label:"Previous Coach For This Class"},
+  {key:"lower_staffing_cost",label:"Staffing Cost"},
+  {key:"recommended_qualification",label:"Qualification Recommendation"}
+] as const;
+const DEFAULT_STAFFING_INTELLIGENCE:StaffingIntelligenceSettings={
+  mandatory_rules:{coach_available:"critical",recommended_qualification:"warning",coaching_capability:"warning",weekly_hours_limit:"warning"},
+  criteria:{availability:{weight:35,behaviour:"score"},previous_coach:{weight:20,behaviour:"score"},lower_staffing_cost:{weight:10,behaviour:"score"},recommended_qualification:{weight:0,behaviour:"threshold"}},
+  priority_order:STAFFING_CRITERIA.map(item=>item.key)
+};
 
 const supabase=createClient();
 const money=(n:number)=>new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(Number(n||0));
@@ -94,9 +122,12 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   const [classSlots,setClassSlots]=useState<ClassStaffingSlot[]>([]);
   const [qualificationTypes,setQualificationTypes]=useState<QualificationType[]>([]);
   const [coachQualifications,setCoachQualifications]=useState<CoachQualification[]>([]);
+  const [classCoachingStatistics,setClassCoachingStatistics]=useState<ClassCoachingStatistic[]>([]);
   const [staffEditQualificationIds,setStaffEditQualificationIds]=useState<string[]>([]);
   const [staffEditQualificationDetails,setStaffEditQualificationDetails]=useState<Record<string,{awarded_date:string;expiry_date:string;notes:string}>>({});
   const [qualificationDraft,setQualificationDraft]=useState<{id?:string;name:string;description:string;qualification_family:string;qualification_level:string}>({name:"",description:"",qualification_family:"",qualification_level:""});
+  const [staffingIntelligence,setStaffingIntelligence]=useState<StaffingIntelligenceSettings>(DEFAULT_STAFFING_INTELLIGENCE);
+  const [staffingIntelligenceAvailable,setStaffingIntelligenceAvailable]=useState(true);
   const [staffProfileFoundationAvailable,setStaffProfileFoundationAvailable]=useState(false);
   const [classStaffingFoundationAvailable,setClassStaffingFoundationAvailable]=useState(false);
   const [scheduledShifts,setScheduledShifts]=useState<ScheduledShift[]>([]);
@@ -121,6 +152,8 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   const [adjustReason,setAdjustReason]=useState("");
   const [adminPersonalRota,setAdminPersonalRota]=useState(false);
   const [adminScheduleShift,setAdminScheduleShift]=useState<ScheduledShift|null>(null);
+  const [staffingRecommendationShift,setStaffingRecommendationShift]=useState<ScheduledShift|null>(null);
+  const [staffingQualificationContext,setStaffingQualificationContext]=useState<StaffingQualificationContext|null>(null);
   const [highlightedScheduleShiftId,setHighlightedScheduleShiftId]=useState<string|null>(null);
   const [expandedSchedulingSections,setExpandedSchedulingSections]=useState<Record<"critical"|"warning"|"reminder",boolean>>({critical:false,warning:false,reminder:false});
   const [pendingExtraShifts,setPendingExtraShifts]=useState<Shift[]>([]);
@@ -247,6 +280,14 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       document.documentElement.style.overflow=rootOverflow;
     };
   },[masterTimetableOpen]);
+  useEffect(()=>{
+    if(!adminScheduleShift&&!staffingRecommendationShift)return;
+    const bodyOverflow=document.body.style.overflow;
+    const close=(event:KeyboardEvent)=>{if(event.key==="Escape"){setAdminScheduleShift(null);setStaffingRecommendationShift(null);setStaffingQualificationContext(null)}};
+    document.body.style.overflow="hidden";
+    window.addEventListener("keydown",close);
+    return()=>{document.body.style.overflow=bodyOverflow;window.removeEventListener("keydown",close)};
+  },[adminScheduleShift,staffingRecommendationShift]);
 
   function reportStartupLoadFailure(error:unknown){if(process.env.NODE_ENV!=="production")console.error("[startup-data] load failed",error)}
   function runSharedDataLoad(key:string,loader:()=>Promise<void>){
@@ -299,7 +340,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     else if(next==="timesheets")await Promise.all([loadBusiness(),loadCoachMonth(activeCoach.id),loadTemplates(activeCoach.id),isAdmin?loadAdmin(true):Promise.resolve()]);
     else if(next==="invoices")await Promise.all([loadBusiness(),loadInvoices()]);
     else if(next==="reports"&&isAdmin)await loadAudits();
-    else if(next==="settings"&&isAdmin)await Promise.all([loadBusiness(),loadQualificationLibrary()]);
+    else if(next==="settings"&&isAdmin)await Promise.all([loadBusiness(),loadQualificationLibrary(),loadStaffingIntelligenceSettings()]);
   }
 
   async function reloadLoadedTab(current:Tab){
@@ -596,6 +637,40 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   async function loadBusiness(){
     const{data}=await supabase.from("business_settings").select("*").eq("id",1).maybeSingle();
     if(data)setBusiness(data as Business);
+  }
+
+  async function loadStaffingIntelligenceSettings(){
+    const{data,error}=await supabase.from("staffing_recommendation_settings").select("mandatory_rules,criteria,priority_order").eq("id",1).maybeSingle();
+    if(error){
+      setStaffingIntelligenceAvailable(false);
+      if(process.env.NODE_ENV!=="production")console.error("[staffing-intelligence] settings load failed",error);
+      return;
+    }
+    setStaffingIntelligenceAvailable(true);
+    if(!data)return;
+    const mandatoryRules={...DEFAULT_STAFFING_INTELLIGENCE.mandatory_rules,...((data.mandatory_rules||{}) as Record<string,StaffingRuleLevel>)};
+    const activeKeys=STAFFING_CRITERIA.map(item=>item.key as string);
+    const storedCriteria=(data.criteria||{}) as StaffingIntelligenceSettings["criteria"];
+    const criteria=Object.fromEntries(activeKeys.map(key=>[key,storedCriteria[key]||DEFAULT_STAFFING_INTELLIGENCE.criteria[key]]));
+    const storedOrder=Array.isArray(data.priority_order)?data.priority_order.filter((key):key is string=>typeof key==="string"&&activeKeys.includes(key)):[];
+    const priorityOrder=[...storedOrder,...activeKeys.filter(key=>!storedOrder.includes(key))];
+    setStaffingIntelligence({mandatory_rules:mandatoryRules,criteria,priority_order:priorityOrder});
+  }
+
+  async function saveStaffingIntelligenceSettings(){
+    setSaving(true);
+    const priorities=Object.fromEntries(Object.entries(staffingIntelligence.criteria).map(([key,value])=>[key,value.behaviour==="disabled"?0:value.weight]));
+    const{error}=await supabase.from("staffing_recommendation_settings").update({mandatory_rules:staffingIntelligence.mandatory_rules,criteria:staffingIntelligence.criteria,priority_order:staffingIntelligence.priority_order,priorities,updated_at:new Date().toISOString(),updated_by:initialProfile.id}).eq("id",1);
+    setSaving(false);
+    if(error){if(process.env.NODE_ENV!=="production")console.error("[staffing-intelligence] settings save failed",error);flash(error.message);return}
+    flash("Staffing Intelligence settings saved.");
+  }
+
+  function moveStaffingPriority(key:string,direction:-1|1){
+    const order=[...staffingIntelligence.priority_order],index=order.indexOf(key),next=index+direction;
+    if(index<0||next<0||next>=order.length)return;
+    [order[index],order[next]]=[order[next],order[index]];
+    setStaffingIntelligence({...staffingIntelligence,priority_order:order});
   }
 
   async function loadAudits(){
@@ -1102,12 +1177,14 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     const requestedMonth=month;
     const requestId=beginScheduleRequest(requestedMonth,"schedule");
     const {from,to}=monthRange(requestedMonth);
-    const [{data:c,error:classesError},{data:slots,error:slotsError},{data:ss,error:scheduleError},{data:removed,error:removedError},{data:qualificationData,error:qualificationError}]=await Promise.all([
+    const [{data:c,error:classesError},{data:slots,error:slotsError},{data:ss,error:scheduleError},{data:removed,error:removedError},{data:qualificationData,error:qualificationError},{data:historyData,error:historyError}]=await Promise.all([
       supabase.from("classes").select("*").eq("active",true).order("weekday").order("start_time"),
       supabase.from("class_staffing_slots").select("*").order("slot_number"),
       supabase.from("scheduled_shifts").select("*").gte("shift_date",from).lte("shift_date",to).order("shift_date").order("start_time"),
       isAdmin?supabase.rpc("get_removed_schedule_occurrences",{p_month_start:`${requestedMonth}-01`}):Promise.resolve({data:[],error:null} as any),
-      supabase.from("qualification_types").select("*").order("active",{ascending:false}).order("qualification_family").order("qualification_level",{ascending:false,nullsFirst:false}).order("name")
+      supabase.from("qualification_types").select("*").order("active",{ascending:false}).order("qualification_family").order("qualification_level",{ascending:false,nullsFirst:false}).order("name"),
+      supabase.from("completed_class_coaching_statistics").select("class_id,coach_id,organisation_id,programme_key,class_name,sessions_coached,last_coached_date"),
+      loadStaffingIntelligenceSettings()
     ]);
     if(classesError)throw classesError;
     if(slotsError)throw slotsError;
@@ -1123,6 +1200,8 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     setClassStaffingFoundationAvailable(foundationReady);
     if(foundationReady)setQualificationTypes(sortedQualifications((qualificationData||[]) as QualificationType[]));
     else if(process.env.NODE_ENV!=="production")console.info("[staffing-foundation] optional schema unavailable; legacy schedule loading retained");
+    if(!historyError)setClassCoachingStatistics((historyData||[]) as ClassCoachingStatistic[]);
+    else if(process.env.NODE_ENV!=="production")console.error("[staffing-intelligence] coaching history load failed",historyError);
   }
 
   function blankClassOccurrence(weekday=1):ClassOccurrenceDraft{
@@ -1441,7 +1520,8 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   }
 
   async function confirmScheduled(sch:ScheduledShift){
-    if(!sch.profile_id){flash("Assign a coach before confirming this shift.");return}
+    const assignedProfile=validAssignedProfile(sch.profile_id);
+    if(!assignedProfile){flash("Assign a coach before confirming this shift.");return}
     flash("Confirming shift…");
 
     const monthStart=`${sch.shift_date.slice(0,7)}-01`;
@@ -1601,18 +1681,33 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
 
   function openAdminScheduleShift(s:ScheduledShift){
     setCoachAssignmentSearch("");
-    setAdminScheduleShift(s);
+    if(isAssignedShift(s))setAdminScheduleShift(s);
+    else openStaffingRecommendations(s);
+  }
+
+  function openStaffingRecommendations(s:ScheduledShift){
+    const classTemplate=classes.find(item=>item.id===s.class_id)||null;
+    const staffingSlot=classSlots.find(item=>item.id===s.staffing_slot_id)||null;
+    const role:"lead"|"assistant"=(staffingSlot?.slot_number||1)<=Number(classTemplate?.lead_coaches_required||1)?"lead":"assistant";
+    const recommendedQualificationId=(role==="lead"?classTemplate?.lead_recommended_qualification_id:classTemplate?.assistant_recommended_qualification_id)||null;
+    const context={classId:s.class_id,staffingSlotId:s.staffing_slot_id,role,recommendedQualificationId,recommendedQualification:qualificationTypes.find(item=>item.id===recommendedQualificationId)||null};
+    if(process.env.NODE_ENV!=="production")console.debug("[staffing-intelligence] INITIAL qualification status",context);
+    setStaffingQualificationContext(context);
+    setStaffingRecommendationShift(s);
   }
 
   const scheduleHours=(s:ScheduledShift)=>shiftHours({coach_id:s.profile_id||"",shift_date:s.shift_date,start_time:s.start_time,finish_time:s.finish_time,break_minutes:s.break_minutes,session_location:s.class_name,notes:s.notes});
   const classTemplateHours=(c:ClassTemplate)=>shiftHours({coach_id:"",shift_date:"",start_time:c.start_time,finish_time:c.finish_time,break_minutes:c.break_minutes,session_location:c.name,notes:c.notes});
   const profileById=(id:string|null)=>staff.find(x=>x.id===id)||(id===initialProfile.id?initialProfile:null);
-  const staffOptionsForVenue=(venueId:string)=>{const list=staff.filter(p=>(staffVenueMap[p.id]||[]).includes(venueId)&&p.is_active);if((staffVenueMap[initialProfile.id]||[]).includes(venueId)&&initialProfile.is_active&&!list.some(p=>p.id===initialProfile.id))return [initialProfile,...list];return list};
+  const validAssignedProfile=(profileId:string|null|undefined)=>{const id=profileId?.trim();if(!id)return null;return profileById(id)};
+  const isAssignedShift=(shift:ScheduledShift)=>Boolean(validAssignedProfile(shift.profile_id));
+  const isRecommendationCandidate=(profile:Profile)=>profile.is_active&&!new Set(["unassigned","unfilled","vacant"]).has(profile.full_name.trim().toLocaleLowerCase());
+  const staffOptionsForVenue=(venueId:string)=>{const list=staff.filter(p=>(staffVenueMap[p.id]||[]).includes(venueId)&&isRecommendationCandidate(p));if((staffVenueMap[initialProfile.id]||[]).includes(venueId)&&isRecommendationCandidate(initialProfile)&&!list.some(p=>p.id===initialProfile.id))return [initialProfile,...list];return list};
   const scheduleScope=scheduledShifts.filter(s=>!scheduleFilter||s.venue_id===scheduleFilter);
   const plannedSchedule=scheduleScope.filter(s=>s.status!=="cancelled");
   const forecastCost=plannedSchedule.reduce((a,s)=>a+scheduleHours(s)*Number(profileById(s.profile_id)?.hourly_rate||0),0);
   const confirmedScheduleCost=scheduleScope.filter(s=>s.status==="confirmed").reduce((a,s)=>a+scheduleHours(s)*Number(profileById(s.profile_id)?.hourly_rate||0),0);
-  const unassignedScheduleCount=plannedSchedule.filter(s=>!s.profile_id).length;
+  const unassignedScheduleCount=plannedSchedule.filter(s=>!isAssignedShift(s)).length;
   const actualScheduleCost=adminMonthShifts.filter(s=>!scheduleFilter||s.venue_id===scheduleFilter).reduce((a,s)=>a+shiftHours(s)*Number(profileById(s.coach_id)?.hourly_rate||0),0);
   const normalCost=classes.filter(c=>!scheduleFilter||c.venue_id===scheduleFilter).reduce((total,c)=>{
     const [y,m]=month.split("-").map(Number);const last=new Date(y,m,0).getDate();let occurrences=0;
@@ -1633,26 +1728,27 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   const pendingLeaveCount=timeAwayRequests.filter(r=>r.status==="pending").length;
   type SchedulingIssue={id:string;severity:"critical"|"warning"|"reminder";coach:string;description:string;date:string;startTime:string;finishTime:string;venueId:string|null;className:string;shift:ScheduledShift|null;extraShift?:Shift};
   const schedulingIssues:SchedulingIssue[]=plannedSchedule.flatMap<SchedulingIssue>(s=>{
-    const coach=profileById(s.profile_id)?.full_name||"Unassigned";
+    const assignedProfile=validAssignedProfile(s.profile_id);
+    const coach=assignedProfile?.full_name||"Unassigned";
     const base={date:s.shift_date,startTime:s.start_time,finishTime:s.finish_time,venueId:s.venue_id,className:s.class_name,shift:s};
     const issues:SchedulingIssue[]=[];
-    if(s.shift_date>staffingWindowEnd&&!profileById(s.profile_id)){
+    if(s.shift_date>staffingWindowEnd&&!isAssignedShift(s)){
       issues.push({...base,id:`${s.id}-future-staffing`,severity:"reminder",coach,description:"Staffing still required"});
       return issues;
     }
-    if(!s.profile_id){
+    if(!isAssignedShift(s)){
       if(s.shift_date>=today&&s.shift_date<=staffingWindowEnd)issues.push({...base,id:`${s.id}-unassigned`,severity:"critical",coach,description:s.shift_date===today?"Today's shift has no required coach assigned":s.shift_date===tomorrow?"Tomorrow's shift has no required coach assigned":"Shift within 7 days has no required coach assigned"});
       return issues;
     }
-    if(approvedConflictsForCoach(s.profile_id,s.shift_date,s.start_time,s.finish_time).length)issues.push({...base,id:`${s.id}-away`,severity:"critical",coach,description:"Coach assigned whilst on approved Leave"});
-    if(scheduledOverlapsForCoach(s.profile_id,s).length)issues.push({...base,id:`${s.id}-double`,severity:"critical",coach,description:"Coach double booked"});
-    if(pendingConflictsForCoach(s.profile_id,s.shift_date,s.start_time,s.finish_time).length)issues.push({...base,id:`${s.id}-pending-leave`,severity:"warning",coach,description:"Coach has a Pending Leave / Unavailable request"});
+    if(approvedConflictsForCoach(assignedProfile!.id,s.shift_date,s.start_time,s.finish_time).length)issues.push({...base,id:`${s.id}-away`,severity:"critical",coach,description:"Coach assigned whilst on approved Leave"});
+    if(scheduledOverlapsForCoach(assignedProfile!.id,s).length)issues.push({...base,id:`${s.id}-double`,severity:"critical",coach,description:"Coach double booked"});
+    if(pendingConflictsForCoach(assignedProfile!.id,s.shift_date,s.start_time,s.finish_time).length)issues.push({...base,id:`${s.id}-pending-leave`,severity:"warning",coach,description:"Coach has a Pending Leave / Unavailable request"});
     if(s.adjustment_status==="pending")issues.push({...base,id:`${s.id}-adjustment`,severity:"warning",coach,description:"Actual hours adjustment awaiting approval"});
     return issues;
   });
   const representedUnstaffedIds=new Set(schedulingIssues.filter(issue=>issue.id.endsWith("-future-staffing")||issue.id.endsWith("-unassigned")).map(issue=>issue.shift?.id).filter(Boolean));
   futureScheduledShifts.forEach(s=>{
-    if(!s.id||representedUnstaffedIds.has(s.id)||s.shift_date<=staffingWindowEnd||s.status==="cancelled"||profileById(s.profile_id))return;
+    if(!s.id||representedUnstaffedIds.has(s.id)||s.shift_date<=staffingWindowEnd||s.status==="cancelled"||isAssignedShift(s))return;
     schedulingIssues.push({id:`${s.id}-future-staffing`,severity:"reminder",coach:"Unassigned",description:"Staffing still required",date:s.shift_date,startTime:s.start_time,finishTime:s.finish_time,venueId:s.venue_id,className:s.class_name,shift:s});
     representedUnstaffedIds.add(s.id);
   });
@@ -1725,6 +1821,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     {classModal&&ClassModal()}
     {oneOffShiftModal&&OneOffShiftModal()}
     {adminScheduleShift&&AdminScheduleShiftModal()}
+    {staffingRecommendationShift&&IntelligentStaffingDrawer()}
     {confirmShift&&ConfirmShiftModal()}
     {adjustShift&&AdjustmentModal()}
     <MobileNav tab={tab} setTab={(t:Tab)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} role={initialProfile.role} name={initialProfile.full_name} open={mobileMoreOpen} setOpen={setMobileMoreOpen} onSignOut={signOut}/>
@@ -2102,6 +2199,28 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     }catch(e:any){flash(e?.message||"Reset failed.")}finally{setResetBusy(false)}
   }
 
+  function StaffingIntelligenceSettingsView(){
+    const criterionLabel=(key:string)=>STAFFING_CRITERIA.find(item=>item.key===key)?.label||key.replaceAll("_"," ").replace(/\b\w/g,letter=>letter.toUpperCase());
+    return <div className="section v11StaffingIntelligence">
+      <PageHead title="Staffing Intelligence" sub="Configure advisory rules and recommendation ranking. These settings never block an assignment."/>
+      {!staffingIntelligenceAvailable&&<div className="notice">Apply the Version 1.1 Staffing Intelligence migration to manage these settings.</div>}
+      <div className="card v11IntelligenceCard">
+        <div className="sectionHeader"><div><span className="v11SectionNumber">01</span><h2>Mandatory Rules</h2><p>Choose how strongly each advisory check should be shown.</p></div></div>
+        <div className="v11RuleList">{STAFFING_RULES.map(rule=><div className="v11RuleRow" key={rule.key}><div><strong>{rule.label}</strong><span>{rule.description}</span></div><select aria-label={`${rule.label} severity`} value={staffingIntelligence.mandatory_rules[rule.key]||"disabled"} onChange={e=>setStaffingIntelligence({...staffingIntelligence,mandatory_rules:{...staffingIntelligence.mandatory_rules,[rule.key]:e.target.value as StaffingRuleLevel}})}><option value="disabled">Disabled</option><option value="warning">Warning</option><option value="critical">Critical</option></select></div>)}</div>
+      </div>
+      <div className="card v11IntelligenceCard">
+        <div className="sectionHeader"><div><span className="v11SectionNumber">02</span><h2>Recommendation Priorities</h2><p>Weights influence ranking. Threshold criteria only need to pass and gain no bonus for exceeding.</p></div></div>
+        <div className="v11CriteriaHeader"><span>Criterion</span><span>Weight</span><span>Behaviour</span></div>
+        <div className="v11CriteriaList">{staffingIntelligence.priority_order.map(key=>{const criterion=staffingIntelligence.criteria[key];if(!criterion)return null;return <div className="v11CriterionRow" key={key}><strong>{criterionLabel(key)}</strong><input aria-label={`${criterionLabel(key)} weight`} type="number" min="0" max="100" value={criterion.weight} disabled={criterion.behaviour!=="score"} onChange={e=>setStaffingIntelligence({...staffingIntelligence,criteria:{...staffingIntelligence.criteria,[key]:{...criterion,weight:Math.min(100,Math.max(0,Number(e.target.value)||0))}}})}/><select aria-label={`${criterionLabel(key)} behaviour`} value={criterion.behaviour} onChange={e=>setStaffingIntelligence({...staffingIntelligence,criteria:{...staffingIntelligence.criteria,[key]:{...criterion,behaviour:e.target.value as StaffingCriterionBehaviour}}})}><option value="score">Score</option><option value="threshold">Threshold</option><option value="disabled">Disabled</option></select></div>})}</div>
+      </div>
+      <div className="card v11IntelligenceCard">
+        <div className="sectionHeader"><div><span className="v11SectionNumber">03</span><h2>Priority Order</h2><p>Highest priority appears first. New criteria can be added to the stored configuration without changing this layout.</p></div></div>
+        <ol className="v11PriorityList">{staffingIntelligence.priority_order.map((key,index)=><li key={key}><span>{index+1}</span><strong>{criterionLabel(key)}</strong><div><button className="iconButton" type="button" aria-label={`Move ${criterionLabel(key)} up`} disabled={index===0} onClick={()=>moveStaffingPriority(key,-1)}>↑</button><button className="iconButton" type="button" aria-label={`Move ${criterionLabel(key)} down`} disabled={index===staffingIntelligence.priority_order.length-1} onClick={()=>moveStaffingPriority(key,1)}>↓</button></div></li>)}</ol>
+      </div>
+      <div className="v11SettingsActions"><button className="btn btnPrimary" type="button" disabled={saving||!staffingIntelligenceAvailable} onClick={()=>void saveStaffingIntelligenceSettings()}>{saving?"Saving…":"Save Staffing Intelligence"}</button></div>
+    </div>
+  }
+
   function SettingsView(){
     const invoiceOrganisationVisible=(v:Venue)=>{
       const key=`${v.name||""} ${v.slug||""}`.toLowerCase();
@@ -2112,6 +2231,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       <div className="formSection"><div className="formSectionTitle"><h3>Organisation</h3><p>Shown on generated invoices.</p></div><div className="field"><label>Business name</label><input value={business.business_name} onChange={e=>setBusiness({...business,business_name:e.target.value})}/></div><div className="field"><label>Business address</label><textarea value={business.business_address||""} onChange={e=>setBusiness({...business,business_address:e.target.value})}/></div></div>
       <div className="formSection"><div className="formSectionTitle"><h3>Timesheets & payment</h3><p>Submission is due on this day of the following month.</p></div><div className="grid grid2"><div className="field"><label>Cut-off day</label><select value={business.cutoff_day} onChange={e=>setBusiness({...business,cutoff_day:Number(e.target.value)})}>{Array.from({length:7},(_,i)=>i+1).map(d=><option value={d} key={d}>{d}{d===1?"st":d===2?"nd":d===3?"rd":"th"} of following month</option>)}</select></div><div className="field"><label>Payment note</label><input value={business.payment_note||""} onChange={e=>setBusiness({...business,payment_note:e.target.value})}/></div></div><button className="btn btnPrimary" onClick={saveBusiness} disabled={saving}>{saving?"Saving…":"Save settings"}</button></div>
     </div></>}
+    {isGlobalAdmin&&StaffingIntelligenceSettingsView()}
     {isGlobalAdmin&&<div className="section"><PageHead title="Qualifications" sub="Manage the qualification options used by coach and class staffing profiles."/><div className="grid grid2 v101QualificationLayout"><div className="card"><div className="formSection"><div className="formSectionTitle"><h3>{qualificationDraft.id?"Edit qualification":"Add qualification"}</h3><p>Qualifications inform recommendations but never prevent assignment.</p></div><div className="field"><label>Name</label><input value={qualificationDraft.name} onChange={e=>setQualificationDraft({...qualificationDraft,name:e.target.value})} placeholder="e.g. Level 2 Trampoline"/></div><div className="grid grid2"><div className="field"><label>Qualification family <span className="muted">(optional)</span></label><input value={qualificationDraft.qualification_family} onChange={e=>setQualificationDraft({...qualificationDraft,qualification_family:e.target.value})} placeholder="e.g. Trampoline"/></div><div className="field"><label>Qualification level <span className="muted">(optional)</span></label><input type="number" min="0" step="1" value={qualificationDraft.qualification_level} onChange={e=>setQualificationDraft({...qualificationDraft,qualification_level:e.target.value})} placeholder="e.g. 3"/></div></div><div className="field"><label>Description <span className="muted">(optional)</span></label><textarea value={qualificationDraft.description} onChange={e=>setQualificationDraft({...qualificationDraft,description:e.target.value})}/></div><div className="row"><button className="btn btnPrimary" type="button" disabled={saving||!qualificationDraft.name.trim()} onClick={()=>void saveQualificationType()}>{saving?"Saving…":qualificationDraft.id?"Save qualification":"Add qualification"}</button>{qualificationDraft.id&&<button className="btn btnSecondary" type="button" onClick={()=>setQualificationDraft({name:"",description:"",qualification_family:"",qualification_level:""})}>Cancel</button>}</div></div></div><div className="card"><div className="sectionHeader"><div><h2>Qualification library</h2><p>{qualificationTypes.filter(q=>q.active).length} active · {qualificationTypes.filter(q=>!q.active).length} archived</p></div></div><div className="v101QualificationList">{sortedQualifications(qualificationTypes).map(q=><article className={`v101QualificationItem ${q.active?"active":"archived"}`} key={q.id}><div><strong>{q.name}</strong><span>{q.qualification_family?`${q.qualification_family}${q.qualification_level!=null?` · Level ${q.qualification_level}`:""}`:"Standalone qualification"}</span><span>{q.description||"No description"}</span><small>{q.active?"Active":"Inactive"}</small></div><div className="row"><button className="btn btnSecondary" type="button" onClick={()=>setQualificationDraft({id:q.id,name:q.name,description:q.description||"",qualification_family:q.qualification_family||"",qualification_level:q.qualification_level?.toString()||""})}>Edit</button><button className={`btn ${q.active?"btnDanger":"btnAccent"}`} type="button" onClick={()=>void setQualificationActive(q,!q.active)}>{q.active?"Archive":"Restore"}</button></div></article>)}{!qualificationTypes.length&&<div className="empty">No qualifications configured yet.</div>}</div></div></div></div>}
     <div className="section"><PageHead title="Organisation invoice settings" sub="Each organisation gets its own legal name and invoice address. A coach working at both gets separate invoices automatically."/><div className="grid grid2">{editableOrgs.map(v=>{const d=venueDrafts[v.id]||v;return <div className="card" key={v.id}><div className="formSection"><div className="formSectionTitle"><h3>{v.name}</h3><p>Used only for shifts/invoices belonging to this organisation.</p></div><div className="field"><label>Legal / invoice name</label><input value={d.legal_name||""} onChange={e=>setVenueDrafts({...venueDrafts,[v.id]:{...d,legal_name:e.target.value}})}/></div><div className="field"><label>Invoice address</label><textarea value={d.invoice_address||""} onChange={e=>setVenueDrafts({...venueDrafts,[v.id]:{...d,invoice_address:e.target.value}})}/></div><div className="grid grid2"><div className="field"><label>Invoice prefix</label><input value={d.invoice_prefix||""} onChange={e=>setVenueDrafts({...venueDrafts,[v.id]:{...d,invoice_prefix:e.target.value.toUpperCase()}})}/></div><div className="field"><label>Payment note</label><input value={d.payment_note||""} onChange={e=>setVenueDrafts({...venueDrafts,[v.id]:{...d,payment_note:e.target.value}})}/></div></div><button className="btn btnPrimary" onClick={()=>saveOrganisation(d)}>Save {v.name}</button></div></div>})}</div></div></>
   }
@@ -2129,54 +2249,84 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     </>
   }
 
-  function AdminScheduleShiftModal(){
-    const s=adminScheduleShift!;
-    const allowed=staffOptionsForVenue(s.venue_id);
-    const now=new Date();
-    const todayKey=localDateKey(now);
-    const monday=new Date(now.getFullYear(),now.getMonth(),now.getDate()-((now.getDay()+6)%7),12);
+  function IntelligentStaffingDrawer(){
+    const shift=staffingRecommendationShift!;
+    const classTemplate=classes.find(item=>item.id===shift.class_id);
+    const staffingSlot=classSlots.find(item=>item.id===shift.staffing_slot_id);
+    const staffingRole=staffingQualificationContext?.role||((staffingSlot?.slot_number||1)<=Number(classTemplate?.lead_coaches_required||1)?"lead":"assistant");
+    const recommendedId=staffingQualificationContext?.recommendedQualificationId??(staffingRole==="lead"?classTemplate?.lead_recommended_qualification_id:classTemplate?.assistant_recommended_qualification_id);
+    const recommendedQualification=staffingQualificationContext?.recommendedQualification||qualificationTypes.find(item=>item.id===recommendedId)||null;
+    if(process.env.NODE_ENV!=="production")console.debug("[staffing-intelligence] qualification requirement",{scheduledShiftId:shift.id,classId:shift.class_id,staffingSlotId:shift.staffing_slot_id,classResolved:Boolean(classTemplate),slotNumber:staffingSlot?.slot_number??null,slotRole:staffingRole,leadRecommendedQualificationId:classTemplate?.lead_recommended_qualification_id??null,assistantRecommendedQualificationId:classTemplate?.assistant_recommended_qualification_id??null,recommendedQualificationId:recommendedId??null,recommendedQualificationName:recommendedQualification?.name??null});
+    const sameClassShifts=scheduledShifts.filter(item=>item.shift_date===shift.shift_date&&item.class_id===shift.class_id&&item.status!=="cancelled");
+    const assignedCount=sameClassShifts.filter(isAssignedShift).length;
+    const totalSlots=Math.max(sameClassShifts.length,Number(classTemplate?.minimum_coaches||classTemplate?.coaches_required||1));
+    const monday=new Date(`${shift.shift_date}T12:00:00`);monday.setDate(monday.getDate()-((monday.getDay()+6)%7));
     const sunday=new Date(monday);sunday.setDate(monday.getDate()+6);
     const weekStart=localDateKey(monday),weekEnd=localDateKey(sunday);
     const assignedHours=(profileId:string,from:string,to:string)=>scheduledShifts.filter(item=>item.profile_id===profileId&&item.status!=="cancelled"&&item.shift_date>=from&&item.shift_date<=to).reduce((total,item)=>total+scheduleHours(item),0);
-    const coachChoices=allowed.map(p=>{
-      const state=coachAssignmentState(p.id,s);
-      const conflict=state.state==="working"?scheduledOverlapsForCoach(p.id,s)[0]:null;
-      return{p,state,conflict,todayHours:assignedHours(p.id,todayKey,todayKey),weekHours:assignedHours(p.id,weekStart,weekEnd)};
+    const enabledKeys=["availability","previous_coach","lower_staffing_cost","recommended_qualification"];
+    const priorities:RecommendationPriority[]=staffingIntelligence.priority_order.filter(key=>enabledKeys.includes(key)).flatMap(key=>{const config=staffingIntelligence.criteria[key];return config&&config.behaviour!=="disabled"?[{key:key as RecommendationPriority["key"],weight:config.behaviour==="score"?config.weight:0}]:[]});
+    const allowed=staffOptionsForVenue(shift.venue_id);
+    const normalisedProgrammeName=shift.class_name.trim().toLocaleLowerCase();
+    const inputs=allowed.map(coach=>{
+      const state=coachAssignmentState(coach.id,shift);
+      const exactHistory=classCoachingStatistics.find(item=>item.class_id===shift.class_id&&item.coach_id===coach.id);
+      const exactSessionCount=Number(exactHistory?.sessions_coached||0);
+      const sameProgrammeSessionCount=classCoachingStatistics.filter(item=>item.coach_id===coach.id&&item.class_id!==shift.class_id&&item.organisation_id===shift.venue_id&&item.programme_key===normalisedProgrammeName).reduce((total,item)=>total+Number(item.sessions_coached||0),0);
+      const heldTypes=coachQualifications.filter(item=>item.coach_id===coach.id).map(item=>qualificationTypes.find(type=>type.id===item.qualification_id)).filter(Boolean) as QualificationType[];
+      return{coachId:coach.id,coachName:coach.full_name,role:staffingRole,classDurationHours:scheduleHours(shift),hourlyRate:Number(coach.hourly_rate||0),isAvailable:state.state==="available",isAssignedElsewhere:state.state==="working",approvedTimeAway:state.state==="away",pendingTimeAway:state.state==="pending",previousSessionCount:exactSessionCount,exactSessionCount,sameProgrammeSessionCount,programmeName:shift.class_name.trim(),worksAtOrganisation:true,qualificationIds:heldTypes.map(item=>item.id),recommendedQualificationId:recommendedId,qualifications:heldTypes.map(item=>({id:item.id,family:item.qualification_family,level:item.qualification_level})),recommendedQualification:recommendedQualification?{id:recommendedQualification.id,family:recommendedQualification.qualification_family,level:recommendedQualification.qualification_level}:null,dailyAssignedHours:assignedHours(coach.id,shift.shift_date,shift.shift_date),weeklyAssignedHours:assignedHours(coach.id,weekStart,weekEnd)};
     });
-    const query=coachAssignmentSearch.trim().toLowerCase();
-    const visibleChoices=coachChoices.filter(item=>!query||`${item.p.full_name} ${item.state.label} ${item.conflict?.class_name||""} ${item.conflict?venueName(item.conflict.venue_id):venueName(s.venue_id)}`.toLowerCase().includes(query));
-    const groups=([
-      {key:"available",label:"🟢 Available",items:visibleChoices.filter(item=>item.state.state==="available")},
-      {key:"working",label:"⚫ Already Coaching",items:visibleChoices.filter(item=>item.state.state==="working")},
-      {key:"pending",label:"🟠 Pending Time Away",items:visibleChoices.filter(item=>item.state.state==="pending")},
-      {key:"away",label:"🔴 Unavailable",items:visibleChoices.filter(item=>item.state.state==="away")}
-    ] as const);
-    const assignCoach=async(profileId:string)=>{
-      const changed=await reassignScheduledWithAvailability(s,profileId);
-      if(!changed)return;
-      if(tab==="dashboard"){
-        setAdminScheduleShift(null);
-        await Promise.all([loadSchedule(),loadFutureUnstaffedShifts()]);
-      }else setAdminScheduleShift({...s,profile_id:profileId});
-    };
+    const ranked=rankCoachRecommendations(inputs,priorities);
+    const coachRows=ranked.map(result=>{
+      const coach=allowed.find(item=>item.id===result.coachId)!;
+      const input=inputs.find(item=>item.coachId===result.coachId)!;
+      const state=coachAssignmentState(coach.id,shift);
+      const conflict=scheduledOverlapsForCoach(coach.id,shift)[0]||null;
+      const meetsQualification=!recommendedId||input.qualificationIds.includes(recommendedId)||Boolean(recommendedQualification&&input.qualifications.some(held=>qualificationSatisfies(held,input.recommendedQualification!)));
+      if(process.env.NODE_ENV!=="production")console.debug("[staffing-intelligence] coach qualification match",{classId:shift.class_id,slotRole:staffingRole,recommendedQualificationId:recommendedId??null,recommendedQualificationName:recommendedQualification?.name??null,coachId:coach.id,coachName:coach.full_name,coachQualifications:input.qualifications.map(item=>({id:item.id,family:item.family??null,level:item.level??null})),matches:meetsQualification});
+      const lowerCost=result.estimatedStaffingCost<=Math.min(...ranked.map(item=>item.estimatedStaffingCost));
+      const matchLabel=result.score>=85?"Excellent Match":result.score>=70?"Strong Match":result.score>=55?"Good Match":result.score>=35?"Possible Match":"Not Recommended";
+      return{coach,input,result,state,conflict,meetsQualification,lowerCost,matchLabel,recommendedQualificationId:recommendedId||null,recommendedQualificationName:recommendedQualification?.name||null};
+    }).filter(row=>!coachAssignmentSearch.trim()||`${row.coach.full_name} ${row.matchLabel} ${row.state.label}`.toLowerCase().includes(coachAssignmentSearch.trim().toLowerCase()));
+    const fullyPreferred=coachRows.some(row=>row.state.state==="available"&&row.meetsQualification);
+    if(process.env.NODE_ENV!=="production"){
+      console.debug("[staffing-intelligence] AFTER EXPERIENCE LOAD qualification status",{recommendedQualificationId:recommendedId??null,recommendedQualificationName:recommendedQualification?.name??null,experienceRows:classCoachingStatistics.length});
+      console.debug("[staffing-intelligence] AFTER SORT qualification status",coachRows.map(row=>({coachId:row.coach.id,recommendedQualificationId:recommendedId??null,matches:row.meetsQualification})));
+      console.debug("[staffing-intelligence] FINAL RENDER qualification status",{recommendedQualificationId:recommendedId??null,recommendedQualificationName:recommendedQualification?.name??null,visible:Boolean(recommendedId)});
+    }
+    const assign=async(coachId:string)=>{const changed=await reassignScheduledWithAvailability(shift,coachId);if(changed){setStaffingRecommendationShift(null);setStaffingQualificationContext(null)}};
+    return <div className="v11DrawerBackdrop" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget){setStaffingRecommendationShift(null);setStaffingQualificationContext(null)}}}><aside className="v11StaffingDrawer" role="dialog" aria-modal="true" aria-labelledby="staffing-drawer-title">
+      <header className={`v11DrawerHead ${venueColourClass(shift.venue_id)}`}><div><span>Staffing Intelligence</span><h2 id="staffing-drawer-title">{shift.class_name}</h2><p>{new Date(`${shift.shift_date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})} · {shift.start_time.slice(0,5)}–{shift.finish_time.slice(0,5)}</p><div><b>{staffingRole==="lead"?"Lead Coach":"Assistant Coach"}</b><small>{venueName(shift.venue_id)} · {assignedCount} of {totalSlots} coaches assigned</small></div></div><button className="iconButton" type="button" aria-label="Close staffing recommendations" onClick={()=>{setStaffingRecommendationShift(null);setStaffingQualificationContext(null)}}>×</button></header>
+      <div className="v11DrawerBody"><div className="v420CoachSearch"><span aria-hidden="true">⌕</span><input type="search" value={coachAssignmentSearch} onChange={event=>setCoachAssignmentSearch(event.target.value)} placeholder="Search coaches..." aria-label="Search coaches"/></div>
+        {!fullyPreferred&&<div className="notice">No coach fully meets your preferred criteria. All available coaches remain assignable.</div>}
+        {coachRows.map((row,index)=><div className="v11RecommendationWrap" key={row.coach.id}>{index===1&&<h3 className="v11OtherCoaches">Other Coaches</h3>}<article className={`v11RecommendationCard ${index===0?"best":""} ${row.state.state!=="available"?"warning":""} ${shift.profile_id===row.coach.id?"selected":""}`}>{index===0&&<div className="v11BestLabel">Best recommendation</div>}<div className="v11RecommendationHead"><div className="v11CoachAvatar">{initials(row.coach.full_name)}</div><div><h3>{row.coach.full_name}</h3><span>{shift.profile_id===row.coach.id?"Currently assigned · ":""}{row.matchLabel}</span></div><div><small>Estimated cost</small><strong>£{row.result.estimatedStaffingCost.toFixed(2)}</strong></div></div>
+          <div className={`v11Availability ${row.state.state==="available"?"available":"unavailable"}`}>{row.state.state==="available"?"✓ Available":`⚠ ${row.state.label}`}</div>
+          {row.recommendedQualificationId&&<div className={`v11QualificationStatus ${row.meetsQualification?"met":"unmet"}`}><strong>{row.meetsQualification?"✓ Meets recommended qualification":"⚠ Below recommended qualification"}</strong><span>Recommended: {row.recommendedQualificationName||row.recommendedQualificationId}</span></div>}
+          {row.conflict&&<div className="v11Conflict"><strong>⚠ Already coaching another session</strong><span>{row.conflict.start_time.slice(0,5)}–{row.conflict.finish_time.slice(0,5)} · {row.conflict.class_name}</span></div>}
+          <details className="v11Why"><summary>Why?</summary><div><span className={row.state.state==="available"?"positive":"warning"}>{row.state.state==="available"?"✓ Available for this session":"⚠ Not available for this session"}</span>{row.input.exactSessionCount? <span className="positive">✓ Usually coaches this session<br/><small>Completed this session {row.input.exactSessionCount} time{row.input.exactSessionCount===1?"":"s"}</small></span>:row.input.sameProgrammeSessionCount?<span className="positive">✓ Has coached {row.input.programmeName} before<br/><small>Completed {row.input.sameProgrammeSessionCount} {row.input.programmeName} session{row.input.sameProgrammeSessionCount===1?"":"s"}</small></span>:null}{recommendedQualification&&<span className={row.meetsQualification?"positive":"warning"}>{row.meetsQualification?"✓ Meets the recommended qualification":"⚠ Below the recommended qualification"}</span>}{row.lowerCost&&<span className="positive">✓ Lower staffing cost than several alternatives</span>}</div></details>
+          <button className={`btn ${row.state.state==="available"?"btnPrimary":"btnAccent"}`} type="button" disabled={shift.status==="cancelled"||shift.status==="confirmed"} onClick={()=>void assign(row.coach.id)}>{row.state.state==="available"?`Assign ${staffingRole==="lead"?"Lead":"Assistant"}`:"Assign Anyway"}</button>
+        </article></div>)}
+        {!coachRows.length&&<div className="empty">No coaches match your search.</div>}
+      </div>
+    </aside></div>;
+  }
+
+  function AdminScheduleShiftModal(){
+    const s=adminScheduleShift!;
     return <div className="modalBackdrop"><div className="modal v311AdminShiftModal v405ScheduleControlModal">
       <div className={`v311AdminShiftHero ${venueColourClass(s.venue_id)}`}>
         <div><span>Schedule control</span><h2>{s.class_name}</h2><p>{new Date(`${s.shift_date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})} · {s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</p></div>
         <button className="iconButton" onClick={()=>setAdminScheduleShift(null)}>×</button>
       </div>
       <div className="modalBody v405ScheduleControlBody">
+        <div className="v11AssignedPrimaryActions">
+          {s.status==="scheduled"&&s.profile_id&&<button className="btn btnPrimary" type="button" onClick={async()=>{await confirmScheduled(s);setAdminScheduleShift(null)}}>Confirm Worked</button>}
+          <button className="btn btnSecondary" type="button" disabled={s.status==="cancelled"||s.status==="confirmed"} onClick={()=>{setAdminScheduleShift(null);setCoachAssignmentSearch("");openStaffingRecommendations(s)}}>Reassign Coach</button>
+        </div>
         <div className="v311ShiftSummary"><div><span>Organisation</span><strong>{venueName(s.venue_id)}</strong></div><div><span>Planned hours</span><strong>{scheduleHours(s).toFixed(2)}h</strong></div><div><span>Status</span><strong className={`scheduleStatus ${s.status}`}>{s.adjustment_status==="pending"?"Approval pending":s.status}</strong></div></div>
         {!s.class_id&&<div className="v518OneOffActions"><span>One-off shift</span><button className="btn btnSecondary" type="button" disabled={s.status==="confirmed"} title={s.status==="confirmed"?"Unconfirm this shift before editing its planned details.":undefined} onClick={()=>{setAdminScheduleShift(null);setOneOffShiftModal({id:s.id,venue_id:s.venue_id,shift_date:s.shift_date,start_time:s.start_time.slice(0,5),finish_time:s.finish_time.slice(0,5),class_name:s.class_name,notes:s.notes||"",profile_id:s.profile_id||""})}}>Edit details</button><button className="btn btnDanger" type="button" onClick={()=>void deleteOneOffShift(s)}>Delete shift</button></div>}
-        <div className="field"><label>Assigned coach</label><div className="v400AssignmentPanel v420AssignmentPanel">
-          <div className="v420CoachSearch"><span aria-hidden="true">⌕</span><input type="search" value={coachAssignmentSearch} onChange={e=>setCoachAssignmentSearch(e.target.value)} placeholder="Search coaches..." aria-label="Search coaches"/></div>
-          {groups.map(group=>{if(!group.items.length)return null;return <div className={`v400AssignGroup v420AssignGroup ${group.key}`} key={group.key}><span>{group.label} <b>{group.items.length}</b></span><div>{group.items.map(({p,state,conflict,todayHours,weekHours})=><article className={`v420CoachCard ${s.profile_id===p.id?"selected":""}`} key={p.id}>
-            <div className="v420CoachCardHead"><div><strong>{p.full_name}</strong><small>{state.label}</small></div><button type="button" disabled={s.status==="cancelled"||s.status==="confirmed"} onClick={()=>assignCoach(p.id)}>Assign →</button></div>
-            <div className="v420CoachHours"><span><small>Today</small><b>{todayHours.toFixed(2)}h</b></span><span><small>This week</small><b>{weekHours.toFixed(2)}h</b></span></div>
-            {conflict?<div className="v420CoachContext"><span>Currently coaching</span><strong>{conflict.class_name}</strong><small>{conflict.start_time.slice(0,5)}–{conflict.finish_time.slice(0,5)} · {venueName(conflict.venue_id)}</small></div>:<div className="v420CoachContext"><span>Assignment</span><strong>{s.class_name}</strong><small>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)} · {venueName(s.venue_id)}</small></div>}
-          </article>)}</div></div>})}
-          {!groups.some(group=>group.items.length)&&<div className="v420NoCoaches">No coaches match “{coachAssignmentSearch}”.</div>}
-          <button type="button" className="v400Unassign" disabled={!s.profile_id||s.status==="cancelled"||s.status==="confirmed"} onClick={async()=>{await reassignScheduledWithAvailability(s,"");setAdminScheduleShift({...s,profile_id:null})}}>Set unassigned</button>
-        </div></div>
+        <div className="v11AssignedCoach"><span>Assigned coach</span><strong>{validAssignedProfile(s.profile_id)?.full_name||"Unassigned"}</strong>{isAssignedShift(s)&&<small>{coachAssignmentState(s.profile_id!,s).label}</small>}<button type="button" className="v400Unassign" disabled={!isAssignedShift(s)||s.status==="cancelled"||s.status==="confirmed"} onClick={async()=>{await reassignScheduledWithAvailability(s,"");setAdminScheduleShift(null)}}>Remove Coach</button></div>
+        <div className="v11ShiftManagementDetails"><div><span>Notes</span><strong>{s.notes?.trim()||"No notes"}</strong></div><div><span>Payroll</span><strong>{s.status==="confirmed"?"Included in confirmed hours":"Included when work is confirmed"}</strong></div></div>
         {s.class_id&&<div className="v311RemoveOccurrence">
           <strong>Remove from this date</strong>
           <p>Completely removes this class occurrence from this day only. It will not change the Master Timetable, previous months or future months.</p>
@@ -2186,7 +2336,6 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       </div>
       <div className="modalFoot v405ScheduleControlFoot"><div className="v311AdminActions">
         {s.adjustment_status==="pending"&&<button className="btn btnAccent" onClick={async()=>{await approveRotaAdjustment(s);setAdminScheduleShift(null)}}>Approve extra time</button>}
-        {s.status==="scheduled"&&s.profile_id&&<button className="btn btnPrimary" onClick={async()=>{await confirmScheduled(s);setAdminScheduleShift(null)}}>Confirm worked</button>}
         {s.status==="confirmed"&&<button className="btn btnSecondary" onClick={async()=>{await unconfirmScheduled(s);setAdminScheduleShift(null)}}>Unconfirm</button>}
         {s.status!=="confirmed"&&<button className={`btn ${s.status==="cancelled"?"btnSecondary":"btnDanger"}`} onClick={()=>toggleScheduledCancelled(s)}>{s.status==="cancelled"?"Restore session":"Cancel session"}</button>}
         {s.status!=="confirmed"&&<button className="btn btnSecondary" onClick={()=>{setAdminScheduleShift(null);openAdjustment(s)}}>Edit actual time</button>}

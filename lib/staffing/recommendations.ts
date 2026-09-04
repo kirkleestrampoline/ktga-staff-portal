@@ -14,9 +14,7 @@ export const DEFAULT_RECOMMENDATION_PRIORITIES:RecommendationPriority[]=[
   {key:"availability",weight:35},
   {key:"previous_coach",weight:20},
   {key:"lower_staffing_cost",weight:10},
-  {key:"recommended_qualification",weight:15},
-  {key:"organisation_match",weight:10},
-  {key:"weekly_hours",weight:10}
+  {key:"recommended_qualification",weight:0}
 ];
 
 export type CoachRecommendationInput={
@@ -30,6 +28,9 @@ export type CoachRecommendationInput={
   approvedTimeAway?:boolean;
   pendingTimeAway?:boolean;
   previousSessionCount:number;
+  exactSessionCount?:number;
+  sameProgrammeSessionCount?:number;
+  programmeName?:string;
   worksAtOrganisation:boolean;
   qualificationIds:string[];
   recommendedQualificationId?:string|null;
@@ -81,9 +82,16 @@ export function recommendCoach(
   const hasQualification=!input.recommendedQualificationId||input.qualificationIds.includes(input.recommendedQualificationId)||Boolean(
     required&&input.qualifications?.some(held=>qualificationSatisfies(held,required))
   );
+  const exactSessionCount=input.exactSessionCount??input.previousSessionCount;
+  const sameProgrammeSessionCount=input.sameProgrammeSessionCount??0;
+  const previousCoachFactor=exactSessionCount>0
+    ?.75+.25*clamp(exactSessionCount/10)
+    :sameProgrammeSessionCount>0
+      ?.4+.2*clamp(sameProgrammeSessionCount/10)
+      :0;
   const factors:Record<RecommendationPriorityKey,number>={
     availability:input.isAvailable&&!input.isAssignedElsewhere&&!input.approvedTimeAway?1:0,
-    previous_coach:clamp(input.previousSessionCount/10),
+    previous_coach:previousCoachFactor,
     lower_staffing_cost:clamp(1-input.hourlyRate/100),
     recommended_qualification:hasQualification?1:0,
     organisation_match:input.worksAtOrganisation?1:0,
@@ -93,7 +101,8 @@ export function recommendCoach(
   const weighted=priorities.reduce((sum,item)=>sum+factors[item.key]*Math.max(0,item.weight),0);
 
   if(input.isAvailable)reasons.push("Available");
-  if(input.previousSessionCount>0)reasons.push(`Previously coached this class (${input.previousSessionCount} session${input.previousSessionCount===1?"":"s"})`);
+  if(exactSessionCount>0)reasons.push(`Usually coaches this session (${exactSessionCount} session${exactSessionCount===1?"":"s"})`);
+  else if(sameProgrammeSessionCount>0)reasons.push(`Has coached ${input.programmeName?.trim()||"this programme"} before (${sameProgrammeSessionCount} session${sameProgrammeSessionCount===1?"":"s"})`);
   if(input.worksAtOrganisation)reasons.push("Organisation match");
   if(hasQualification&&input.recommendedQualificationId)reasons.push("Recommended qualification");
   reasons.push(`Estimated staffing cost £${Math.max(0,input.classDurationHours*input.hourlyRate).toFixed(2)}`);
