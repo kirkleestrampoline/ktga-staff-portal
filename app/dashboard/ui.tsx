@@ -47,7 +47,7 @@ type StaffingIntelligenceSettings={
   criteria:Record<string,{weight:number;behaviour:StaffingCriterionBehaviour}>;
   priority_order:string[];
 };
-type ScheduledShift={id:string;class_id:string|null;staffing_slot_id:string|null;venue_id:string;profile_id:string|null;original_profile_id:string|null;shift_date:string;start_time:string;finish_time:string;break_minutes:number;class_name:string;status:"scheduled"|"confirmed"|"cancelled";actual_shift_id:string|null;notes:string|null;adjustment_status?:"none"|"pending"|null;requested_start_time?:string|null;requested_finish_time?:string|null;requested_break_minutes?:number|null;adjustment_reason?:string|null};
+type ScheduledShift={id:string;class_id:string|null;staffing_slot_id:string|null;venue_id:string;profile_id:string|null;original_profile_id:string|null;shift_date:string;start_time:string;finish_time:string;break_minutes:number;class_name:string;status:"scheduled"|"confirmed"|"cancelled";actual_shift_id:string|null;notes:string|null;payment_type?:"standard"|"enhanced"|"volunteer";adjustment_status?:"none"|"pending"|null;requested_start_time?:string|null;requested_finish_time?:string|null;requested_break_minutes?:number|null;adjustment_reason?:string|null};
 type StaffingQualificationContext={classId:string|null;staffingSlotId:string|null;role:"lead"|"assistant";recommendedQualificationId:string|null;recommendedQualification:QualificationType|null};
 type RemovedOccurrence={class_id:string;shift_date:string;class_name:string;venue_id:string;start_time:string;finish_time:string;removed_slots:number};
 type TimeAwayRequest={id:string;profile_id:string;request_type:"holiday"|"sickness"|"appointment"|"compassionate"|"unavailable"|"other";start_date:string;end_date:string;all_day:boolean;start_time:string|null;end_time:string|null;notes:string|null;status:"pending"|"approved"|"declined"|"cancelled";reviewed_by:string|null;reviewed_at:string|null;created_at:string};
@@ -167,6 +167,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   const [rotaDate,setRotaDate]=useState(new Date().toISOString().slice(0,10));
   const [adjustShift,setAdjustShift]=useState<ScheduledShift|null>(null);
   const [confirmShift,setConfirmShift]=useState<ScheduledShift|null>(null);
+  const [dailyConfirmation,setDailyConfirmation]=useState<{profileId:string|null;date:string;selectedIds:string[]}|null>(null);
   const [adjustStart,setAdjustStart]=useState("");
   const [adjustFinish,setAdjustFinish]=useState("");
   const [adjustBreak,setAdjustBreak]=useState(0);
@@ -1670,10 +1671,11 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     if(!error)await loadSchedule();
   }
 
-  async function confirmScheduled(sch:ScheduledShift){
-    const assignedProfile=validAssignedProfile(sch.profile_id);
-    if(!assignedProfile){flash("Assign a coach before confirming this shift.");return}
-    flash("Confirming shift…");
+  async function confirmScheduled(sch:ScheduledShift,options:{refresh?:boolean;announce?:boolean}={}):Promise<boolean>{
+    const refresh=options.refresh!==false,announce=options.announce!==false;
+    if(!sch.profile_id?.trim()){flash("Assign a coach before confirming this shift.");return false}
+    if(!isEligibleForShiftConfirmation(sch)){flash("This shift is not eligible for confirmation.");return false}
+    if(announce)flash("Confirming shift…");
 
     const monthStart=`${sch.shift_date.slice(0,7)}-01`;
     const{data:lockedTs,error:tsError}=await supabase
@@ -1682,10 +1684,10 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       .eq("coach_id",sch.profile_id)
       .eq("month_start",monthStart)
       .maybeSingle();
-    if(tsError){flash(tsError.message);return}
+    if(tsError){flash(tsError.message);return false}
     if(lockedTs?.status==="submitted"||lockedTs?.status==="paid"){
       flash("That month is locked. Reopen it before confirming this shift.");
-      return;
+      return false;
     }
 
     const shiftPayload={
@@ -1699,17 +1701,18 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       notes:sch.notes||"Scheduled class",
       source:"schedule",
       scheduled_shift_id:sch.id,
-      approval_status:"approved"
+      approval_status:"approved",
+      payment_type:sch.payment_type||"standard"
     };
 
     let actualShiftId=sch.actual_shift_id||null;
     if(actualShiftId){
       const{data,error}=await supabase.from("shifts").update(shiftPayload).eq("id",actualShiftId).select("id").single();
-      if(error){flash(error.message);return}
+      if(error){flash(error.message);return false}
       actualShiftId=data.id;
     }else{
       const{data,error}=await supabase.from("shifts").insert(shiftPayload).select("id").single();
-      if(error){flash(error.message);return}
+      if(error){flash(error.message);return false}
       actualShiftId=data.id;
     }
 
@@ -1721,13 +1724,38 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     if(updateError){
       if(!sch.actual_shift_id&&actualShiftId)await supabase.from("shifts").delete().eq("id",actualShiftId);
       flash(updateError.message);
-      return;
+      return false;
     }
 
-    flash("Shift confirmed into timesheet.");
-    await loadSchedule();
-    if(sch.profile_id===initialProfile.id||sch.profile_id===activeCoach.id)await loadCoachMonth(sch.profile_id);
-    if(isAdmin)await loadAdmin();
+    if(announce)flash("Shift confirmed into timesheet.");
+    if(refresh){
+      await loadSchedule();
+      if(sch.profile_id===initialProfile.id||sch.profile_id===activeCoach.id)await loadCoachMonth(sch.profile_id);
+      if(isAdmin)await loadAdmin();
+    }
+    return true;
+  }
+
+  function eligibleDailyConfirmations(date:string,profileId:string|null=null){
+    return scheduleScope.filter(shift=>shift.shift_date===date&&(!profileId||shift.profile_id===profileId)&&isEligibleForShiftConfirmation(shift));
+  }
+
+  function openDailyConfirmation(date:string,profileId:string|null=null){
+    const eligible=eligibleDailyConfirmations(date,profileId);
+    setDailyConfirmation({profileId,date,selectedIds:eligible.map(shift=>shift.id)});
+  }
+
+  async function confirmDailySelection(){
+    if(!dailyConfirmation)return;
+    const eligible=eligibleDailyConfirmations(dailyConfirmation.date,dailyConfirmation.profileId);
+    const selected=eligible.filter(shift=>dailyConfirmation.selectedIds.includes(shift.id));
+    if(!selected.length)return;
+    setSaving(true);flash(`Confirming ${selected.length} shift${selected.length===1?"":"s"}…`);
+    let confirmed=0;
+    for(const shift of selected)if(await confirmScheduled(shift,{refresh:false,announce:false}))confirmed++;
+    setSaving(false);setDailyConfirmation(null);
+    await Promise.all([loadSchedule(),dailyConfirmation.profileId?loadCoachMonth(dailyConfirmation.profileId):Promise.resolve(),isAdmin?loadAdmin():Promise.resolve(),isAdmin?loadOverviewSchedule():Promise.resolve()]);
+    if(confirmed===selected.length)flash(`${confirmed} shift${confirmed===1?"":"s"} confirmed into payroll.`);
   }
 
   function openAdjustment(sch:ScheduledShift){
@@ -1851,6 +1879,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   const classTemplateHours=(c:ClassTemplate)=>shiftHours({coach_id:"",shift_date:"",start_time:c.start_time,finish_time:c.finish_time,break_minutes:c.break_minutes,session_location:c.name,notes:c.notes});
   const profileById=(id:string|null)=>staff.find(x=>x.id===id)||(id===initialProfile.id?initialProfile:null);
   const validAssignedProfile=(profileId:string|null|undefined)=>{const id=profileId?.trim();if(!id)return null;return profileById(id)};
+  const isEligibleForShiftConfirmation=(shift:ScheduledShift)=>Boolean(shift.profile_id?.trim())&&shift.status==="scheduled"&&shift.adjustment_status!=="pending";
   const isAssignedShift=(shift:ScheduledShift)=>Boolean(validAssignedProfile(shift.profile_id));
   const isRecommendationCandidate=(profile:Profile)=>profile.is_active&&!new Set(["unassigned","unfilled","vacant"]).has(profile.full_name.trim().toLocaleLowerCase());
   const staffOptionsForVenue=(venueId:string)=>{const list=staff.filter(p=>(staffVenueMap[p.id]||[]).includes(venueId)&&isRecommendationCandidate(p));if((staffVenueMap[initialProfile.id]||[]).includes(venueId)&&isRecommendationCandidate(initialProfile)&&!list.some(p=>p.id===initialProfile.id))return [initialProfile,...list];return list};
@@ -1979,6 +2008,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     {adminScheduleShift&&AdminScheduleShiftModal()}
     {staffingRecommendationShift&&IntelligentStaffingDrawer()}
     {confirmShift&&ConfirmShiftModal()}
+    {dailyConfirmation&&DailyConfirmationModal()}
     {adjustShift&&AdjustmentModal()}
     <MobileNav tab={tab} setTab={(t:Tab)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} role={initialProfile.role} name={initialProfile.full_name} open={mobileMoreOpen} setOpen={setMobileMoreOpen} onSignOut={signOut}/>
   </div>;
@@ -2072,8 +2102,9 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
         const targetMonth=monthKey(d);if(targetMonth!==month)setMonth(targetMonth);
       };
       return <>{(()=>{
-        const today=new Date().toISOString().slice(0,10);
+        const today=localDateKey();
         const todayItems=allMine.filter(s=>s.shift_date===today&&s.status!=="cancelled").sort((a,b)=>a.start_time.localeCompare(b.start_time));
+        const todayConfirmable=eligibleDailyConfirmations(today,initialProfile.id);
         const future=allMine.filter(s=>s.status!=="cancelled"&&`${s.shift_date}T${s.start_time}`>=`${today}T00:00`).sort((a,b)=>`${a.shift_date}${a.start_time}`.localeCompare(`${b.shift_date}${b.start_time}`));
         const next=future[0]||null;
         const now=new Date(`${today}T12:00:00`);
@@ -2085,6 +2116,8 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
         const monthH=active.reduce((a,s)=>a+scheduleHours(s),0);
         return <>
           <div className="v3CoachWelcome"><div><span className="v3WelcomeEyebrow">My coaching</span><h1>{`Good ${new Date().getHours()<12?"morning":new Date().getHours()<18?"afternoon":"evening"}, ${initialProfile.full_name.split(" ")[0]}`}</h1><p>{todayItems.length?`You have ${todayItems.length} coaching ${todayItems.length===1?"session":"sessions"} today.`:"You have no coaching scheduled today."}</p></div>{isAdmin&&adminPersonalRota&&<button className="btn btnSecondary" onClick={()=>setAdminPersonalRota(false)}>← Admin Schedule</button>}</div>
+
+          {todayConfirmable.length>0&&<div className="v13DailyConfirmAction"><button className="btn btnPrimary" type="button" onClick={()=>openDailyConfirmation(today,initialProfile.id)}>✓ Confirm Today&apos;s Work</button><span>{todayConfirmable.length} shift{todayConfirmable.length===1?"":"s"} ready for review</span></div>}
 
           <div className="v302MobileHero">
             <span className="v302HeroEyebrow">{todayItems.length?"Today's coaching":"A quieter day"}</span>
@@ -2533,6 +2566,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       <div className="modalBody v405ScheduleControlBody">
         <div className="v11AssignedPrimaryActions">
           {s.status==="scheduled"&&s.profile_id&&<button className="btn btnPrimary" type="button" onClick={async()=>{await confirmScheduled(s);setAdminScheduleShift(null)}}>Confirm Worked</button>}
+          {eligibleDailyConfirmations(s.shift_date).length>0&&<button className="btn btnPrimary" type="button" onClick={()=>{setAdminScheduleShift(null);openDailyConfirmation(s.shift_date)}}>✓ Confirm Selected Day</button>}
           <button className="btn btnSecondary" type="button" disabled={s.status==="cancelled"||s.status==="confirmed"} onClick={()=>{setAdminScheduleShift(null);setCoachAssignmentSearch("");openStaffingRecommendations(s)}}>Reassign Coach</button>
         </div>
         <div className="v311ShiftSummary"><div><span>Planned hours</span><strong>{scheduleHours(s).toFixed(2)}h</strong></div><div><span>Status</span><strong className={`scheduleStatus ${s.status}`}>{s.adjustment_status==="pending"?"Approval pending":s.status}</strong></div></div>
@@ -2569,6 +2603,31 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       </div>
       <div className="modalFoot v31ConfirmFoot"><button className="btn btnSecondary" onClick={()=>setConfirmShift(null)}>Not yet</button><button className="btn btnSecondary" onClick={()=>{setConfirmShift(null);openAdjustment(s)}}>Adjust time</button><button className="btn btnPrimary" onClick={async()=>{setConfirmShift(null);await confirmScheduled(s)}}>Confirm shift</button></div>
     </div></div>
+  }
+
+  function DailyConfirmationModal(){
+    const review=dailyConfirmation!;
+    const person=review.profileId?(profileById(review.profileId)||(review.profileId===initialProfile.id?initialProfile:null)):null;
+    const eligible=eligibleDailyConfirmations(review.date,review.profileId).sort((a,b)=>a.start_time.localeCompare(b.start_time));
+    const selected=eligible.filter(shift=>review.selectedIds.includes(shift.id));
+    const employmentFor=(shift:ScheduledShift)=>allEmploymentRecords
+      .filter(record=>record.profile_id===shift.profile_id&&record.active&&record.effective_from<=review.date&&(!record.effective_to||record.effective_to>=review.date))
+      .sort((a,b)=>b.effective_from.localeCompare(a.effective_from))[0];
+    const employmentTypeFor=(shift:ScheduledShift)=>employmentFor(shift)?.employment_type||profileById(shift.profile_id)?.employment_type||"hourly";
+    const rateFor=(shift:ScheduledShift)=>{const employment=employmentFor(shift),shiftPerson=profileById(shift.profile_id);return shift.payment_type==="volunteer"?0:shift.payment_type==="enhanced"?Number(employment?.enhanced_rate??shiftPerson?.enhanced_rate??shiftPerson?.hourly_rate??0):Number(employment?.standard_rate??shiftPerson?.standard_rate??shiftPerson?.hourly_rate??0)};
+    const expectedPay=(shift:ScheduledShift)=>employmentTypeFor(shift)==="hourly"?scheduleHours(shift)*rateFor(shift):0;
+    const totalHours=selected.reduce((total,shift)=>total+scheduleHours(shift),0);
+    const totalEarnings=selected.reduce((total,shift)=>total+expectedPay(shift),0);
+    const scopedEmploymentType=review.profileId&&eligible.length?employmentTypeFor(eligible[0]):null;
+    const toggle=(id:string)=>setDailyConfirmation({...review,selectedIds:review.selectedIds.includes(id)?review.selectedIds.filter(item=>item!==id):[...review.selectedIds,id]});
+    return <div className="modalBackdrop"><div className="modal modalWide v13DailyConfirmModal">
+      <div className="modalHead"><div><span className="v3WelcomeEyebrow">Daily confirmation</span><h2>{review.profileId===initialProfile.id&&review.date===localDateKey()?"Confirm Today’s Work":"Confirm Selected Day"}</h2><p className="muted">{person?.full_name||"All staff"} · {new Date(`${review.date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</p></div><button className="iconButton" type="button" onClick={()=>setDailyConfirmation(null)}>×</button></div>
+      <div className="modalBody v13DailyConfirmBody">
+        {eligible.length?<div className="v13ConfirmationRows">{eligible.map(shift=>{const paymentType=shift.payment_type||"standard",hours=scheduleHours(shift),employmentType=employmentTypeFor(shift),shiftPerson=profileById(shift.profile_id);return <label className={`v13ConfirmationRow ${review.selectedIds.includes(shift.id)?"selected":""}`} key={shift.id}><input type="checkbox" checked={review.selectedIds.includes(shift.id)} onChange={()=>toggle(shift.id)}/><div><strong>{shift.class_name}</strong><span>{venueName(shift.venue_id)}{!review.profileId&&shiftPerson?` · ${shiftPerson.full_name}`:""}</span></div><time>{shift.start_time.slice(0,5)}–{shift.finish_time.slice(0,5)}</time><span className={`v13PaymentType ${paymentType}`}>{paymentType.replace(/^./,letter=>letter.toUpperCase())}</span><b>{hours.toFixed(2)}h</b><strong>{employmentType==="salaried"?"Salary Included":employmentType==="hourly"?money(expectedPay(shift)):"Volunteer"}</strong></label>})}</div>:<div className="empty">No shifts require confirmation.</div>}
+        <div className="v13ConfirmationTotals"><div><span>Total Shifts</span><strong>{selected.length}</strong></div><div><span>Total Hours</span><strong>{totalHours.toFixed(2)}h</strong></div><div><span>{scopedEmploymentType==="salaried"?"Pay":scopedEmploymentType==="volunteer"?"Payment":"Estimated Hourly Earnings"}</span><strong>{scopedEmploymentType==="salaried"?"Salary Included":scopedEmploymentType==="volunteer"?"Volunteer":money(totalEarnings)}</strong></div></div>
+      </div>
+      <div className="modalFoot"><button className="btn btnSecondary" type="button" onClick={()=>setDailyConfirmation(null)}>Cancel</button><button className="btn btnPrimary" type="button" disabled={saving||selected.length===0} onClick={()=>void confirmDailySelection()}>{saving?"Confirming…":`Confirm ${selected.length||"Selected"} Shift${selected.length===1?"":"s"}`}</button></div>
+    </div></div>;
   }
 
   function AdjustmentModal(){
