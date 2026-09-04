@@ -51,6 +51,8 @@ type ScheduledShift={id:string;class_id:string|null;staffing_slot_id:string|null
 type StaffingQualificationContext={classId:string|null;staffingSlotId:string|null;role:"lead"|"assistant";recommendedQualificationId:string|null;recommendedQualification:QualificationType|null};
 type RemovedOccurrence={class_id:string;shift_date:string;class_name:string;venue_id:string;start_time:string;finish_time:string;removed_slots:number};
 type TimeAwayRequest={id:string;profile_id:string;request_type:"holiday"|"sickness"|"appointment"|"compassionate"|"unavailable"|"other";start_date:string;end_date:string;all_day:boolean;start_time:string|null;end_time:string|null;notes:string|null;status:"pending"|"approved"|"declined"|"cancelled";reviewed_by:string|null;reviewed_at:string|null;created_at:string};
+type OverviewWidget="workforce"|"monthly"|"invoices"|"schedule"|"leave";
+type OverviewWidgetState={status:"loading"|"loaded"|"error";message?:string};
 type ClassOccurrenceDraft={key:string;id?:string;venue_id:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;coach_ids:string[];payment_types:("standard"|"enhanced"|"volunteer")[];notes:string;lead_coaches_required:number;assistant_coaches_required:number;minimum_coaches:number;maximum_coaches:number;lead_recommended_qualification_id:string;assistant_recommended_qualification_id:string};
 type ClassDraft={id?:string;class_profile_id?:string;original_ids?:string[];venue_id:string;name:string;programme:string;minimum_age:number|null;maximum_age:number|null;active:boolean;session_colour:string;capacity:number|null;warn_if_understaffed:boolean;critical_if_no_lead:boolean;allow_below_recommended_qualification:boolean;lead_coaches_required:number;assistant_coaches_required:number;minimum_coaches:number;maximum_coaches:number;lead_recommended_qualification_id:string;assistant_recommended_qualification_id:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;notes:string;coach_ids:string[];payment_types:("standard"|"enhanced"|"volunteer")[];occurrences?:ClassOccurrenceDraft[]};
 type OneOffShiftDraft={id?:string;venue_id:string;shift_date:string;start_time:string;finish_time:string;class_name:string;notes:string;profile_id:string};
@@ -212,6 +214,10 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   const loadedTabsRef=useRef<Set<Tab>>(initialLoadedTabs.current);
   const tabLoadsInFlight=useRef<Set<Tab>>(new Set());
   const sharedDataLoads=useRef<Record<string,Promise<void>>>({});
+  const overviewRequestSequence=useRef<Record<OverviewWidget,number>>({workforce:0,monthly:0,invoices:0,schedule:0,leave:0});
+  const [overviewWidgets,setOverviewWidgets]=useState<Record<OverviewWidget,OverviewWidgetState>>({
+    workforce:{status:"loading"},monthly:{status:"loading"},invoices:{status:"loading"},schedule:{status:"loading"},leave:{status:"loading"}
+  });
   const scheduleRequestSequence=useRef(0);
   const latestScheduleRequest=useRef(0);
   const currentMonthRef=useRef(initialMonth);
@@ -253,9 +259,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     void runSharedDataLoad("staff",loadStaff).catch(reportStartupLoadFailure);
     void loadCurrentClub();
     if(isAdmin){
-      void runSharedDataLoad("leave",loadLeaveData).then(()=>markTabLoaded("leave")).catch(reportStartupLoadFailure);
       void runSharedDataLoad("future-schedule",loadFutureUnstaffedShifts).catch(reportStartupLoadFailure);
-      void loadInvoiceSummary();
     }
   },[]);
   useEffect(()=>{
@@ -291,7 +295,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     window.addEventListener("popstate",handleHistoryNavigation);
     return()=>window.removeEventListener("popstate",handleHistoryNavigation);
   },[initialProfile,initialMonth,tab]);
-  useEffect(()=>{if(isAdmin&&tab==="dashboard"){void runSharedDataLoad(`overview-schedule:${month}`,loadOverviewSchedule).catch(reportStartupLoadFailure);void runSharedDataLoad(`extra-shifts:${month}`,loadPendingExtraShifts).catch(reportStartupLoadFailure);void loadAdmin(false)}else if(loadedTabsRef.current.has(tab))void reloadLoadedTab(tab)},[month,activeCoach.id]);
+  useEffect(()=>{if(isAdmin&&tab==="dashboard")void loadOverview();else if(loadedTabsRef.current.has(tab))void reloadLoadedTab(tab)},[tab,month,activeCoach.id]);
   useEffect(()=>{void loadTabOnce(tab)},[tab]);
   useEffect(()=>{
     if(!masterTimetableOpen)return;
@@ -317,9 +321,26 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   function runSharedDataLoad(key:string,loader:()=>Promise<void>){
     const existing=sharedDataLoads.current[key];
     if(existing)return existing;
-    const request=loader().catch(error=>{delete sharedDataLoads.current[key];throw error});
+    const request=loader().finally(()=>{delete sharedDataLoads.current[key]});
     sharedDataLoads.current[key]=request;
     return request;
+  }
+  async function loadOverviewWidget(widget:OverviewWidget,loader:()=>Promise<void>){
+    const requestId=++overviewRequestSequence.current[widget];
+    setOverviewWidgets(current=>({...current,[widget]:{status:"loading"}}));
+    try{
+      await loader();
+      if(overviewRequestSequence.current[widget]===requestId)setOverviewWidgets(current=>({...current,[widget]:{status:"loaded"}}));
+    }catch(error:any){
+      if(overviewRequestSequence.current[widget]===requestId)setOverviewWidgets(current=>({...current,[widget]:{status:"error",message:error?.message||"Unable to load data."}}));
+    }
+  }
+  function loadOverview(){
+    void loadOverviewWidget("workforce",()=>runSharedDataLoad("staff",loadStaff));
+    void loadOverviewWidget("monthly",()=>loadAdmin(false));
+    void loadOverviewWidget("invoices",loadInvoiceSummary);
+    void loadOverviewWidget("schedule",async()=>{await Promise.all([loadOverviewSchedule(),loadPendingExtraShifts()])});
+    void loadOverviewWidget("leave",loadLeaveData);
   }
   function markTabLoaded(next:Tab){
     loadedTabsRef.current.add(next);
@@ -763,24 +784,31 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   }
 
   async function loadInvoiceSummary(){
-    const{data}=await supabase.from("invoices").select("total_amount").eq("status","awaiting_payment");
+    const{data,error}=await supabase.from("invoices").select("total_amount").eq("status","awaiting_payment");
+    if(error)throw error;
     setUnpaidInvoiceTotal((data||[]).reduce((total,row:any)=>total+Number(row.total_amount||0),0));
   }
 
   async function loadAdmin(includeInvoices=true){
     if(!isAdmin)return;
-    const{from,to}=monthRange(month);
-    const [{data:coaches},{data:ss},{data:ts}]=await Promise.all([
+    const requestedMonth=month;
+    const{from,to}=monthRange(requestedMonth);
+    const [{data:coaches,error:coachesError},{data:ss,error:shiftsError},{data:ts,error:timesheetsError}]=await Promise.all([
       supabase.from("profiles").select("*").eq("role","coach").eq("is_active",true).order("full_name"),
       supabase.from("shifts").select("*").gte("shift_date",from).lte("shift_date",to),
       supabase.from("timesheets").select("*").eq("month_start",from)
     ]);
+    if(coachesError)throw coachesError;
+    if(shiftsError)throw shiftsError;
+    if(timesheetsError)throw timesheetsError;
     const tids=((ts||[]) as Timesheet[]).map(t=>t.id);
     let inv:Invoice[]=[];
     if(includeInvoices&&tids.length){
-      const{data}=await supabase.from("invoices").select("*").in("timesheet_id",tids);
+      const{data,error}=await supabase.from("invoices").select("*").in("timesheet_id",tids);
+      if(error)throw error;
       inv=(data||[]) as Invoice[];
     }
+    if(requestedMonth!==currentMonthRef.current)return;
     setAdminMonthShifts((ss||[]) as Shift[]);
     const rows=((coaches||[]) as Profile[]).map(c=>{
       const csh=((ss||[]) as Shift[]).filter(s=>s.coach_id===c.id&&(!s.approval_status||s.approval_status==="approved"));
@@ -794,7 +822,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   async function loadPendingExtraShifts(){
     if(!isAdmin)return;
     const{data,error}=await supabase.rpc("get_schedule_extra_shifts",{p_month_start:`${month}-01`});
-    if(error){console.error(error);return}
+    if(error)throw error;
     setPendingExtraShifts(((data||[]) as Shift[]).filter(s=>!s.id||!deletedShiftIds.current.has(s.id)));
   }
 
@@ -2084,6 +2112,18 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   }
   function PageActionBar({children,className=""}:{children:React.ReactNode;className?:string}){return <div className={`v500ActionBar ${className}`}>{children}</div>}
   function FilterBar({children,className=""}:{children:React.ReactNode;className?:string}){return <div className={`v500FilterBar ${className}`}>{children}</div>}
+  function retryOverviewWidget(widget:OverviewWidget){
+    if(widget==="workforce")void loadOverviewWidget(widget,()=>runSharedDataLoad("staff",loadStaff));
+    else if(widget==="monthly")void loadOverviewWidget(widget,()=>loadAdmin(false));
+    else if(widget==="invoices")void loadOverviewWidget(widget,loadInvoiceSummary);
+    else if(widget==="schedule")void loadOverviewWidget(widget,async()=>{await Promise.all([loadOverviewSchedule(),loadPendingExtraShifts()])});
+    else void loadOverviewWidget(widget,loadLeaveData);
+  }
+  function OverviewWidgetFallback({widget}:{widget:OverviewWidget}){
+    const state=overviewWidgets[widget];
+    if(state.status==="loading")return <div className="card v432LoadFailure" role="status"><div><strong>Loading…</strong><span>Loading dashboard data.</span></div></div>;
+    return <div className="card v432LoadFailure" role="alert"><div><strong>Unable to load data.</strong><span>Please try again.</span></div><button className="btn btnPrimary" type="button" onClick={()=>retryOverviewWidget(widget)}>Retry</button></div>;
+  }
 
   function DashboardView(){
     const activeWorkforce=staff.filter(person=>person.is_active);
@@ -2097,8 +2137,8 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       if(issue.shift)openAdminScheduleShift(issue.shift);
     };
     if(isAdmin)return <><PageHead centered dashboard title={`Good ${new Date().getHours()<12?"morning":new Date().getHours()<18?"afternoon":"evening"}, ${initialProfile.full_name.split(" ")[0]}`} sub="Your current staffing, timesheet and invoice position."><div className="v434OverviewHeadControls"><MonthNavigation/><button className="btn btnSecondary" onClick={()=>{setAdminPersonalRota(true);setTab("schedule")}}>My Schedule</button></div></PageHead>
-      <div className="grid grid4"><div className="card v12ActiveWorkforce"><div><UsersIcon/><span>Active Workforce</span></div><strong>{activeWorkforce.length}<small>Total Staff</small></strong><dl><div><dt>Hourly</dt><dd>{hourlyWorkforce}</dd></div><div><dt>Salaried</dt><dd>{salariedWorkforce}</dd></div><div><dt>Volunteer</dt><dd>{volunteerWorkforce}</dd></div></dl></div><StatCard label="Hours this month" value={adminHours.toFixed(2)} foot={monthLabel(month)} icon={<ClockIcon/>}/><StatCard label="Submitted" value={`${submittedCount}/${adminRows.length}`} foot={`${Math.max(0,adminRows.length-submittedCount)} outstanding`} icon={<CheckIcon/>}/><StatCard label="Unpaid invoices" value={money(unpaidTotal)} foot="Awaiting payment" icon={<PoundIcon/>}/></div>{pendingLeaveCount>0&&<button className="v33DashboardAlert" onClick={()=>setTab("leave")}><div className="v33AlertIcon"><CalendarIcon/></div><div><strong>{pendingLeaveCount} leave / availability {pendingLeaveCount===1?"request":"requests"} awaiting review</strong><span>Open Leave Management to approve or decline.</span></div><span className="v33AlertCount">{pendingLeaveCount}</span></button>}{timeAwayRequests.filter(r=>r.status==="approved"&&r.start_date<=today&&r.end_date>=today).length>0&&<button className="v340AwayToday" onClick={()=>setTab("leave")}><div><span>Away today</span><strong>{timeAwayRequests.filter(r=>r.status==="approved"&&r.start_date<=today&&r.end_date>=today).length} staff unavailable</strong></div><div className="v340AwayNames">{timeAwayRequests.filter(r=>r.status==="approved"&&r.start_date<=today&&r.end_date>=today).slice(0,3).map(r=><span key={r.id}>{profileById(r.profile_id)?.full_name||"Staff"}</span>)}</div></button>}
-      <section className={`card v402ActionCentre ${criticalSchedulingCount||warningSchedulingCount?"hasIssues":"allClear"}`}>
+      <div className="grid grid4">{overviewWidgets.workforce.status==="loaded"?<div className="card v12ActiveWorkforce"><div><UsersIcon/><span>Active Workforce</span></div><strong>{activeWorkforce.length}<small>Total Staff</small></strong><dl><div><dt>Hourly</dt><dd>{hourlyWorkforce}</dd></div><div><dt>Salaried</dt><dd>{salariedWorkforce}</dd></div><div><dt>Volunteer</dt><dd>{volunteerWorkforce}</dd></div></dl></div>:<OverviewWidgetFallback widget="workforce"/>}{overviewWidgets.monthly.status==="loaded"?<><StatCard label="Hours this month" value={adminHours.toFixed(2)} foot={monthLabel(month)} icon={<ClockIcon/>}/><StatCard label="Submitted" value={`${submittedCount}/${adminRows.length}`} foot={`${Math.max(0,adminRows.length-submittedCount)} outstanding`} icon={<CheckIcon/>}/></>:<><OverviewWidgetFallback widget="monthly"/><OverviewWidgetFallback widget="monthly"/></>}{overviewWidgets.invoices.status==="loaded"?<StatCard label="Unpaid invoices" value={money(unpaidTotal)} foot="Awaiting payment" icon={<PoundIcon/>}/>:<OverviewWidgetFallback widget="invoices"/>}</div>{overviewWidgets.leave.status==="error"&&<OverviewWidgetFallback widget="leave"/>}{overviewWidgets.leave.status==="loaded"&&pendingLeaveCount>0&&<button className="v33DashboardAlert" onClick={()=>setTab("leave")}><div className="v33AlertIcon"><CalendarIcon/></div><div><strong>{pendingLeaveCount} leave / availability {pendingLeaveCount===1?"request":"requests"} awaiting review</strong><span>Open Leave Management to approve or decline.</span></div><span className="v33AlertCount">{pendingLeaveCount}</span></button>}{overviewWidgets.leave.status==="loaded"&&timeAwayRequests.filter(r=>r.status==="approved"&&r.start_date<=today&&r.end_date>=today).length>0&&<button className="v340AwayToday" onClick={()=>setTab("leave")}><div><span>Away today</span><strong>{timeAwayRequests.filter(r=>r.status==="approved"&&r.start_date<=today&&r.end_date>=today).length} staff unavailable</strong></div><div className="v340AwayNames">{timeAwayRequests.filter(r=>r.status==="approved"&&r.start_date<=today&&r.end_date>=today).slice(0,3).map(r=><span key={r.id}>{profileById(r.profile_id)?.full_name||"Staff"}</span>)}</div></button>}
+      {overviewWidgets.schedule.status==="loaded"?<><section className={`card v402ActionCentre ${criticalSchedulingCount||warningSchedulingCount?"hasIssues":"allClear"}`}>
         <div className="v402ActionHead">
           <div><span>Scheduling checks</span><h2>Scheduling Health</h2><p>{criticalSchedulingCount||warningSchedulingCount?"Review the priority items below.":"No action required."}</p></div>
           <div className="v404HealthSummary" aria-label="Scheduling health summary"><span className="critical">Immediate <b>{criticalSchedulingCount}</b></span><span className="warning">Actions <b>{warningSchedulingCount}</b></span><span className="reminder">Planning <b>{reminderSchedulingCount}</b></span></div>
@@ -2107,8 +2147,8 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
         {schedulingIssues.length>0&&<div className="v402IssueGroups">{(["critical","warning","reminder"] as const).map(severity=>{const allIssues=schedulingIssues.filter(issue=>issue.severity===severity);if(!allIssues.length)return null;const expanded=expandedSchedulingSections[severity];const issues=expanded?allIssues:[];const heading=severity==="critical"?"Needs Immediate Attention":severity==="warning"?"Actions":"Planning";return <div className={`v402IssueGroup v406IssueSection ${severity} ${expanded?"expanded":"collapsed"}`} key={severity}><button className="v402SeverityHead v406SectionToggle" type="button" aria-expanded={expanded} onClick={()=>setExpandedSchedulingSections({...expandedSchedulingSections,[severity]:!expanded})}><span aria-hidden="true">{severity==="critical"?"●":severity==="warning"?"▲":"●"}</span><strong>{heading}</strong><small>{allIssues.length}</small><b aria-hidden="true">⌄</b></button>{issues.length>0&&<div className="v402IssueList">{issues.map(issue=><article className="v402Issue" key={issue.id}><span className="v402SeverityIcon" aria-label={`${heading} issue`}>{severity==="critical"?"!":severity==="warning"?"!":"i"}</span><div className="v402IssueMain"><strong>{issue.coach}</strong><span>{issue.description}</span><small>{new Date(`${issue.date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}{issue.startTime?` · ${issue.startTime.slice(0,5)}–${issue.finishTime.slice(0,5)}`:" · Not scheduled"}</small></div><div className="v402IssueContext"><strong>{issue.className}</strong></div>{issue.extraShift?<div className="v503ApprovalActions"><button className="btn btnSuccess" type="button" onClick={()=>void approveExtraShift(issue.extraShift!)}>Approve</button><button className="btn btnDanger" type="button" onClick={()=>void rejectExtraShift(issue.extraShift!)}>Decline</button><button className="btn btnSecondary" type="button" onClick={()=>openSchedulingIssue(issue)}>Open</button></div>:<button className="btn btnSecondary" type="button" onClick={()=>openSchedulingIssue(issue)}>Fix Now</button>}</article>)}</div>}</div>})}{(!expandedSchedulingSections.critical||!expandedSchedulingSections.warning||!expandedSchedulingSections.reminder)&&<button className="v402ViewAll" type="button" onClick={()=>setExpandedSchedulingSections({critical:true,warning:true,reminder:true})}>View all scheduling issues</button>}</div>}
       </section>
       <div className="grid grid4 section forecastCards"><StatCard label="Normal staffing cost" value={money(normalCost)} foot="Based on regular classes" icon={<CalendarIcon/>}/><StatCard label="Current forecast" value={money(forecastCost)} foot={`${unassignedScheduleCount} unassigned shifts`} icon={<PoundIcon/>}/><StatCard label="Actual cost so far" value={money(actualScheduleCost)} foot="Confirmed timesheet hours" icon={<CheckIcon/>}/><StatCard label="Forecast variance" value={money(forecastCost-normalCost)} foot={forecastCost>normalCost?"Above normal plan":"At / below normal plan"} icon={<ChartIcon/>}/></div>
-      <div className="card section todayCoaching v432TodayCoaching"><div className="sectionHeader"><div><h2>Today&apos;s coaching</h2><p>{new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</p></div><button className="btn btnSecondary" onClick={()=>setTab("schedule")}>Open Schedule</button></div><div className="v432SessionGrid">{scheduledShifts.filter(s=>s.shift_date===localDateKey()&&s.status!=="cancelled").sort((a,b)=>a.start_time.localeCompare(b.start_time)).map(s=><article className={`v432SessionCard ${s.profile_id?"assigned":"unassigned"}`} key={s.id}><time>{s.start_time.slice(0,5)}<small>{s.finish_time.slice(0,5)}</small></time><div><strong>{s.class_name}</strong><span>{venueName(s.venue_id)}</span></div><b>{profileById(s.profile_id)?.full_name||"Unassigned"}</b></article>)}{!scheduledShifts.some(s=>s.shift_date===localDateKey()&&s.status!=="cancelled")&&<div className="v432OverviewEmpty"><CalendarIcon/><div><strong>No coaching scheduled today</strong><span>Today&apos;s generated sessions will appear here.</span></div></div>}</div></div>
-      <div className="grid grid2 section"><div className="card"><div className="sectionHeader"><div><h2>Monthly status</h2><p>Open a coach to review or edit their shifts.</p></div><button className="btn btnSecondary" onClick={()=>setTab("timesheets")}>View all</button></div><div className="mobileDataList">{adminRows.slice(0,8).map(r=><button className="mobileDataCard" key={r.coach.id} onClick={()=>selectCoach(r.coach)}><div><strong>{r.coach.full_name}</strong><span>{r.hours.toFixed(2)} hours</span></div><StatusPill status={r.timesheet?.status}/></button>)}</div><div className="tableWrap desktopDataTable"><table><thead><tr><th>Coach</th><th className="num">Hours</th><th>Status</th><th></th></tr></thead><tbody>{adminRows.slice(0,8).map(r=><tr key={r.coach.id}><td><strong>{r.coach.full_name}</strong></td><td className="num">{r.hours.toFixed(2)}</td><td><StatusPill status={r.timesheet?.status}/></td><td><button className="btn btnSecondary" onClick={()=>selectCoach(r.coach)}>Open</button></td></tr>)}</tbody></table></div></div>
+      <div className="card section todayCoaching v432TodayCoaching"><div className="sectionHeader"><div><h2>Today&apos;s coaching</h2><p>{new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</p></div><button className="btn btnSecondary" onClick={()=>setTab("schedule")}>Open Schedule</button></div><div className="v432SessionGrid">{scheduledShifts.filter(s=>s.shift_date===localDateKey()&&s.status!=="cancelled").sort((a,b)=>a.start_time.localeCompare(b.start_time)).map(s=><article className={`v432SessionCard ${s.profile_id?"assigned":"unassigned"}`} key={s.id}><time>{s.start_time.slice(0,5)}<small>{s.finish_time.slice(0,5)}</small></time><div><strong>{s.class_name}</strong><span>{venueName(s.venue_id)}</span></div><b>{profileById(s.profile_id)?.full_name||"Unassigned"}</b></article>)}{!scheduledShifts.some(s=>s.shift_date===localDateKey()&&s.status!=="cancelled")&&<div className="v432OverviewEmpty"><CalendarIcon/><div><strong>No coaching scheduled today</strong><span>Today&apos;s generated sessions will appear here.</span></div></div>}</div></div></>:<div className="section"><OverviewWidgetFallback widget="schedule"/></div>}
+      <div className="grid grid2 section">{overviewWidgets.monthly.status==="loaded"?<div className="card"><div className="sectionHeader"><div><h2>Monthly status</h2><p>Open a coach to review or edit their shifts.</p></div><button className="btn btnSecondary" onClick={()=>setTab("timesheets")}>View all</button></div><div className="mobileDataList">{adminRows.slice(0,8).map(r=><button className="mobileDataCard" key={r.coach.id} onClick={()=>selectCoach(r.coach)}><div><strong>{r.coach.full_name}</strong><span>{r.hours.toFixed(2)} hours</span></div><StatusPill status={r.timesheet?.status}/></button>)}</div><div className="tableWrap desktopDataTable"><table><thead><tr><th>Coach</th><th className="num">Hours</th><th>Status</th><th></th></tr></thead><tbody>{adminRows.slice(0,8).map(r=><tr key={r.coach.id}><td><strong>{r.coach.full_name}</strong></td><td className="num">{r.hours.toFixed(2)}</td><td><StatusPill status={r.timesheet?.status}/></td><td><button className="btn btnSecondary" onClick={()=>selectCoach(r.coach)}>Open</button></td></tr>)}</tbody></table></div></div>:<OverviewWidgetFallback widget="monthly"/>}
       </div></>;
 
     return <><PageHead centered title={`Good ${new Date().getHours()<12?"morning":new Date().getHours()<18?"afternoon":"evening"}, ${ownProfile.full_name.split(" ")[0]}`} sub="Your hours and invoice for this month."><MonthNavigation/></PageHead>
