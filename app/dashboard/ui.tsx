@@ -27,9 +27,10 @@ type Venue={id:string;name:string;slug:string;active:boolean;brand_color:string|
 type ShiftTemplate={id:string;profile_id:string;venue_id:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;session_location:string|null;notes:string|null;active:boolean};
 type Shift={id?:string;coach_id:string;shift_date:string;start_time:string;finish_time:string;break_minutes:number;venue_id?:string|null;session_location:string|null;notes:string|null;source?:string|null;approval_status?:"pending"|"approved"|"rejected"|null;scheduled_shift_id?:string|null;payment_type?:"standard"|"enhanced"|"volunteer"};
 type Timesheet={id:string;coach_id:string;month_start:string;status:"draft"|"submitted"|"paid";submitted_at:string|null;paid_at:string|null;submitted_by?:string|null};
-type Invoice={id:string;coach_id:string;timesheet_id:string;venue_id?:string|null;invoice_number:string;invoice_date:string;hours:number;hourly_rate:number;total_amount:number;status:"awaiting_payment"|"paid"|"cancelled";created_at?:string};
+type InvoiceExpenseLine={id:string;invoice_id:string;expense_id:string|null;expense_date:string;category:ExpenseCategory;description:string;amount:number;miles:number|null;mileage_rate:number|null;journey_from:string|null;journey_to:string|null};
+type Invoice={id:string;coach_id:string;timesheet_id:string;venue_id?:string|null;invoice_number:string;invoice_date:string;hours:number;hourly_rate:number;work_amount:number;expense_amount:number;total_amount:number;status:"awaiting_payment"|"paid"|"cancelled";created_at?:string;expenseLines?:InvoiceExpenseLine[]};
 type Business={id:number;business_name:string;business_address:string|null;payment_note:string|null;cutoff_day:number};
-type Club={id:string;name:string;short_name:string|null;logo_url:string|null;primary_colour:string;secondary_colour:string;email:string|null;telephone:string|null;website:string|null;address:string|null;bank_details:string|null;payroll_month:number;timezone:string;currency:string;active:boolean};
+type Club={id:string;name:string;short_name:string|null;logo_url:string|null;primary_colour:string;secondary_colour:string;email:string|null;telephone:string|null;website:string|null;address:string|null;bank_details:string|null;payroll_month:number;mileage_rate:number;timezone:string;currency:string;active:boolean};
 type AdminRow={coach:Profile;hours:number;value:number;timesheet:Timesheet|null;invoice:Invoice|null};
 type Audit={id:string;actor_id:string|null;subject_id:string|null;action:string;entity_type:string;entity_id:string|null;details:any;created_at:string};
 type ClassTemplate={id:string;class_profile_id:string;venue_id:string;name:string;programme?:string|null;minimum_age?:number|null;maximum_age?:number|null;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;active:boolean;notes:string|null;session_colour?:string;capacity?:number|null;warn_if_understaffed?:boolean;critical_if_no_lead?:boolean;allow_below_recommended_qualification?:boolean;lead_coaches_required?:number;assistant_coaches_required?:number;minimum_coaches?:number;maximum_coaches?:number;lead_recommended_qualification_id?:string|null;assistant_recommended_qualification_id?:string|null};
@@ -51,6 +52,13 @@ type ScheduledShift={id:string;class_id:string|null;staffing_slot_id:string|null
 type StaffingQualificationContext={classId:string|null;staffingSlotId:string|null;role:"lead"|"assistant";recommendedQualificationId:string|null;recommendedQualification:QualificationType|null};
 type RemovedOccurrence={class_id:string;shift_date:string;class_name:string;venue_id:string;start_time:string;finish_time:string;removed_slots:number};
 type TimeAwayRequest={id:string;profile_id:string;request_type:"holiday"|"sickness"|"appointment"|"compassionate"|"unavailable"|"other";start_date:string;end_date:string;all_day:boolean;start_time:string|null;end_time:string|null;notes:string|null;status:"pending"|"approved"|"declined"|"cancelled";reviewed_by:string|null;reviewed_at:string|null;created_at:string};
+type ExpenseCategory="mileage"|"parking"|"food_drink"|"accommodation"|"travel"|"equipment"|"training_cpd"|"other";
+type ExpenseStatus="draft"|"submitted"|"approved"|"rejected"|"paid";
+type Expense={id:string;club_id:string;profile_id:string;category:ExpenseCategory;status:ExpenseStatus;expense_date:string;description:string;notes:string|null;amount:number;miles:number|null;mileage_rate:number|null;journey_from:string|null;journey_to:string|null;supplier:string|null;course_name:string|null;receipt_url:string|null;approved_by:string|null;approved_at:string|null;rejected_reason:string|null;paid_by:string|null;paid_at:string|null;created_at:string;updated_at:string};
+type ExpenseWithProfiles=Expense&{claimant?:{full_name:string}|null;approvedBy?:{full_name:string}|null;paidBy?:{full_name:string}|null;profiles?:{full_name:string}|null};
+type ExpenseDraft={id?:string;profile_id:string;category:ExpenseCategory|null;status:ExpenseStatus;expense_date:string;description:string;notes:string;amount:number;miles:number;journey_from:string;journey_to:string;supplier:string;course_name:string;receipt_url:string|null};
+const EXPENSE_CATEGORIES:[ExpenseCategory,string][]=[["mileage","Mileage"],["parking","Parking"],["food_drink","Food & Drink"],["accommodation","Accommodation"],["travel","Travel"],["equipment","Equipment"],["training_cpd","Training / CPD"],["other","Other"]];
+const expenseCategoryLabel=(category:ExpenseCategory)=>EXPENSE_CATEGORIES.find(([value])=>value===category)?.[1]||category;
 type OverviewWidget="workforce"|"monthly"|"invoices"|"schedule"|"leave";
 type OverviewWidgetState={status:"loading"|"loaded"|"error";message?:string};
 type ClassOccurrenceDraft={key:string;id?:string;venue_id:string;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;coach_ids:string[];payment_types:("standard"|"enhanced"|"volunteer")[];notes:string;lead_coaches_required:number;assistant_coaches_required:number;minimum_coaches:number;maximum_coaches:number;lead_recommended_qualification_id:string;assistant_recommended_qualification_id:string};
@@ -99,6 +107,17 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   const [invoice,setInvoice]=useState<Invoice|null>(null);
   const [allInvoices,setAllInvoices]=useState<any[]>([]);
   const [unpaidInvoiceTotal,setUnpaidInvoiceTotal]=useState(0);
+  const [expenses,setExpenses]=useState<ExpenseWithProfiles[]>([]);
+  const [expenseModal,setExpenseModal]=useState<ExpenseDraft|null>(null);
+  const [expenseReview,setExpenseReview]=useState<ExpenseWithProfiles|null>(null);
+  const [expenseStep,setExpenseStep]=useState(0);
+  const [expenseReceipt,setExpenseReceipt]=useState<File|null>(null);
+  const [expenseReceiptPreview,setExpenseReceiptPreview]=useState("");
+  const [expenseReason,setExpenseReason]=useState("");
+  const [expenseDelete,setExpenseDelete]=useState<ExpenseWithProfiles|null>(null);
+  const [expenseDeleteReason,setExpenseDeleteReason]=useState("");
+  const [expenseDeleteConfirm,setExpenseDeleteConfirm]=useState("");
+  const [expenseFilters,setExpenseFilters]=useState({coach:"",category:"",status:"",from:"",to:"",amount:"",search:""});
   const [staff,setStaff]=useState<Profile[]>([]);
   const [adminRows,setAdminRows]=useState<AdminRow[]>([]);
   const [business,setBusiness]=useState<Business>({id:1,business_name:"Kirklees Trampoline Gymnastics Academy Ltd",business_address:"",payment_note:"Payment by bank transfer",cutoff_day:1});
@@ -382,7 +401,8 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       if(isAdmin)await Promise.all([loadSchedule(),runSharedDataLoad(`extra-shifts:${month}`,loadPendingExtraShifts)]);
       else await Promise.all([loadSchedule(),loadLeaveData()]);
     }else if(next==="leave")await loadLeaveData();
-    else if(next==="timesheets")await Promise.all([loadBusiness(),loadCoachMonth(activeCoach.id),loadTemplates(activeCoach.id),isAdmin?loadAdmin(true):Promise.resolve()]);
+    else if(next==="expenses")await Promise.all([loadExpenses(),loadCurrentClub(),isAdmin?runSharedDataLoad("staff",loadStaff):Promise.resolve()]);
+    else if(next==="timesheets")await Promise.all([loadBusiness(),loadExpenses(),loadCoachMonth(activeCoach.id),loadTemplates(activeCoach.id),isAdmin?loadAdmin(true):Promise.resolve()]);
     else if(next==="invoices")await Promise.all([loadBusiness(),loadInvoices()]);
     else if(next==="workforce"&&isAdmin)await Promise.all([runSharedDataLoad("venues",loadVenues),runSharedDataLoad("staff",loadStaff),loadAdmin(false)]);
     else if(next==="reports"&&isAdmin)await loadAudits();
@@ -391,7 +411,8 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
 
   async function reloadLoadedTab(current:Tab){
     if(current==="schedule")await Promise.all([loadSchedule(),isAdmin?loadPendingExtraShifts():Promise.resolve()]);
-    else if(current==="timesheets")await Promise.all([loadCoachMonth(activeCoach.id),loadTemplates(activeCoach.id),isAdmin?loadAdmin(true):Promise.resolve()]);
+    else if(current==="expenses")await loadExpenses();
+    else if(current==="timesheets")await Promise.all([loadExpenses(),loadCoachMonth(activeCoach.id),loadTemplates(activeCoach.id),isAdmin?loadAdmin(true):Promise.resolve()]);
     else if((current==="reports"||current==="workforce")&&isAdmin)await loadAdmin(false);
   }
 
@@ -719,7 +740,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   async function saveClub(){
     if(!currentClub)return;
     setSaving(true);
-    const payload={name:currentClub.name.trim(),short_name:currentClub.short_name?.trim()||null,logo_url:currentClub.logo_url?.trim()||null,primary_colour:currentClub.primary_colour,secondary_colour:currentClub.secondary_colour,email:currentClub.email?.trim()||null,telephone:currentClub.telephone?.trim()||null,website:currentClub.website?.trim()||null,address:currentClub.address?.trim()||null,bank_details:currentClub.bank_details?.trim()||null,payroll_month:currentClub.payroll_month,timezone:currentClub.timezone.trim(),currency:currentClub.currency.trim().toUpperCase(),updated_at:new Date().toISOString()};
+    const payload={name:currentClub.name.trim(),short_name:currentClub.short_name?.trim()||null,logo_url:currentClub.logo_url?.trim()||null,primary_colour:currentClub.primary_colour,secondary_colour:currentClub.secondary_colour,email:currentClub.email?.trim()||null,telephone:currentClub.telephone?.trim()||null,website:currentClub.website?.trim()||null,address:currentClub.address?.trim()||null,bank_details:currentClub.bank_details?.trim()||null,payroll_month:currentClub.payroll_month,mileage_rate:Math.max(0,Number(currentClub.mileage_rate||0)),timezone:currentClub.timezone.trim(),currency:currentClub.currency.trim().toUpperCase(),updated_at:new Date().toISOString()};
     const{error}=await supabase.from("clubs").update(payload).eq("id",currentClub.id);
     if(!error){
       await Promise.all([
@@ -774,13 +795,104 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
 
   async function loadInvoices(){
     if(isAdmin){
-      const{data}=await supabase.from("invoices").select("*,profiles(full_name,email,account_name,sort_code,account_number,address),venues(name,legal_name,invoice_address,invoice_prefix,payment_note)").order("invoice_date",{ascending:false}).limit(300);
+      const{data}=await supabase.from("invoices").select("*,profiles(full_name,email,account_name,sort_code,account_number,address),venues(name,legal_name,invoice_address,invoice_prefix,payment_note),timesheets(month_start),expenseLines:invoice_expense_lines!invoice_expense_lines_invoice_fk(*)").order("invoice_date",{ascending:false}).limit(300);
       setAllInvoices(data||[]);
     }else{
-      const{data}=await supabase.from("invoices").select("*,venues(name,legal_name,invoice_address,invoice_prefix,payment_note)").eq("coach_id",initialProfile.id).order("invoice_date",{ascending:false}).limit(120);
+      const{data}=await supabase.from("invoices").select("*,venues(name,legal_name,invoice_address,invoice_prefix,payment_note),timesheets(month_start),expenseLines:invoice_expense_lines!invoice_expense_lines_invoice_fk(*)").eq("coach_id",initialProfile.id).order("invoice_date",{ascending:false}).limit(120);
       setAllInvoices(data||[]);
     }
     if(isAdmin)void loadInvoiceSummary();
+  }
+
+  async function loadExpenses(){
+    let query=supabase.from("expenses").select("*,claimant:profiles!expenses_profile_fk(full_name),approvedBy:profiles!expenses_approved_by_fk(full_name),paidBy:profiles!expenses_paid_by_fk(full_name)").order("created_at",{ascending:false});
+    if(!isAdmin)query=query.eq("profile_id",initialProfile.id);
+    const{data,error}=await query;
+    if(error)throw error;
+    setExpenses((data||[]) as ExpenseWithProfiles[]);
+  }
+
+  function blankExpense(category:ExpenseCategory|null=null):ExpenseDraft{return{profile_id:initialProfile.id,category,status:"draft",expense_date:localDateKey(),description:"",notes:"",amount:0,miles:0,journey_from:"",journey_to:"",supplier:"",course_name:"",receipt_url:null}}
+  function openNewExpense(){setExpenseModal(blankExpense());setExpenseStep(0);setExpenseReceipt(null);setExpenseReceiptPreview("")}
+  async function openExpense(item:ExpenseWithProfiles){
+    setExpenseReason("");
+    if(isAdmin||item.status!=="draft"){setExpenseReview(item);setExpenseReceiptPreview("")}
+    else{setExpenseModal({id:item.id,profile_id:item.profile_id,category:item.category,status:item.status,expense_date:item.expense_date,description:item.description,notes:item.notes||"",amount:Number(item.amount),miles:Number(item.miles||0),journey_from:item.journey_from||"",journey_to:item.journey_to||"",supplier:item.supplier||"",course_name:item.course_name||"",receipt_url:item.receipt_url});setExpenseStep(1)}
+    if(item.receipt_url){const{data}=await supabase.storage.from("expense-receipts").createSignedUrl(item.receipt_url,3600);setExpenseReceiptPreview(data?.signedUrl||"")}
+  }
+  function chooseExpenseReceipt(file:File|null){
+    setExpenseReceipt(file);
+    if(expenseReceiptPreview.startsWith("blob:"))URL.revokeObjectURL(expenseReceiptPreview);
+    setExpenseReceiptPreview(file?URL.createObjectURL(file):"");
+  }
+  async function saveExpense(submit=false){
+    if(!expenseModal?.category){flash("Select a category.");return}
+    const mileage=expenseModal.category==="mileage";
+    const receiptRequired=(["parking","food_drink","accommodation","travel","equipment","training_cpd"] as ExpenseCategory[]).includes(expenseModal.category);
+    const mileageRate=Number(currentClub?.mileage_rate??0.45);
+    const amount=mileage?Math.round(expenseModal.miles*mileageRate*100)/100:Number(expenseModal.amount);
+    if(!expenseModal.expense_date||!expenseModal.description.trim()||amount<0||(!mileage&&amount<=0)){flash("Date, description and a valid amount are required.");return}
+    if(mileage&&(!expenseModal.journey_from.trim()||!expenseModal.journey_to.trim()||expenseModal.miles<=0)){flash("Journey from, journey to and miles are required.");return}
+    if(receiptRequired&&!expenseModal.receipt_url&&!expenseReceipt){flash("Attach a receipt for this expense.");return}
+    setSaving(true);
+    let receiptUrl=expenseModal.receipt_url;
+    if(expenseReceipt){
+      const extension=expenseReceipt.name.split(".").pop()?.toLowerCase()||"jpg";
+      const path=`${currentClub?.id||initialProfile.club_id}/${initialProfile.id}/${crypto.randomUUID()}.${extension}`;
+      const{error}=await supabase.storage.from("expense-receipts").upload(path,expenseReceipt,{contentType:expenseReceipt.type,upsert:false});
+      if(error){setSaving(false);flash(error.message);return}
+      receiptUrl=path;
+    }
+    const payload={category:expenseModal.category,status:submit?"submitted":"draft",expense_date:expenseModal.expense_date,description:expenseModal.description.trim(),notes:expenseModal.notes.trim()||null,amount,miles:mileage?expenseModal.miles:null,mileage_rate:mileage?mileageRate:null,journey_from:mileage?expenseModal.journey_from.trim():null,journey_to:mileage?expenseModal.journey_to.trim():null,supplier:expenseModal.category==="equipment"?expenseModal.supplier.trim()||null:null,course_name:expenseModal.category==="training_cpd"?expenseModal.course_name.trim()||null:null,receipt_url:receiptUrl};
+    const request=expenseModal.id?supabase.from("expenses").update(payload).eq("id",expenseModal.id):supabase.from("expenses").insert({...payload,profile_id:isAdmin?expenseModal.profile_id:initialProfile.id});
+    const{error}=await request;
+    setSaving(false);
+    if(error){flash(error.message);return}
+    if(expenseModal.receipt_url&&expenseReceipt&&expenseModal.receipt_url!==receiptUrl)void supabase.storage.from("expense-receipts").remove([expenseModal.receipt_url]);
+    setExpenseModal(null);chooseExpenseReceipt(null);await loadExpenses();flash(submit?"Expense submitted.":"Expense draft saved.");
+  }
+  async function deleteExpense(item:Expense){
+    if(!confirm("Delete this draft expense?"))return;
+    const{error}=await supabase.from("expenses").delete().eq("id",item.id);
+    if(error){flash(error.message);return}
+    if(item.receipt_url)void supabase.storage.from("expense-receipts").remove([item.receipt_url]);
+    setExpenseModal(null);await loadExpenses();flash("Expense draft deleted.");
+  }
+  function openAdminExpenseDelete(item:ExpenseWithProfiles){
+    setExpenseDelete(item);setExpenseDeleteReason("");setExpenseDeleteConfirm("");
+  }
+  async function deleteExpenseAsAdmin(){
+    if(!expenseDelete||!expenseDeleteReason.trim()||expenseDeleteConfirm!=="DELETE")return;
+    setSaving(true);
+    let receiptBackup:Blob|null=null;
+    if(expenseDelete.receipt_url){
+      const downloaded=await supabase.storage.from("expense-receipts").download(expenseDelete.receipt_url);
+      if(downloaded.error){setSaving(false);flash(`Receipt could not be prepared for deletion: ${downloaded.error.message}`);return}
+      receiptBackup=downloaded.data;
+      const removed=await supabase.storage.from("expense-receipts").remove([expenseDelete.receipt_url]);
+      if(removed.error){setSaving(false);flash(`Receipt could not be deleted: ${removed.error.message}`);return}
+    }
+    const{error}=await supabase.rpc("delete_expense_as_admin",{p_expense_id:expenseDelete.id,p_reason:expenseDeleteReason.trim()});
+    if(error){
+      if(expenseDelete.receipt_url&&receiptBackup){
+        const restored=await supabase.storage.from("expense-receipts").upload(expenseDelete.receipt_url,receiptBackup,{upsert:true});
+        setSaving(false);flash(restored.error?`${error.message} Receipt restoration also failed: ${restored.error.message}`:error.message);return;
+      }
+      setSaving(false);flash(error.message);return;
+    }
+    const deletedExpenseId=expenseDelete.id;
+    setExpenses(current=>current.filter(item=>item.id!==deletedExpenseId));
+    setSaving(false);setExpenseDelete(null);setExpenseReview(null);setExpenseModal(null);setExpenseDeleteReason("");setExpenseDeleteConfirm("");
+    await Promise.all([loadExpenses(),loadAudits()]);flash("Expense permanently deleted.");
+  }
+  async function reviewExpense(action:"approve"|"reject"|"request_changes"|"paid"){
+    if(!expenseReview)return;
+    if((action==="reject"||action==="request_changes")&&!expenseReason.trim()){flash("Enter a reason.");return}
+    setSaving(true);
+    const{error}=await supabase.rpc("review_expense",{p_expense_id:expenseReview.id,p_action:action,p_reason:expenseReason.trim()||null});
+    setSaving(false);
+    if(error){flash(error.message);return}
+    setExpenseReview(null);setExpenseReason("");await loadExpenses();flash(action==="paid"?"Expense marked paid.":action==="approve"?"Expense approved.":action==="reject"?"Expense rejected.":"Changes requested.");
   }
 
   async function loadInvoiceSummary(){
@@ -1124,9 +1236,9 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
 
   async function markPaid(row:AdminRow){
     if(!row.timesheet)return;
-    const{error}=await supabase.rpc("admin_mark_timesheet_paid",{p_timesheet_id:row.timesheet.id});
+    const{error}=await supabase.rpc("admin_mark_payroll_paid",{p_timesheet_id:row.timesheet.id});
     flash(error?error.message:`${row.coach.full_name} marked paid.`);
-    if(!error){void loadAdmin();void loadInvoices();void loadAudits()}
+    if(!error){await Promise.all([loadExpenses(),loadAdmin(),loadInvoices(),loadAudits()])}
   }
 
   async function reopen(row:AdminRow){
@@ -1202,7 +1314,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   async function markInvoicePaid(inv:Invoice){
     const{error}=await supabase.rpc("admin_mark_invoice_paid",{p_invoice_id:inv.id});
     flash(error?error.message:`${(inv as any).venues?.name||venueName(inv.venue_id)} invoice marked paid.`);
-    if(!error){void loadInvoices();void loadAdmin()}
+    if(!error){await Promise.all([loadInvoices(),loadExpenses(),loadAdmin()])}
   }
 
   function pdfEscape(t:any){
@@ -1210,7 +1322,9 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   }
 
   function downloadPDF(inv:Invoice,coach:Profile){
-    const amount=money(inv.total_amount),rate=money(inv.hourly_rate);
+    const totalAmount=money(inv.total_amount),workAmount=money(invoiceWorkAmount(inv)),expenseAmount=money(Number(inv.expense_amount||0)),rate=money(inv.hourly_rate);
+    const invoiceMonth=(inv as any).timesheets?.month_start?.slice(0,7)||inv.invoice_date.slice(0,7);
+    const expenseLines=[...(inv.expenseLines||[])].sort((a,b)=>`${a.expense_date}${a.id}`.localeCompare(`${b.expense_date}${b.id}`));
     const address=(coach.address||"").split("\n").slice(0,4);
     const org=(inv as any).venues||venues.find(v=>v.id===inv.venue_id)||null;
     const bill=String(org?.invoice_address||"").split("\n").slice(0,4);
@@ -1219,12 +1333,22 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       [50,800,20,"INVOICE"],[50,775,11,coach.full_name],[50,759,9,coach.email||""],
       [410,800,11,inv.invoice_number],[410,784,9,new Date(inv.invoice_date).toLocaleDateString("en-GB")],
       [50,700,9,"Bill to:"],[50,684,11,billName],
-      [50,610,10,"Description"],[310,610,10,"Hours"],[385,610,10,"Rate"],[470,610,10,"Amount"],
-      [50,584,10,`Coaching services - ${monthLabel(inv.invoice_date.slice(0,7))}`],[310,584,10,Number(inv.hours).toFixed(2)],[385,584,10,rate],[470,584,10,amount],
-      [390,530,13,"TOTAL"],[470,530,13,amount],
-      [50,465,9,"Payment details:"],[50,449,9,`${coach.account_name||""}  ${coach.sort_code||""}  ${coach.account_number||""}`],
-      [50,425,8,org?.payment_note||business.payment_note||""]
+      [50,615,11,"WORK COMPLETED"],[50,594,9,"Description"],[310,594,9,"Hours"],[385,594,9,"Rate"],[470,594,9,"Amount"],
+      [50,574,9,`Coaching services - ${monthLabel(invoiceMonth)}`],[310,574,9,Number(inv.hours).toFixed(2)],[385,574,9,rate],[470,574,9,workAmount]
     ];
+    let expenseY=535;
+    if(expenseLines.length){
+      lines.push([50,expenseY,11,"EXPENSES / REIMBURSEMENTS"]);expenseY-=22;
+      for(const expense of expenseLines){
+        lines.push([50,expenseY,8,dateText(expense.expense_date)],[135,expenseY,8,expenseCategoryLabel(expense.category)],[470,expenseY,8,money(Number(expense.amount))]);expenseY-=14;
+        lines.push([135,expenseY,8,expense.category==="mileage"?`${expense.journey_from||""} to ${expense.journey_to||""}`:expense.description]);expenseY-=13;
+        if(expense.category==="mileage"){
+          lines.push([135,expenseY,8,`${Number(expense.miles||0)} miles at ${money(Number(expense.mileage_rate||0))}`]);expenseY-=15;
+        }
+      }
+      lines.push([385,expenseY,9,"Total Expenses"],[470,expenseY,9,expenseAmount]);expenseY-=32;
+    }
+    lines.push([50,expenseY,11,"PAYMENT SUMMARY"],[385,expenseY-22,9,"Work / Coaching"],[470,expenseY-22,9,workAmount],[385,expenseY-40,9,"Expenses"],[470,expenseY-40,9,expenseAmount],[385,expenseY-64,13,"TOTAL DUE"],[470,expenseY-64,13,totalAmount],[50,expenseY-112,9,"Payment details:"],[50,expenseY-128,9,`${coach.account_name||""}  ${coach.sort_code||""}  ${coach.account_number||""}`],[50,expenseY-152,8,org?.payment_note||business.payment_note||""]);
     let ay=744;for(const a of address){if(a)lines.push([50,ay,9,a]);ay-=13}
     let by=668;for(const b of bill){if(b)lines.push([50,by,9,b]);by-=13}
     let content="BT\n";
@@ -2029,6 +2153,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     if(!isAdmin){
       if(tab==="schedule")return null;
       if(tab==="leave")return{eyebrow:"My availability",title:"Leave & Availability",sub:"Request leave and tell us when you cannot coach."};
+      if(tab==="expenses")return{eyebrow:"My expenses",title:"My Expenses",sub:"Submit and track expense reimbursements."};
       if(tab==="timesheets")return{eyebrow:"My work",title:"My Timesheet",sub:"Review confirmed coaching and submit your month when everything is correct."};
       if(tab==="invoices")return{eyebrow:"My pay",title:"My Payslips",sub:"Your payment history and completed monthly invoices."};
       if(tab==="profile")return{eyebrow:"My account",title:"My Profile",sub:"Keep your personal, payment and compliance details up to date."};
@@ -2042,6 +2167,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     if(tab==="invoices")return{eyebrow:"Payroll",title:"Invoices",sub:"Generated invoices, payment status and history."};
     if(tab==="staff")return{eyebrow:"People",title:"Staff",sub:"Manage coaches, access, rates and compliance."};
     if(tab==="workforce")return{eyebrow:"Management",title:"Workforce",sub:"Employment, worked hours and workforce cost."};
+    if(tab==="expenses")return{eyebrow:"Finance",title:"All Expenses",sub:"Review and manage staff expense claims."};
     if(tab==="reports")return{eyebrow:"Insights",title:"Reports",sub:"Staffing cost, hours and activity for the club."};
     if(tab==="settings")return{eyebrow:"Settings",title:"Club Settings",sub:"Manage club identity, branding and payroll configuration."};
     if(tab==="profile")return{eyebrow:"My account",title:"My Profile",sub:"Your own coaching, payment and compliance details."};
@@ -2064,6 +2190,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
           {tab==="availability"&&isAdmin&&StaffAvailabilityView()}
           {tab==="schedule"&&ScheduleView()}
           {tab==="leave"&&LeaveView()}
+          {tab==="expenses"&&ExpensesView()}
           {tab==="timesheets"&&TimesheetView()}
           {tab==="invoices"&&InvoicesView()}
           {tab==="staff"&&isAdmin&&StaffView()}
@@ -2075,6 +2202,9 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       </main>
     </div>
     {timeAwayModal!==undefined&&TimeAwayModal()}
+    {expenseModal&&ExpenseModal()}
+    {expenseReview&&ExpenseReviewModal()}
+    {expenseDelete&&ExpenseDeleteModal()}
     {shiftModal&&ShiftModal()}
     {inviteOpen&&InviteModal()}
     {staffEdit&&StaffModal()}
@@ -2286,10 +2416,48 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       })()}</div>:<div className="scheduleAgenda v311Agenda">{Array.from(new Set([...Object.keys(grouped),...visibleAdditionalWork.map(s=>s.shift_date),...visibleRemovedOccurrences.map(r=>r.shift_date)])).sort().map(date=>{const items=(grouped[date]||[]) as ScheduledShift[];const extras=visibleAdditionalWork.filter(s=>s.shift_date===date);const removed=visibleRemovedOccurrences.filter(r=>r.shift_date===date);return <div className="scheduleDay" key={date}><div className="scheduleDate"><strong>{new Date(`${date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}</strong><span>{items.length+extras.length} active{removed.length?` · ${removed.length} removed`:""}</span></div>{items.map(s=>{const allowed=staffOptionsForVenue(s.venue_id);return <div className={`scheduleShift v311ScheduleRow ${s.status} ${venueColourClass(s.venue_id)} ${highlightedScheduleShiftId===s.id?"v402HighlightedShift":""}`} key={s.id} onClick={()=>openAdminScheduleShift(s)}><div className="scheduleShiftMain"><div className="scheduleTime">{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</div><div><strong>{s.class_name}</strong><span>{venueName(s.venue_id)} · {scheduleHours(s).toFixed(2)}h</span></div></div><div className="v311RowCoach"><span>Coach</span><strong>{profileById(s.profile_id)?.full_name||"Unassigned"}</strong>{s.profile_id&&<small className={`v341CoachState ${coachAvailabilityState(s.profile_id,s.shift_date,s.start_time,s.finish_time).state}`}>{coachAvailabilityState(s.profile_id,s.shift_date,s.start_time,s.finish_time).label}</small>}</div><div className="v311RowStatus"><span className={`scheduleStatus ${s.status}`}>{s.adjustment_status==="pending"?"Approval pending":s.status}</span><button className="btn btnSecondary" type="button" onClick={e=>{e.stopPropagation();openAdminScheduleShift(s)}}>Manage</button></div></div>})}{extras.map(s=><div className={`scheduleShift v311ScheduleRow v311ExtraRow ${s.approval_status==="approved"?"v313ApprovedExtraRow":""}`} key={`extra-${s.id}`} onClick={()=>setShiftModal(s)}><div className="scheduleShiftMain"><div className="scheduleTime">{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</div><div><strong>{s.session_location||"Additional work"}</strong><span>{venueName(s.venue_id)} · {shiftHours(s).toFixed(2)}h</span></div></div><div className="v311RowCoach"><span>{s.approval_status==="pending"?"Submitted by":"Coach"}</span><strong>{profileById(s.coach_id)?.full_name||"Staff member"}</strong></div><div className="v311RowStatus"><span className={`scheduleStatus ${s.approval_status==="pending"?"v311PendingBadge":"v313ApprovedBadge"}`}>{s.approval_status==="pending"?"Approval required":"Additional shift · Approved"}</span><button className={`btn ${s.approval_status==="pending"?"btnAccent":"btnSecondary"}`} type="button" onClick={e=>{e.stopPropagation();setShiftModal(s)}}>{s.approval_status==="pending"?"Review":"View"}</button></div></div>)}{removed.map(r=><div className="scheduleShift v311ScheduleRow v314RemovedAgenda" key={`removed-${r.class_id}-${r.shift_date}`}><div className="scheduleShiftMain"><div className="scheduleTime">{r.start_time.slice(0,5)}–{r.finish_time.slice(0,5)}</div><div><strong>{r.class_name}</strong><span>{venueName(r.venue_id)} · Removed from this date</span></div></div><div className="v311RowCoach"><span>Status</span><strong>Removed occurrence</strong></div><div className="v311RowStatus"><span className="scheduleStatus v314RemovedBadge">Removed</span><button className="btn btnSecondary" type="button" onClick={()=>restoreRemovedOccurrence(r)}>Restore</button></div></div>)}</div>})}{!visibleScheduled.length&&!visibleAdditionalWork.length&&!visibleRemovedOccurrences.length&&<div className="empty">Generate {monthLabel(month)} to create the staffing rota from your regular classes.</div>}</div>}</div></div></div>;
   }
 
+  function ExpensesView(){
+    const filtered=expenses.filter(item=>(!expenseFilters.coach||item.profile_id===expenseFilters.coach)&&(!expenseFilters.category||item.category===expenseFilters.category)&&(!expenseFilters.status||item.status===expenseFilters.status)&&(!expenseFilters.from||item.expense_date>=expenseFilters.from)&&(!expenseFilters.to||item.expense_date<=expenseFilters.to)&&(!expenseFilters.amount||Number(item.amount)===Number(expenseFilters.amount))&&`${item.description} ${item.notes||""} ${item.claimant?.full_name||""}`.toLowerCase().includes(expenseFilters.search.toLowerCase()));
+    const cards=<div className="v14ExpenseList">{filtered.map(item=><button className="card v14ExpenseCard" type="button" key={item.id} onClick={()=>void openExpense(item)}><div className="v14ExpenseHead"><span>{expenseCategoryLabel(item.category)}</span><StatusPill status={item.status==="submitted"&&isAdmin?"pending":item.status}/></div><strong>{item.description}</strong>{isAdmin&&<small>Submitted for: {item.claimant?.full_name||profileById(item.profile_id)?.full_name||"Staff"}</small>}<div className="v14ExpenseMeta"><span>{dateText(item.expense_date)}</span><b>{money(Number(item.amount))}</b><span>{item.receipt_url?"Receipt attached":"No receipt"}</span></div>{item.rejected_reason&&<div className="notice danger">{item.rejected_reason}</div>}</button>)}{!filtered.length&&<div className="card empty">No expenses found.</div>}</div>;
+    return <><PageHead title={isAdmin?"All Expenses":"My Expenses"} sub={isAdmin?"Review, approve and reimburse staff expenses.":"Create and track your expense claims."}><button className="btn btnPrimary" type="button" onClick={openNewExpense}><PlusIcon/>Add Expense</button></PageHead>{isAdmin&&<FilterBar className="v14ExpenseFilters"><select aria-label="Coach" value={expenseFilters.coach} onChange={e=>setExpenseFilters({...expenseFilters,coach:e.target.value})}><option value="">All coaches</option>{staff.map(person=><option value={person.id} key={person.id}>{person.full_name}</option>)}</select><select aria-label="Category" value={expenseFilters.category} onChange={e=>setExpenseFilters({...expenseFilters,category:e.target.value})}><option value="">All categories</option>{EXPENSE_CATEGORIES.map(([value,label])=><option value={value} key={value}>{label}</option>)}</select><select aria-label="Status" value={expenseFilters.status} onChange={e=>setExpenseFilters({...expenseFilters,status:e.target.value})}><option value="">All statuses</option>{["submitted","approved","rejected","paid"].map(value=><option value={value} key={value}>{value==="submitted"?"Pending":value.replace(/^./,x=>x.toUpperCase())}</option>)}</select><input aria-label="From date" type="date" value={expenseFilters.from} onChange={e=>setExpenseFilters({...expenseFilters,from:e.target.value})}/><input aria-label="To date" type="date" value={expenseFilters.to} onChange={e=>setExpenseFilters({...expenseFilters,to:e.target.value})}/><input aria-label="Amount" type="number" min="0" step="0.01" placeholder="Amount" value={expenseFilters.amount} onChange={e=>setExpenseFilters({...expenseFilters,amount:e.target.value})}/><input aria-label="Search" placeholder="Search expenses" value={expenseFilters.search} onChange={e=>setExpenseFilters({...expenseFilters,search:e.target.value})}/></FilterBar>}{cards}</>;
+  }
+
+  function ExpenseModal(){
+    const draft=expenseModal!;
+    const mileage=draft.category==="mileage",rate=Number(currentClub?.mileage_rate??0.45),calculated=Math.round(draft.miles*rate*100)/100;
+    const claimants=[initialProfile,...staff.filter(person=>person.id!==initialProfile.id&&person.is_active)];
+    if(expenseStep===0)return <div className="modalBackdrop"><div className="modal modalWide v14ExpenseModal"><div className="modalHead"><div><h2>Add Expense</h2><p className="muted">Select a category</p></div><button className="iconButton" onClick={()=>setExpenseModal(null)}>×</button></div><div className="modalBody">{isAdmin&&<div className="field"><label>Claimant</label><select value={draft.profile_id} onChange={e=>setExpenseModal({...draft,profile_id:e.target.value})}>{claimants.map(person=><option value={person.id} key={person.id}>{person.full_name}</option>)}</select><div className="fieldHint">This expense will appear in the selected staff member’s history.</div></div>}<div className="v14CategoryGrid">{EXPENSE_CATEGORIES.map(([value,label])=><button className="checkCard" type="button" key={value} onClick={()=>{setExpenseModal({...draft,category:value});setExpenseStep(1)}}><strong>{label}</strong><span>Continue →</span></button>)}</div></div></div></div>;
+    const removeReceipt=()=>{setExpenseModal({...draft,receipt_url:null});chooseExpenseReceipt(null)};
+    return <div className="modalBackdrop"><div className="modal modalWide v14ExpenseModal"><div className="modalHead"><div><h2>{draft.id?"Edit Expense":expenseCategoryLabel(draft.category!)}</h2><p className="muted">{draft.id?"Draft expense":"Add the details and submit"}</p></div><button className="iconButton" onClick={()=>setExpenseModal(null)}>×</button></div><div className="modalBody"><div className="grid grid2"><div className="field"><label>Expense Date</label><input type="date" value={draft.expense_date} onChange={e=>setExpenseModal({...draft,expense_date:e.target.value})}/></div><div className="field"><label>Category</label><select value={draft.category||""} onChange={e=>setExpenseModal({...draft,category:e.target.value as ExpenseCategory})}>{EXPENSE_CATEGORIES.map(([value,label])=><option value={value} key={value}>{label}</option>)}</select></div></div><div className="field"><label>Description</label><input value={draft.description} onChange={e=>setExpenseModal({...draft,description:e.target.value})} placeholder="What was this expense for?"/></div>{mileage?<><div className="grid grid2"><div className="field"><label>Journey From</label><input value={draft.journey_from} onChange={e=>setExpenseModal({...draft,journey_from:e.target.value})}/></div><div className="field"><label>Journey To</label><input value={draft.journey_to} onChange={e=>setExpenseModal({...draft,journey_to:e.target.value})}/></div></div><div className="grid grid3"><div className="field"><label>Miles</label><input type="number" min="0" step="0.1" value={draft.miles||""} onChange={e=>setExpenseModal({...draft,miles:Number(e.target.value)})}/></div><div className="field"><label>Mileage Rate</label><input value={`${Math.round(rate*100)}p per mile`} disabled/></div><div className="field"><label>Amount</label><input value={money(calculated)} disabled/></div></div></>:<><div className="field"><label>Amount</label><input type="number" min="0" step="0.01" value={draft.amount||""} onChange={e=>setExpenseModal({...draft,amount:Number(e.target.value)})}/></div>{draft.category==="equipment"&&<div className="field"><label>Supplier (optional)</label><input value={draft.supplier} onChange={e=>setExpenseModal({...draft,supplier:e.target.value})}/></div>}{draft.category==="training_cpd"&&<div className="field"><label>Course Name</label><input value={draft.course_name} onChange={e=>setExpenseModal({...draft,course_name:e.target.value})}/></div>}</>}<div className="field"><label>Notes (optional)</label><textarea value={draft.notes} onChange={e=>setExpenseModal({...draft,notes:e.target.value})}/></div><div className="v14Receipt"><strong>Receipt</strong>{expenseReceiptPreview?<><a href={expenseReceiptPreview} target="_blank" rel="noreferrer"><img src={expenseReceiptPreview} alt="Receipt preview"/></a><div className="row"><label className="btn btnSecondary">Replace<input hidden type="file" accept="image/*,application/pdf" onChange={e=>chooseExpenseReceipt(e.target.files?.[0]||null)}/></label><button className="btn btnDanger" type="button" onClick={removeReceipt}>Remove</button></div></>:<div className="v14ReceiptActions"><label className="btn btnAccent">Take Photo<input hidden type="file" accept="image/*" capture="environment" onChange={e=>chooseExpenseReceipt(e.target.files?.[0]||null)}/></label><label className="btn btnSecondary">Upload Receipt<input hidden type="file" accept="image/*,application/pdf" onChange={e=>chooseExpenseReceipt(e.target.files?.[0]||null)}/></label></div>}</div></div><div className="modalFoot"><div>{draft.id&&<button className="btn btnDanger" onClick={()=>{const item=expenses.find(expense=>expense.id===draft.id);if(!item)return;if(isAdmin){setExpenseModal(null);openAdminExpenseDelete(item)}else void deleteExpense(item)}}>Delete Draft</button>}</div><div className="row"><button className="btn btnSecondary" onClick={()=>void saveExpense(false)}>Save Draft</button><button className="btn btnPrimary" onClick={()=>void saveExpense(true)} disabled={saving}>{saving?"Submitting…":"Submit Expense"}</button></div></div></div></div>;
+  }
+
+  function ExpenseReviewModal(){
+    const item=expenseReview!;
+    return <div className="modalBackdrop"><div className="modal v14ExpenseModal"><div className="modalHead"><div><h2>{expenseCategoryLabel(item.category)}</h2><p className="muted">Submitted for: {item.claimant?.full_name||profileById(item.profile_id)?.full_name||"Expense"}</p></div><button className="iconButton" onClick={()=>setExpenseReview(null)}>×</button></div><div className="modalBody"><div className="v14ReviewAmount">{money(Number(item.amount))}<StatusPill status={item.status==="submitted"?"pending":item.status}/></div><dl className="v14ExpenseDetails"><div><dt>Date</dt><dd>{dateText(item.expense_date)}</dd></div><div><dt>Description</dt><dd>{item.description}</dd></div>{item.notes&&<div><dt>Notes</dt><dd>{item.notes}</dd></div>}{item.approved_by&&<div><dt>Approved By</dt><dd>{item.approvedBy?.full_name||profileById(item.approved_by)?.full_name||"Administrator"}</dd></div>}{item.paid_by&&<div><dt>Paid By</dt><dd>{item.paidBy?.full_name||profileById(item.paid_by)?.full_name||"Administrator"}</dd></div>}{item.category==="mileage"&&<><div><dt>Journey</dt><dd>{item.journey_from} → {item.journey_to}</dd></div><div><dt>Mileage</dt><dd>{item.miles} miles at {money(Number(item.mileage_rate))}</dd></div></>}</dl>{expenseReceiptPreview&&<a className="btn btnSecondary" href={expenseReceiptPreview} target="_blank" rel="noreferrer">View Receipt</a>}{item.rejected_reason&&<div className="notice danger">{item.rejected_reason}</div>}{isAdmin&&item.status==="submitted"&&<div className="field"><label>Reason (required for reject or changes)</label><textarea value={expenseReason} onChange={e=>setExpenseReason(e.target.value)}/></div>}</div>{isAdmin&&<div className="modalFoot"><button className="btn btnDanger" type="button" onClick={()=>openAdminExpenseDelete(item)}>Delete Expense</button><div className="row">{item.status==="submitted"&&<><button className="btn btnSecondary" onClick={()=>void reviewExpense("request_changes")}>Request Changes</button><button className="btn btnDanger" onClick={()=>void reviewExpense("reject")}>Reject</button><button className="btn btnPrimary" onClick={()=>void reviewExpense("approve")}>Approve</button></>}{item.status==="approved"&&<button className="btn btnPrimary" onClick={()=>void reviewExpense("paid")}>Mark as Paid</button>}</div></div>}</div></div>;
+  }
+
+  function ExpenseDeleteModal(){
+    const item=expenseDelete!,coach=item.claimant?.full_name||profileById(item.profile_id)?.full_name||"Staff member";
+    return <div className="modalBackdrop"><div className="modal v14ExpenseModal"><div className="modalHead"><div><h2>Delete Expense</h2><p className="muted">Permanent administrative deletion</p></div><button className="iconButton" onClick={()=>setExpenseDelete(null)}>×</button></div><div className="modalBody"><div className="notice danger"><strong>You are permanently deleting:</strong></div><dl className="v14ExpenseDetails"><div><dt>Coach</dt><dd>{coach}</dd></div><div><dt>Category</dt><dd>{expenseCategoryLabel(item.category)}</dd></div><div><dt>Expense Date</dt><dd>{dateText(item.expense_date)}</dd></div><div><dt>Amount</dt><dd>{money(Number(item.amount))}</dd></div><div><dt>Current Status</dt><dd>{item.status.replace(/^./,letter=>letter.toUpperCase())}</dd></div></dl><p><strong>This action cannot be undone.</strong></p>{item.status==="paid"&&<div className="notice danger">This expense has already been marked as paid. Deleting it will remove the expense record but will not reverse any bank payment or payroll action.</div>}<div className="field"><label>Deletion Reason</label><input value={expenseDeleteReason} onChange={e=>setExpenseDeleteReason(e.target.value)} placeholder="e.g. Duplicate claim, entered in error"/></div><div className="field"><label>Type DELETE to continue</label><input value={expenseDeleteConfirm} onChange={e=>setExpenseDeleteConfirm(e.target.value)} autoComplete="off"/></div></div><div className="modalFoot"><button className="btn btnSecondary" onClick={()=>setExpenseDelete(null)}>Cancel</button><button className="btn btnDanger" onClick={()=>void deleteExpenseAsAdmin()} disabled={saving||!expenseDeleteReason.trim()||expenseDeleteConfirm!=="DELETE"}>{saving?"Deleting…":"Permanently Delete"}</button></div></div></div>;
+  }
+
   function TimesheetView(){
-    if(isAdmin&&!viewingOther)return <><PageHead centered title="Timesheets" sub="Open a coach to review, add, edit or delete their shifts."><MonthNavigation/></PageHead><div className="card"><div className="sectionHeader"><div><h2>{monthLabel(month)}</h2><p>{submittedCount} of {adminRows.length} coaches submitted.</p></div></div><div className="mobileDataList">{adminRows.map(r=><div className="mobileAdminCard" key={r.coach.id}><div className="mobileAdminHead"><div><strong>{r.coach.full_name}</strong><span>{r.coach.email}</span></div><StatusPill status={r.timesheet?.status}/></div><div className="mobileAdminStats"><span><small>Hours</small><strong>{r.hours.toFixed(2)}</strong></span><span><small>Value</small><strong>{money(r.value)}</strong></span></div><div className="mobileAdminActions"><button className="btn btnSecondary" onClick={()=>selectCoach(r.coach)}>Open / edit</button>{(!r.timesheet||r.timesheet.status==="draft")&&r.hours>0&&<button className="btn btnPrimary" onClick={()=>adminSubmitMonth(r.coach.id)}>Submit on behalf</button>}{r.timesheet?.status==="submitted"&&<><button className="btn btnSecondary" onClick={()=>reopen(r)}>Reopen</button><button className="btn btnPrimary" onClick={()=>markPaid(r)}>Mark paid</button></>}{r.timesheet?.status==="paid"&&<button className="btn btnDanger" onClick={()=>reopen(r)}>Reopen paid month</button>}</div></div>)}</div><div className="tableWrap desktopDataTable"><table><thead><tr><th>Coach</th><th className="num">Hours</th><th className="num">Value</th><th>Status</th><th>Actions</th></tr></thead><tbody>{adminRows.map(r=><tr key={r.coach.id}><td><strong>{r.coach.full_name}</strong><div className="muted" style={{fontSize:11}}>{r.coach.email}</div></td><td className="num">{r.hours.toFixed(2)}</td><td className="num">{money(r.value)}</td><td><StatusPill status={r.timesheet?.status}/></td><td><div className="row"><button className="btn btnSecondary" onClick={()=>selectCoach(r.coach)}>Open / edit</button>{(!r.timesheet||r.timesheet.status==="draft")&&r.hours>0&&<button className="btn btnPrimary" onClick={()=>adminSubmitMonth(r.coach.id)}>Submit on behalf</button>}{r.timesheet?.status==="submitted"&&<><button className="btn btnSecondary" onClick={()=>reopen(r)}>Reopen</button><button className="btn btnPrimary" onClick={()=>markPaid(r)}>Mark paid</button></>}{r.timesheet?.status==="paid"&&<button className="btn btnDanger" onClick={()=>reopen(r)}>Reopen paid month</button>}</div></td></tr>)}</tbody></table></div></div></>;
+    if(isAdmin&&!viewingOther)return <><PageHead centered title="Timesheets" sub="Open a coach to review, add, edit or delete their shifts."><MonthNavigation/></PageHead><div className="card"><div className="sectionHeader"><div><h2>{monthLabel(month)}</h2><p>{submittedCount} of {adminRows.length} coaches submitted.</p></div></div><div className="mobileDataList">{adminRows.map(row=>{const approved=approvedPayrollExpenses(row.coach.id),expenseTotal=expenseTotalFor(approved),basis=payrollBasis(row.coach,row.value),hasPayableWork=row.hours>0||approved.length>0;return <div className="mobileAdminCard" key={row.coach.id}><div className="mobileAdminHead"><div><strong>{row.coach.full_name}</strong><span>{row.coach.email}</span></div><StatusPill status={row.timesheet?.status}/></div><div className="mobileAdminStats v14PayrollStats"><span><small>Hours Pay</small><strong>{basis}</strong></span><span><small>Approved Expenses</small><strong>{money(expenseTotal)}</strong></span><span><small>Total Due</small><strong>{money((employmentTypeForProfile(row.coach,`${month}-01`)!=="hourly"?0:row.value)+expenseTotal)}</strong></span></div><PayrollExpenseDetails items={approved}/><div className="mobileAdminActions"><button className="btn btnSecondary" onClick={()=>selectCoach(row.coach)}>Open / edit</button>{(!row.timesheet||row.timesheet.status==="draft")&&hasPayableWork&&<button className="btn btnPrimary" onClick={()=>adminSubmitMonth(row.coach.id)}>Submit on behalf</button>}{row.timesheet?.status==="submitted"&&<><button className="btn btnSecondary" onClick={()=>reopen(row)}>Reopen</button><button className="btn btnPrimary" onClick={()=>markPaid(row)}>Mark paid</button></>}{row.timesheet?.status==="paid"&&<button className="btn btnDanger" onClick={()=>reopen(row)}>Reopen paid month</button>}</div></div>})}</div><div className="tableWrap desktopDataTable"><table><thead><tr><th>Coach</th><th>Hours Pay</th><th>Approved Expenses</th><th className="num">Total Due</th><th>Status</th><th>Actions</th></tr></thead><tbody>{adminRows.map(row=>{const approved=approvedPayrollExpenses(row.coach.id),expenseTotal=expenseTotalFor(approved),hourly=employmentTypeForProfile(row.coach,`${month}-01`)==="hourly",hasPayableWork=row.hours>0||approved.length>0;return <tr key={row.coach.id}><td><strong>{row.coach.full_name}</strong><div className="muted" style={{fontSize:11}}>{row.coach.email}</div></td><td><strong>{payrollBasis(row.coach,row.value)}</strong></td><td><strong>{money(expenseTotal)}</strong><PayrollExpenseDetails items={approved}/></td><td className="num"><strong>{money((hourly?row.value:0)+expenseTotal)}</strong></td><td><StatusPill status={row.timesheet?.status}/></td><td><div className="row"><button className="btn btnSecondary" onClick={()=>selectCoach(row.coach)}>Open / edit</button>{(!row.timesheet||row.timesheet.status==="draft")&&hasPayableWork&&<button className="btn btnPrimary" onClick={()=>adminSubmitMonth(row.coach.id)}>Submit on behalf</button>}{row.timesheet?.status==="submitted"&&<><button className="btn btnSecondary" onClick={()=>reopen(row)}>Reopen</button><button className="btn btnPrimary" onClick={()=>markPaid(row)}>Mark paid</button></>}{row.timesheet?.status==="paid"&&<button className="btn btnDanger" onClick={()=>reopen(row)}>Reopen paid month</button>}</div></td></tr>})}</tbody></table></div></div></>;
 
     return <><PageHead centered title={viewingOther?`${activeCoach.full_name}'s timesheet`:"My Timesheet"} sub={viewingOther?"Admin view — reopen submitted months before changing them.":"Confirmed rota work and approved additional work appear here automatically. Submit the month when everything is correct."}><div className="v436TimesheetHeadControls"><MonthNavigation/>{viewingOther&&<button className="btn btnSecondary" onClick={backToAdmin}>← All coaches</button>}</div></PageHead>{TimesheetCalendar({})}</>
+  }
+
+  function approvedPayrollExpenses(profileId:string){
+    return expenses.filter(item=>item.profile_id===profileId&&item.status==="approved"&&item.expense_date.startsWith(month));
+  }
+  function expenseTotalFor(items:Expense[]){return items.reduce((total,item)=>total+Number(item.amount),0)}
+  function payrollBasis(profile:Profile,hoursPay:number){
+    const type=employmentTypeForProfile(profile,`${month}-01`);
+    return type==="salaried"?"Salary Included":type==="volunteer"?"Volunteer":money(hoursPay);
+  }
+  function PayrollExpenseDetails({items}:{items:Expense[]}){
+    if(!items.length)return <span className="v14NoExpenses">No approved expenses</span>;
+    return <details className="v14PayrollDetails"><summary>View {items.length} expense{items.length===1?"":"s"}</summary><div>{items.map(item=><article key={item.id}><time>{dateText(item.expense_date)}</time><span>{expenseCategoryLabel(item.category)}</span><strong>{item.description}</strong><b>{money(Number(item.amount))}</b><StatusPill status={item.status}/></article>)}</div></details>;
   }
 
   function TimesheetCalendar({compact=false}:{compact?:boolean}){
@@ -2298,14 +2466,19 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     const defaultVenue=(isAdmin?adminVenues()[0]:profileVenues(activeCoach.id)[0])?.id||null;
     const newShift=(date=`${month}-${String(Math.min(new Date().getDate(),last)).padStart(2,"0")}`)=>setShiftModal({coach_id:activeCoach.id,shift_date:date,start_time:"16:30",finish_time:"20:30",break_minutes:0,venue_id:defaultVenue,session_location:"",notes:""});
     const sorted=shifts.filter(s=>s.approval_status!=="rejected").sort((a,b)=>`${a.shift_date}${a.start_time}`.localeCompare(`${b.shift_date}${b.start_time}`));
+    const coachMonthExpenses=expenses.filter(item=>item.profile_id===activeCoach.id&&item.expense_date.startsWith(month));
+    const approvedExpenses=coachMonthExpenses.filter(item=>item.status==="approved");
+    const approvedExpenseTotal=expenseTotalFor(approvedExpenses);
+    const paidExpenseTotal=coachMonthExpenses.filter(item=>item.status==="paid").reduce((total,item)=>total+Number(item.amount),0);
+    const employmentType=employmentTypeForProfile(activeCoach,`${month}-01`),hoursPay=employmentType==="hourly"?totalValue:0;
     return <div className="card timesheetCard"><div className="calendarToolbar"><div><strong>{monthLabel(month)}</strong><div className="muted" style={{fontSize:11,marginTop:3}}>{viewingOther?`Viewing ${activeCoach.full_name}`:locked?"Submitted months are locked until unsubmitted.":"Scheduled classes flow in when confirmed. Use Add extra shift only for unscheduled work."}{timesheet?.submitted_by&&timesheet.submitted_by!==activeCoach.id?" · Submitted by an administrator":""}</div></div><div className="row">{canEdit&&<><button className="btn btnAccent mobilePrimaryAdd" onClick={()=>newShift()}><PlusIcon/>Add extra shift</button><button className="btn btnSecondary" onClick={()=>setTemplateOpen(true)}>Regular shifts</button>{templates.length>0&&<button className="btn btnSecondary" onClick={fillMonthFromTemplates}>Fill month</button>}<button className="btn btnSecondary" onClick={copyPrevious}>Copy previous month</button></>}</div></div>
       <div className="mobileShiftList">
         {sorted.length===0?<div className="mobileEmpty"><ClockIcon/><strong>No shifts added yet</strong><span>No unscheduled work added for {monthLabel(month)}.</span>{canEdit&&<button className="btn btnAccent" onClick={()=>newShift()}><PlusIcon/>Add extra shift</button>}</div>:sorted.map(s=><button className="mobileShiftCard" key={s.id} onClick={()=>canEdit&&setShiftModal(s)}><div className="mobileShiftDate"><strong>{new Date(`${s.shift_date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric"})}</strong><span>{venueName(s.venue_id)}</span></div><div className="mobileShiftMain"><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</strong><span>{s.session_location||"Coaching"}</span></div><div className="mobileShiftHours">{s.approval_status==="pending"?"Pending":`${shiftHours(s).toFixed(2)}h`}</div></button>)}
       </div>
       <div className="calendarScroll desktopCalendar"><div className="calendar">{["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d=><div className="dow" key={d}>{d}</div>)}{Array.from({length:start},(_,i)=><div className="day dayBlank" key={`b${i}`}/>) }
         {Array.from({length:last},(_,i)=>{const d=i+1,date=`${month}-${String(d).padStart(2,"0")}`,items=shifts.filter(s=>s.shift_date===date&&s.approval_status!=="rejected");return <div className="day" key={date}><div className="dayNum">{d}</div>{canEdit&&<button className="dayAdd" onClick={()=>newShift(date)}>+</button>}{items.map(s=><div className="shiftChip" key={s.id} onClick={()=>canEdit&&setShiftModal(s)}><strong>{s.start_time.slice(0,5)}–{s.finish_time.slice(0,5)}</strong><br/><span className="venueDot"/>{venueName(s.venue_id)}<br/>{s.session_location||"Coaching"}<br/><span className="muted">{shiftHours(s).toFixed(2)}h</span></div>)}</div>})}</div></div>
-      <div className="calendarFooter"><div><strong>{totalHours.toFixed(2)} hours</strong><div className="muted" style={{fontSize:11}}>{money(totalValue)} at {money(activeCoach.hourly_rate)}/hr</div></div><div className="row">
-        {viewingOther?<>{(!timesheet||timesheet.status==="draft")&&shifts.length>0&&<button className="btn btnPrimary" onClick={()=>adminSubmitMonth(activeCoach.id)}>Submit on behalf</button>}{timesheet?.status==="submitted"&&<button className="btn btnDanger" onClick={()=>{const r=adminRows.find(x=>x.coach.id===activeCoach.id);if(r)void reopen(r)}}>Reopen to edit</button>}{timesheet?.status==="paid"&&<><span className="pill pillPaid"><span className="dot"/>Paid</span><button className="btn btnDanger" onClick={()=>{const r=adminRows.find(x=>x.coach.id===activeCoach.id);if(r)void reopen(r)}}>Reopen paid month</button></>}</>:<>
+      <div className="calendarFooter"><div><strong>{totalHours.toFixed(2)} hours</strong><div className="muted" style={{fontSize:11}}>{payrollBasis(activeCoach,totalValue)}{employmentType==="hourly"?` at ${money(activeCoach.hourly_rate)}/hr`:""}</div><div className="v14PayrollExpense"><span>Approved expenses</span><strong>{money(approvedExpenseTotal)}</strong><span>Total Due</span><strong>{money(hoursPay+approvedExpenseTotal)}</strong>{paidExpenseTotal>0&&<small>Already paid expenses {money(paidExpenseTotal)}</small>}</div><PayrollExpenseDetails items={approvedExpenses}/></div><div className="row">
+        {viewingOther?<>{(!timesheet||timesheet.status==="draft")&&(shifts.length>0||approvedExpenses.length>0)&&<button className="btn btnPrimary" onClick={()=>adminSubmitMonth(activeCoach.id)}>Submit on behalf</button>}{timesheet?.status==="submitted"&&<button className="btn btnDanger" onClick={()=>{const r=adminRows.find(x=>x.coach.id===activeCoach.id);if(r)void reopen(r)}}>Reopen to edit</button>}{timesheet?.status==="paid"&&<><span className="pill pillPaid"><span className="dot"/>Paid</span><button className="btn btnDanger" onClick={()=>{const r=adminRows.find(x=>x.coach.id===activeCoach.id);if(r)void reopen(r)}}>Reopen paid month</button></>}</>:<>
           {timesheet?.status==="submitted"&&<button className="btn btnDanger" onClick={unsubmitMonth}>Unsubmit & correct</button>}
           {timesheet?.status==="paid"?<span className="pill pillPaid"><span className="dot"/>Paid</span>:timesheet?.status!=="submitted"&&<button className="btn btnPrimary submitMonthButton" onClick={submitMonth}>Submit month & create invoice</button>}
         </>}
@@ -2315,8 +2488,15 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
 
   function InvoicesView(){
     return <><PageHead title={isAdmin?"Invoices":"My Payslips"} sub={isAdmin?"All generated coach invoices and payment history.":"Your monthly pay/invoice archive."}/>
-      <div className="card"><div className="mobileDataList">{allInvoices.map((inv:any)=>{const coach=isAdmin?({...staff.find(s=>s.id===inv.coach_id),...(inv.profiles||{})} as Profile):ownProfile;return <div className="mobileAdminCard" key={inv.id}><div className="mobileAdminHead"><div><strong>{inv.invoice_number}</strong><span>{isAdmin?inv.profiles?.full_name||coach.full_name:""}</span></div><StatusPill status={inv.status==="awaiting_payment"?"submitted":inv.status}/></div><div className="mobileAdminStats"><span><small>Hours</small><strong>{Number(inv.hours).toFixed(2)}</strong></span><span><small>Amount</small><strong>{money(inv.total_amount)}</strong></span></div><div className="mobileAdminActions"><button className="btn btnSecondary" onClick={()=>downloadPDF(inv,coach)}>Download PDF</button>{isAdmin&&inv.status==="awaiting_payment"&&<button className="btn btnPrimary" onClick={()=>markInvoicePaid(inv)}>Mark paid</button>}</div></div>})}{!allInvoices.length&&<div className="empty">No invoices yet.</div>}</div><div className="tableWrap desktopDataTable"><table><thead><tr><th>Invoice</th>{isAdmin&&<th>Coach</th>}<th>Date</th><th className="num">Hours</th><th className="num">Amount</th><th>Status</th><th></th></tr></thead><tbody>{allInvoices.map((inv:any)=>{const coach=isAdmin?({...staff.find(s=>s.id===inv.coach_id),...(inv.profiles||{})} as Profile):ownProfile;return <tr key={inv.id}><td><strong>{inv.invoice_number}</strong></td>{isAdmin&&<td>{inv.profiles?.full_name||coach.full_name}</td>}<td>{dateText(inv.invoice_date)}</td><td className="num">{Number(inv.hours).toFixed(2)}</td><td className="num"><strong>{money(inv.total_amount)}</strong></td><td><StatusPill status={inv.status==="awaiting_payment"?"submitted":inv.status}/></td><td><div className="row"><button className="btn btnSecondary" onClick={()=>downloadPDF(inv,coach)}>Download PDF</button>{isAdmin&&inv.status==="awaiting_payment"&&<button className="btn btnPrimary" onClick={()=>markInvoicePaid(inv)}>Mark paid</button>}</div></td></tr>})}{!allInvoices.length&&<tr><td colSpan={isAdmin?7:6} className="empty">No invoices yet.</td></tr>}</tbody></table></div></div>
+      <div className="card"><div className="mobileDataList">{allInvoices.map((inv:any)=>{const coach=isAdmin?({...staff.find(s=>s.id===inv.coach_id),...(inv.profiles||{})} as Profile):ownProfile;return <div className="mobileAdminCard" key={inv.id}><div className="mobileAdminHead"><div><strong>{inv.invoice_number}</strong><span>{isAdmin?inv.profiles?.full_name||coach.full_name:""}</span></div><StatusPill status={inv.status==="awaiting_payment"?"submitted":inv.status}/></div><div className="mobileAdminStats v14InvoiceStats"><span><small>Work</small><strong>{money(invoiceWorkAmount(inv))}</strong></span><span><small>Expenses</small><strong>{money(Number(inv.expense_amount||0))}</strong></span><span><small>Total Due</small><strong>{money(inv.total_amount)}</strong></span></div><InvoiceExpenseDetails invoice={inv}/><div className="mobileAdminActions"><button className="btn btnSecondary" onClick={()=>downloadPDF(inv,coach)}>Download PDF</button>{isAdmin&&inv.status==="awaiting_payment"&&<button className="btn btnPrimary" onClick={()=>markInvoicePaid(inv)}>Mark paid</button>}</div></div>})}{!allInvoices.length&&<div className="empty">No invoices yet.</div>}</div><div className="tableWrap desktopDataTable"><table><thead><tr><th>Invoice</th>{isAdmin&&<th>Coach</th>}<th>Date</th><th className="num">Hours</th><th className="num">Work</th><th className="num">Expenses</th><th className="num">Total Due</th><th>Status</th><th></th></tr></thead><tbody>{allInvoices.map((inv:any)=>{const coach=isAdmin?({...staff.find(s=>s.id===inv.coach_id),...(inv.profiles||{})} as Profile):ownProfile;return <tr key={inv.id}><td><strong>{inv.invoice_number}</strong><InvoiceExpenseDetails invoice={inv}/></td>{isAdmin&&<td>{inv.profiles?.full_name||coach.full_name}</td>}<td>{dateText(inv.invoice_date)}</td><td className="num">{Number(inv.hours).toFixed(2)}</td><td className="num">{money(invoiceWorkAmount(inv))}</td><td className="num">{money(Number(inv.expense_amount||0))}</td><td className="num"><strong>{money(inv.total_amount)}</strong></td><td><StatusPill status={inv.status==="awaiting_payment"?"submitted":inv.status}/></td><td><div className="row"><button className="btn btnSecondary" onClick={()=>downloadPDF(inv,coach)}>Download PDF</button>{isAdmin&&inv.status==="awaiting_payment"&&<button className="btn btnPrimary" onClick={()=>markInvoicePaid(inv)}>Mark paid</button>}</div></td></tr>})}{!allInvoices.length&&<tr><td colSpan={isAdmin?9:8} className="empty">No invoices yet.</td></tr>}</tbody></table></div></div>
     </>
+  }
+
+  function invoiceWorkAmount(invoice:Invoice){return Number(invoice.work_amount??Number(invoice.total_amount)-Number(invoice.expense_amount||0))}
+  function InvoiceExpenseDetails({invoice}:{invoice:Invoice}){
+    const lines=[...(invoice.expenseLines||[])].sort((a,b)=>`${a.expense_date}${a.id}`.localeCompare(`${b.expense_date}${b.id}`));
+    if(!lines.length)return null;
+    return <details className="v14PayrollDetails v14InvoiceExpenseDetails"><summary>Expenses / Reimbursements ({lines.length})</summary><div>{lines.map(line=><article key={line.id}><time>{dateText(line.expense_date)}</time><span>{expenseCategoryLabel(line.category)}</span><strong>{line.category==="mileage"?<>{line.journey_from} → {line.journey_to}<small>{line.miles} miles @ {money(Number(line.mileage_rate||0))}</small></>:line.description}</strong><b>{money(Number(line.amount))}</b><StatusPill status="approved"/></article>)}</div></details>;
   }
 
   function LeaveView(){
@@ -2567,6 +2747,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
 
   function SettingsView(){
     return <>{isGlobalAdmin&&<><PageHead title="Club Settings" sub="Manage this club’s identity, branding and payroll defaults."/>{!clubArchitectureAvailable||!currentClub?<div className="notice">Apply the Version 1.2 Club Architecture migration to enable Club Settings. Existing settings remain unchanged.</div>:<div className="card v12ClubSettings" style={{maxWidth:900}}><div className="formSection"><div className="formSectionTitle"><h3>Club identity</h3><p>Used throughout this club’s independent workspace.</p></div><div className="grid grid2"><div className="field"><label>Club Name</label><input value={currentClub.name} onChange={e=>setCurrentClub({...currentClub,name:e.target.value})}/></div><div className="field"><label>Short Name</label><input value={currentClub.short_name||""} onChange={e=>setCurrentClub({...currentClub,short_name:e.target.value})}/></div></div><div className="field"><label>Logo URL</label><input type="url" value={currentClub.logo_url||""} onChange={e=>setCurrentClub({...currentClub,logo_url:e.target.value})} placeholder="https://…"/></div><div className="grid grid2"><div className="field"><label>Primary Colour</label><input type="color" value={currentClub.primary_colour} onChange={e=>setCurrentClub({...currentClub,primary_colour:e.target.value})}/></div><div className="field"><label>Secondary Colour</label><input type="color" value={currentClub.secondary_colour} onChange={e=>setCurrentClub({...currentClub,secondary_colour:e.target.value})}/></div></div></div><div className="formSection"><div className="formSectionTitle"><h3>Contact details</h3></div><div className="grid grid2"><div className="field"><label>Email</label><input type="email" value={currentClub.email||""} onChange={e=>setCurrentClub({...currentClub,email:e.target.value})}/></div><div className="field"><label>Telephone</label><input value={currentClub.telephone||""} onChange={e=>setCurrentClub({...currentClub,telephone:e.target.value})}/></div></div><div className="field"><label>Website</label><input type="url" value={currentClub.website||""} onChange={e=>setCurrentClub({...currentClub,website:e.target.value})}/></div><div className="field"><label>Address</label><textarea value={currentClub.address||""} onChange={e=>setCurrentClub({...currentClub,address:e.target.value})}/></div></div><div className="formSection"><div className="formSectionTitle"><h3>Bank and payroll settings</h3></div><div className="field"><label>Bank Details</label><textarea value={currentClub.bank_details||""} onChange={e=>setCurrentClub({...currentClub,bank_details:e.target.value})}/></div><div className="grid grid3"><div className="field"><label>Payroll Month</label><select value={currentClub.payroll_month} onChange={e=>setCurrentClub({...currentClub,payroll_month:Number(e.target.value)})}>{Array.from({length:12},(_,index)=>index+1).map(value=><option value={value} key={value}>{new Date(2026,value-1,1).toLocaleDateString("en-GB",{month:"long"})}</option>)}</select></div><div className="field"><label>Timezone</label><input value={currentClub.timezone} onChange={e=>setCurrentClub({...currentClub,timezone:e.target.value})}/></div><div className="field"><label>Currency</label><input maxLength={3} value={currentClub.currency} onChange={e=>setCurrentClub({...currentClub,currency:e.target.value.toUpperCase()})}/></div></div><div className="grid grid2"><div className="field"><label>Timesheet cut-off</label><select value={business.cutoff_day} onChange={e=>setBusiness({...business,cutoff_day:Number(e.target.value)})}>{Array.from({length:7},(_,i)=>i+1).map(d=><option value={d} key={d}>{d}{d===1?"st":d===2?"nd":d===3?"rd":"th"} of following month</option>)}</select></div><div className="field"><label>Payment note</label><input value={business.payment_note||""} onChange={e=>setBusiness({...business,payment_note:e.target.value})}/></div></div><button className="btn btnPrimary" onClick={async()=>{await saveClub();await saveBusiness()}} disabled={saving}>{saving?"Saving…":"Save Club Settings"}</button></div></div>}</>}
+    {isGlobalAdmin&&currentClub&&<div className="card section" style={{maxWidth:900}}><div className="formSection"><div className="formSectionTitle"><h3>Expense settings</h3><p>Used for new mileage claims. Existing claims retain their original rate.</p></div><div className="field"><label>Mileage Rate (£ per mile)</label><input type="number" min="0" step="0.01" value={currentClub.mileage_rate??0.45} onChange={e=>setCurrentClub({...currentClub,mileage_rate:Number(e.target.value)})}/></div><button className="btn btnPrimary" type="button" onClick={saveClub} disabled={saving}>{saving?"Saving…":"Save Mileage Rate"}</button></div></div>}
     {isGlobalAdmin&&StaffingIntelligenceSettingsView()}
     {isGlobalAdmin&&<div className="section"><PageHead title="Qualifications" sub="Manage the qualification options used by coach and class staffing profiles."/><div className="grid grid2 v101QualificationLayout"><div className="card"><div className="formSection"><div className="formSectionTitle"><h3>{qualificationDraft.id?"Edit qualification":"Add qualification"}</h3><p>Qualifications inform recommendations but never prevent assignment.</p></div><div className="field"><label>Name</label><input value={qualificationDraft.name} onChange={e=>setQualificationDraft({...qualificationDraft,name:e.target.value})} placeholder="e.g. Level 2 Trampoline"/></div><div className="grid grid2"><div className="field"><label>Qualification family <span className="muted">(optional)</span></label><input value={qualificationDraft.qualification_family} onChange={e=>setQualificationDraft({...qualificationDraft,qualification_family:e.target.value})} placeholder="e.g. Trampoline"/></div><div className="field"><label>Qualification level <span className="muted">(optional)</span></label><input type="number" min="0" step="1" value={qualificationDraft.qualification_level} onChange={e=>setQualificationDraft({...qualificationDraft,qualification_level:e.target.value})} placeholder="e.g. 3"/></div></div><div className="field"><label>Description <span className="muted">(optional)</span></label><textarea value={qualificationDraft.description} onChange={e=>setQualificationDraft({...qualificationDraft,description:e.target.value})}/></div><div className="row"><button className="btn btnPrimary" type="button" disabled={saving||!qualificationDraft.name.trim()} onClick={()=>void saveQualificationType()}>{saving?"Saving…":qualificationDraft.id?"Save qualification":"Add qualification"}</button>{qualificationDraft.id&&<button className="btn btnSecondary" type="button" onClick={()=>setQualificationDraft({name:"",description:"",qualification_family:"",qualification_level:""})}>Cancel</button>}</div></div></div><div className="card"><div className="sectionHeader"><div><h2>Qualification library</h2><p>{qualificationTypes.filter(q=>q.active).length} active · {qualificationTypes.filter(q=>!q.active).length} archived</p></div></div><div className="v101QualificationList">{sortedQualifications(qualificationTypes).map(q=><article className={`v101QualificationItem ${q.active?"active":"archived"}`} key={q.id}><div><strong>{q.name}</strong><span>{q.qualification_family?`${q.qualification_family}${q.qualification_level!=null?` · Level ${q.qualification_level}`:""}`:"Standalone qualification"}</span><span>{q.description||"No description"}</span><small>{q.active?"Active":"Inactive"}</small></div><div className="row"><button className="btn btnSecondary" type="button" onClick={()=>setQualificationDraft({id:q.id,name:q.name,description:q.description||"",qualification_family:q.qualification_family||"",qualification_level:q.qualification_level?.toString()||""})}>Edit</button><button className={`btn ${q.active?"btnDanger":"btnAccent"}`} type="button" onClick={()=>void setQualificationActive(q,!q.active)}>{q.active?"Archive":"Restore"}</button></div></article>)}{!qualificationTypes.length&&<div className="empty">No qualifications configured yet.</div>}</div></div></div></div>}
     </>

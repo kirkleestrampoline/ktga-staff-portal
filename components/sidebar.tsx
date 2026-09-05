@@ -12,10 +12,11 @@ export default function Sidebar({tab,setTab,name,role,onSignOut,mobileOpen,onClo
     {id:"availability",label:"Staff Availability",icon:UsersIcon},
     {id:"schedule",label:"Schedule",icon:CalendarIcon},
     {id:"leave",label:"Leave",icon:ClockIcon},
-    {id:"timesheets",label:"Payroll",icon:ClockIcon},
-    {id:"invoices",label:"Invoices",icon:InvoiceIcon},
     {id:"staff",label:"People",icon:UsersIcon},
     {id:"workforce",label:"Workforce",icon:ChartIcon},
+    {id:"expenses",label:"Expenses",icon:InvoiceIcon},
+    {id:"timesheets",label:"Payroll",icon:ClockIcon},
+    {id:"invoices",label:"Invoices",icon:InvoiceIcon},
     {id:"reports",label:"Reports",icon:ChartIcon},
     {id:"settings",label:"Settings",icon:SettingsIcon},
     {id:"profile",label:"My Profile",icon:UserIcon},
@@ -23,6 +24,7 @@ export default function Sidebar({tab,setTab,name,role,onSignOut,mobileOpen,onClo
   const coachItems:{id:Tab;label:string;icon:any}[]=[
     {id:"schedule",label:"My Schedule",icon:CalendarIcon},
     {id:"leave",label:"Leave & Availability",icon:ClockIcon},
+    {id:"expenses",label:"Expenses",icon:InvoiceIcon},
     {id:"timesheets",label:"My Timesheet",icon:ClockIcon},
     {id:"invoices",label:"My Payslips",icon:InvoiceIcon},
     {id:"profile",label:"My Profile",icon:UserIcon},
@@ -33,7 +35,7 @@ export default function Sidebar({tab,setTab,name,role,onSignOut,mobileOpen,onClo
     <button aria-label="Close menu" className={`mobileScrim ${mobileOpen?"show":""}`} onClick={onClose}/>
     <aside className={`sidebar v3Sidebar ${mobileOpen?"mobileOpen":""}`}>
       <div className="v3SidebarBrand"><div className="v121ClubIdentity"><AvLogo size={43} inverse/><div><strong>AV Gymnastics Solutions</strong><span>Kirklees Trampoline Gymnastics Academy</span><small>Club Owner</small></div></div><button className="sidebarClose" aria-label="Close menu" onClick={onClose}>×</button></div>
-      <nav className="nav v3Nav"><div className="navLabel">{admin?"Workspace":"My coaching"}</div>{items.map(({id,label,icon:Icon})=><button key={id} className={`navButton ${tab===id?"active":""}`} onClick={()=>choose(id)}><span className="v3NavIcon"><Icon/></span><span>{label}</span></button>)}</nav>
+      <nav className="nav v3Nav" aria-label="Primary navigation" tabIndex={0}><div className="navLabel">{admin?"Workspace":"My coaching"}</div>{items.map(({id,label,icon:Icon})=><button key={id} className={`navButton ${tab===id?"active":""}`} onClick={()=>choose(id)}><span className="v3NavIcon"><Icon/></span><span>{label}</span></button>)}</nav>
       <div className="sidebarFooter v3SidebarFooter"><div className="userMini"><div className="avatar v3UserAvatar">{initials}</div><div><div className="userMiniName">{name}</div><div className="userMiniRole">{role==="club_owner"?"Club Owner":admin?"Administrator":"Coach"}</div></div></div><button className="signOut v3SignOut" onClick={onSignOut}>Sign out</button></div>
     </aside>
   </>;
