@@ -1035,6 +1035,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   async function saveStaff(){
     if(!staffEdit)return;
     setSaving(true);
+    try{
     const original=staff.find(x=>x.id===staffEdit.id);
     const nextUsername=(staffEdit.username||"").trim().toLowerCase();
     const nextEmail=(staffEdit.email||staffEdit.contact_email||"").trim().toLowerCase();
@@ -1065,6 +1066,11 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     setSaving(false);
     flash(error?error.message:"Staff profile saved.");
     if(!error){const ve=await saveVenueMemberships(staffEdit.id,staffEditVenueIds,staffEdit.role==="org_admin"?staffEditAdminVenueIds:[]);if(ve){flash(ve.message);return}setStaffEdit(null);void loadStaff();void loadAdmin();void loadAudits()}
+    }catch(error:any){
+      flash(error?.message||"Could not save the staff profile.");
+    }finally{
+      setSaving(false);
+    }
   }
 
   async function saveBusiness(){

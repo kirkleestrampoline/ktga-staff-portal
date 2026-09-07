@@ -199,8 +199,12 @@ export async function POST(req: NextRequest) {
     if(!profileId)return NextResponse.json({error:"Staff member is required"},{status:400});
     if(!(await canManage(profileId)))return NextResponse.json({error:"You do not manage this staff member"},{status:403});
 
-    const{data:person}=await admin.from("profiles").select("id,username,auth_email").eq("id",profileId).single();
-    if(!person)return NextResponse.json({error:"Staff member not found"},{status:404});
+    const{data:person,error:personError}=await admin.from("profiles").select("id,username,full_name,email,contact_email,auth_email,club_id").eq("id",profileId).single();
+    if(personError||!person){
+      console.error("[staff-access] identity profile lookup failed",{actorId,profileId,code:personError?.code,message:personError?.message});
+      return NextResponse.json({error:"Staff member not found",code:"STAFF_NOT_FOUND"},{status:404});
+    }
+    if(person.club_id!==targetClubId)return NextResponse.json({error:"You do not manage this staff member",code:"TENANT_MISMATCH"},{status:403});
 
     const username=body.action==="update_identity"?String(body.username||"").trim().toLowerCase():String(person.username||"").trim().toLowerCase();
     const contactEmail=String(body.email||"").trim().toLowerCase();
@@ -211,20 +215,25 @@ export async function POST(req: NextRequest) {
       if(usernameOwner)return NextResponse.json({error:"That username is already in use"},{status:409});
     }
 
-    const authEmail=contactEmail||person.auth_email||`${username}.${profileId.slice(0,8)}@login.avgymnastics.invalid`;
-    if(contactEmail&&authEmail!==person.auth_email){
-      const{error:authError}=await admin.auth.admin.updateUserById(profileId,{email:authEmail,email_confirm:true,user_metadata:{username}});
-      if(authError)return NextResponse.json({error:authError.message},{status:400});
-    }else{
-      const{error:metaError}=await admin.auth.admin.updateUserById(profileId,{user_metadata:{username}});
-      if(metaError)return NextResponse.json({error:metaError.message},{status:400});
+    const authEmail=person.auth_email;
+    const{error:metaError}=await admin.auth.admin.updateUserById(profileId,{user_metadata:{
+      username:username||null,
+      full_name:person.full_name||"",
+      contact_email:contactEmail||null
+    }});
+    if(metaError){
+      console.error("[staff-access] Auth identity metadata update failed",{actorId,profileId,clubId:targetClubId,status:metaError.status,code:metaError.code,message:metaError.message});
+      return NextResponse.json({error:"Could not update staff account metadata",code:"AUTH_METADATA_UPDATE_FAILED"},{status:400});
     }
 
     const{error:profileError}=await admin.from("profiles").update({
-      username:username||null,email:contactEmail||null,contact_email:contactEmail||null,auth_email:authEmail
+      username:username||null,email:contactEmail||null,contact_email:contactEmail||null
     }).eq("id",profileId);
-    if(profileError)return NextResponse.json({error:profileError.message},{status:400});
-    return NextResponse.json({ok:true});
+    if(profileError){
+      console.error("[staff-access] identity profile update failed",{actorId,profileId,clubId:targetClubId,code:profileError.code,message:profileError.message});
+      return NextResponse.json({error:"Could not save the staff recovery details",code:"PROFILE_IDENTITY_UPDATE_FAILED"},{status:400});
+    }
+    return NextResponse.json({ok:true,auth_email:authEmail});
   }
 
   return NextResponse.json({error:"Unknown action"},{status:400});
