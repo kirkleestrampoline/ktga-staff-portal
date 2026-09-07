@@ -208,6 +208,7 @@ export async function POST(req: NextRequest) {
 
     const username=body.action==="update_identity"?String(body.username||"").trim().toLowerCase():String(person.username||"").trim().toLowerCase();
     const contactEmail=String(body.email||"").trim().toLowerCase();
+    const fullName=body.action==="update_identity"?String(body.full_name||person.full_name||"").trim():String(person.full_name||"").trim();
     if(username&&!USERNAME_RE.test(username))return NextResponse.json({error:"Username must be 3–32 characters using letters, numbers, dots, dashes or underscores"},{status:400});
 
     if(username){
@@ -218,7 +219,7 @@ export async function POST(req: NextRequest) {
     const authEmail=person.auth_email;
     const{error:metaError}=await admin.auth.admin.updateUserById(profileId,{user_metadata:{
       username:username||null,
-      full_name:person.full_name||"",
+      full_name:fullName,
       contact_email:contactEmail||null
     }});
     if(metaError){

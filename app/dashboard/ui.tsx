@@ -1041,7 +1041,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     const nextEmail=(staffEdit.email||staffEdit.contact_email||"").trim().toLowerCase();
     if(nextUsername&&!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(nextUsername)){setSaving(false);flash("Username must be 3–32 characters using letters, numbers, dots, dashes or underscores.");return}
     if(!original||nextUsername!==(original.username||"").toLowerCase()||nextEmail!==(original.email||original.contact_email||"").toLowerCase()){
-      const res=await fetch("/api/staff-access",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update_identity",profile_id:staffEdit.id,username:nextUsername,email:nextEmail})});
+      const res=await fetch("/api/staff-access",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update_identity",profile_id:staffEdit.id,full_name:staffEdit.full_name,username:nextUsername,email:nextEmail})});
       const j=await res.json();
       if(!res.ok){setSaving(false);flash(j.error||"Could not update username/email.");return}
     }
