@@ -1,7 +1,15 @@
 # Supabase password recovery configuration
 
-The application uses Supabase Auth's supported recovery OTP. It does not use a
-clickable verification link or an application-owned OTP store.
+The application uses Supabase Auth's supported recovery OTP. The API generates
+the OTP against the internal Auth email, then sends it to the trusted
+`profiles.contact_email` through Resend. It does not change `auth.users.email`
+and does not use an application-owned OTP store.
+
+Required Vercel environment variables:
+
+- `RESEND_API_KEY`
+- `PASSWORD_RECOVERY_FROM_EMAIL` (a verified Resend sender, for example
+  `AV Gymnastics <accounts@example.com>`)
 
 In the hosted Supabase Dashboard:
 
@@ -25,6 +33,6 @@ In the hosted Supabase Dashboard:
 5. Do not include `{{ .ConfirmationURL }}` in the recovery template. This keeps
    security scanners from consuming the recovery credential.
 
-Supabase enforces code generation, expiry, single use, resend limits and OTP
-verification. The application only resolves usernames to the confirmed recovery
-email and submits the user-entered code through `verifyOtp` with type `recovery`.
+Supabase enforces code generation, expiry, single use and OTP verification. The
+application resolves the account server-side, sends the generated OTP to the
+saved recovery email, and verifies it against the unchanged internal Auth email.
