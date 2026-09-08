@@ -26,6 +26,7 @@ export async function POST(req:NextRequest){
   const name=clean(club.name),slug=clean(club.slug).toLowerCase(),contactEmail=clean(club.contact_email).toLowerCase(),username=clean(owner.username).toLowerCase(),ownerName=clean(owner.full_name),ownerEmail=clean(owner.contact_email).toLowerCase(),password=String(owner.password||"");
   if(!name||!SLUG_RE.test(slug)||!contactEmail.includes("@"))return NextResponse.json({error:"Valid club name, slug and contact email are required"},{status:400});
   if(!ownerName||!USERNAME_RE.test(username)||!ownerEmail.includes("@")||password.length<8)return NextResponse.json({error:"Valid owner name, username, recovery email and an 8-character password are required"},{status:400});
+  if(name.localeCompare(ownerName,undefined,{sensitivity:"accent"})===0)return NextResponse.json({error:"Club name must identify the club, not the Club Owner"},{status:400});
   const admin=adminClient();
   const{data:duplicate}=await admin.from("profiles").select("id").ilike("username",username).maybeSingle();if(duplicate)return NextResponse.json({error:"That username is already in use"},{status:409});
   const{data:newClub,error:clubError}=await admin.from("clubs").insert({name,slug,email:contactEmail,telephone:clean(club.telephone)||null,timezone:clean(club.timezone)||"Europe/London",primary_colour:clean(club.primary_colour)||"#6D3A91",secondary_colour:clean(club.secondary_colour)||"#243044",active:club.active!==false}).select("id,name,slug").single();
@@ -37,10 +38,12 @@ export async function POST(req:NextRequest){
     const saved=await admin.from("profiles").update({club_id:newClub.id,full_name:ownerName,username,email:ownerEmail,contact_email:ownerEmail,auth_email:authEmail,role:"club_owner",is_active:true,force_password_reset:true}).eq("id",authId).eq("club_id",newClub.id).select("id").single();if(saved.error||!saved.data)throw saved.error||new Error("Owner profile was not created");
     const venue=await admin.from("venues").insert({name,slug,active:true,brand_color:clean(club.primary_colour)||"#6D3A91",club_id:newClub.id,legacy:false});if(venue.error)throw venue.error;
     const settings=await admin.from("business_settings").insert({club_id:newClub.id,business_name:name,payment_note:"Payment by bank transfer",cutoff_day:1});if(settings.error)throw settings.error;
+    const staffingSettings=await admin.from("staffing_recommendation_settings").insert({club_id:newClub.id});if(staffingSettings.error)throw staffingSettings.error;
     const activity=await admin.from("platform_activity").insert([{actor_id:actor.user.id,club_id:newClub.id,action:"club_created",entity_type:"clubs",entity_id:newClub.id,details:{name,slug}},{actor_id:actor.user.id,club_id:newClub.id,action:"first_owner_created",entity_type:"profiles",entity_id:authId,details:{username}}]);if(activity.error)throw activity.error;
     return NextResponse.json({ok:true,club:newClub,owner_id:authId},{status:201});
   }catch(error:any){
     const cleanupErrors:string[]=[];
+    const staffingCleanup=await admin.from("staffing_recommendation_settings").delete().eq("club_id",newClub.id);if(staffingCleanup.error)cleanupErrors.push("staffing-settings");
     const activityCleanup=await admin.from("platform_activity").delete().eq("club_id",newClub.id);if(activityCleanup.error)cleanupErrors.push("activity");
     const settingsCleanup=await admin.from("business_settings").delete().eq("club_id",newClub.id);if(settingsCleanup.error)cleanupErrors.push("settings");
     const venueCleanup=await admin.from("venues").delete().eq("club_id",newClub.id);if(venueCleanup.error)cleanupErrors.push("venue");
