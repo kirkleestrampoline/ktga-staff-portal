@@ -12,7 +12,7 @@ export type PortalResolution=
 
 // This helper is server-only in practice: callers pass the service-role client.
 // Limit(2) is intentional; it detects ambiguity without returning account lists.
-export async function resolvePortalAccount(admin:any,rawUsername:unknown,rawClubCode:unknown):Promise<PortalResolution>{
+export async function resolvePortalAccount(admin:any,rawUsername:unknown,rawClubCode:unknown,options:{allowEmail?:boolean}={}):Promise<PortalResolution>{
   const username=String(rawUsername||"").trim().toLowerCase();
   const clubCode=String(rawClubCode||"").trim().toLowerCase();
   if(!username)return{status:"not_found"};
@@ -25,10 +25,24 @@ export async function resolvePortalAccount(admin:any,rawUsername:unknown,rawClub
     club=clubs[0];
   }
 
-  let query=admin.from("profiles").select("id,club_id,role,username,email,contact_email,auth_email,is_active,force_password_reset").ilike("username",username).limit(2);
-  if(club)query=query.eq("club_id",club.id);
-  const{data:profiles,error}=await query;
-  if(error)return{status:"lookup_error",code:error.code};
+  const fields="id,club_id,role,username,email,contact_email,auth_email,is_active,force_password_reset";
+  let profiles:PortalProfile[]=[];
+  if(options.allowEmail&&username.includes("@")){
+    const lookups=await Promise.all(["auth_email","contact_email","email"].map(async field=>{
+      let query=admin.from("profiles").select(fields).ilike(field,username).limit(2);
+      if(club)query=query.eq("club_id",club.id);
+      return query;
+    }));
+    const failed=lookups.find(result=>result.error);
+    if(failed?.error)return{status:"lookup_error",code:failed.error.code};
+    profiles=Array.from(new Map(lookups.flatMap(result=>result.data||[]).map(profile=>[profile.id,profile])).values()) as PortalProfile[];
+  }else{
+    let query=admin.from("profiles").select(fields).ilike("username",username).limit(2);
+    if(club)query=query.eq("club_id",club.id);
+    const{data,error}=await query;
+    if(error)return{status:"lookup_error",code:error.code};
+    profiles=(data||[]) as PortalProfile[];
+  }
   if(!profiles||profiles.length===0)return{status:"not_found"};
   if(profiles.length>1)return{status:"ambiguous"};
 

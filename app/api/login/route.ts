@@ -15,8 +15,8 @@ export async function POST(req:NextRequest){
   if(!url||!secret)return NextResponse.json({error:"Server configuration is missing"},{status:500});
   const admin=createAdminClient(url,secret,{auth:{autoRefreshToken:false,persistSession:false}});
 
-  const resolution=await resolvePortalAccount(admin,identifier,clubCode);
-  if(resolution.status==="ambiguous")return NextResponse.json({error:"This username is used by more than one club. Enter your club code to continue.",code:"CLUB_CODE_REQUIRED"},{status:409});
+  const resolution=await resolvePortalAccount(admin,identifier,clubCode,{allowEmail:true});
+  if(resolution.status==="ambiguous")return NextResponse.json({error:"These login details are used by more than one club. Enter your club code to continue.",code:"CLUB_CODE_REQUIRED"},{status:409});
   if(resolution.status==="lookup_error"){
     console.error("[login] account resolution failed",{code:resolution.code});
     return NextResponse.json({error:"Sign-in is temporarily unavailable"},{status:503});
