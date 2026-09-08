@@ -1,0 +1,4 @@
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import AvLogo from "@/components/av-logo";
+export default async function SuspendedPage(){const supabase=await createClient();const{data:{user}}=await supabase.auth.getUser();if(!user)redirect("/");const{data:profile}=await supabase.from("profiles").select("role,club_id").eq("id",user.id).maybeSingle();if(!profile)redirect("/");const{data:club}=await supabase.from("clubs").select("name,active").eq("id",profile.club_id).maybeSingle();if(profile.role==="admin"||club?.active)redirect("/dashboard");return <main className="suspendedPage"><div><AvLogo size={58}/><p>Workspace unavailable</p><h1>{club?.name||"Your club"} is suspended</h1><span>Operational access is temporarily unavailable. Please contact your club administrator or AV Gymnastics Solutions support.</span><form action="/auth/signout" method="post"><a href="/">Return to sign in</a></form></div></main>}

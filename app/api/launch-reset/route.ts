@@ -15,11 +15,11 @@ export async function POST(req: NextRequest) {
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("role")
+    .select("role,club_id")
     .eq("id", user.id)
     .single();
 
-  if (profileError || !profile || !["admin","club_owner"].includes(profile.role)) {
+  if (profileError || !profile || profile.role!=="admin" || !profile.club_id) {
     return NextResponse.json({ error: "Super Admin only" }, { status: 403 });
   }
 
@@ -50,22 +50,22 @@ export async function POST(req: NextRequest) {
   });
 
   try {
-    const operationalTables = [
-      "scheduled_shifts",
-      "class_staffing_slots",
-      "classes",
-      "shift_templates",
-      "invoices",
-      "timesheets",
-      "shifts",
-      "audit_log",
-    ];
+    const targetClubId=profile.club_id;
+    const{data:club}=await admin.from("clubs").select("id,name").eq("id",targetClubId).single();
+    if(!club)throw new Error("The protected reset tenant could not be resolved");
+    const{data:clubClasses}=await admin.from("classes").select("id").eq("club_id",targetClubId);
+    const classIds=(clubClasses||[]).map(item=>item.id);
+    if(classIds.length){const{error}=await admin.from("class_staffing_slots").delete().in("class_id",classIds);if(error&&!error.message.toLowerCase().includes("does not exist"))throw error;}
+    const{data:clubProfiles}=await admin.from("profiles").select("id").eq("club_id",targetClubId);
+    const clubProfileIds=(clubProfiles||[]).map(item=>item.id);
+    if(clubProfileIds.length){const{error}=await admin.from("shift_templates").delete().in("profile_id",clubProfileIds);if(error&&!error.message.toLowerCase().includes("does not exist"))throw error;}
+    const operationalTables = ["scheduled_shifts","classes","invoices","timesheets","shifts","expenses"];
 
     for (const table of operationalTables) {
       const { error } = await admin
         .from(table)
         .delete()
-        .neq("id", "00000000-0000-0000-0000-000000000000");
+        .eq("club_id",targetClubId);
 
       if (
         error &&
@@ -80,7 +80,9 @@ export async function POST(req: NextRequest) {
       const { data: profiles, error } = await admin
         .from("profiles")
         .select("id")
-        .neq("id", user.id);
+        .eq("club_id",targetClubId)
+        .neq("id", user.id)
+        .neq("role","admin");
 
       if (error) throw error;
 
@@ -97,13 +99,16 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      await admin.from("staff_venues").delete().neq("profile_id", user.id);
-      await admin.from("profiles").delete().neq("id", user.id);
+      const removableIds=(profiles||[]).map(person=>person.id);
+      if(removableIds.length){const{error:employmentError}=await admin.from("employment_records").delete().in("profile_id",removableIds).eq("club_id",targetClubId);if(employmentError)throw employmentError;}
+      if(removableIds.length)await admin.from("staff_venues").delete().in("profile_id",removableIds);
+      if(removableIds.length)await admin.from("profiles").delete().in("id",removableIds).eq("club_id",targetClubId);
     }
 
     return NextResponse.json({
       ok: true,
       removedStaff: body.remove_staff === true,
+      clubId: targetClubId,
     });
   } catch (error) {
     const message =

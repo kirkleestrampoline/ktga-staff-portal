@@ -13,7 +13,7 @@ export async function POST(req:NextRequest){
   if(!url||!secret)return NextResponse.json({error:"Server configuration is missing"},{status:500});
   const admin=createAdminClient(url,secret,{auth:{autoRefreshToken:false,persistSession:false}});
 
-  let query=admin.from("profiles").select("id,username,email,contact_email,auth_email,is_active,force_password_reset");
+  let query=admin.from("profiles").select("id,club_id,role,username,email,contact_email,auth_email,is_active,force_password_reset");
   const{data:profile,error:lookupError}=identifier.includes("@")
     ? await query.or(`email.eq.${identifier},contact_email.eq.${identifier},auth_email.eq.${identifier}`).maybeSingle()
     : await query.ilike("username",identifier).maybeSingle();
@@ -21,6 +21,10 @@ export async function POST(req:NextRequest){
   if(lookupError||!profile)return NextResponse.json({error:"Invalid username or password"},{status:401});
   if(!profile.username)return NextResponse.json({error:"This staff profile does not have portal access."},{status:403});
   if(!profile.is_active)return NextResponse.json({error:"This account is inactive. Contact an administrator."},{status:403});
+  if(profile.role!=="admin"){
+    const{data:club}=await admin.from("clubs").select("active").eq("id",profile.club_id).maybeSingle();
+    if(!club?.active)return NextResponse.json({error:"This club workspace is suspended. Contact your administrator.",code:"CLUB_SUSPENDED"},{status:403});
+  }
 
   let authEmail=String(profile.auth_email||"").trim().toLowerCase();
   if(!authEmail){

@@ -729,7 +729,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   }
 
   async function loadBusiness(){
-    const{data}=await supabase.from("business_settings").select("*").eq("id",1).maybeSingle();
+    const{data}=await supabase.from("business_settings").select("*").eq("club_id",initialProfile.club_id).maybeSingle();
     if(data)setBusiness(data as Business);
   }
 
@@ -746,7 +746,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
     const{error}=await supabase.from("clubs").update(payload).eq("id",currentClub.id);
     if(!error){
       await Promise.all([
-        supabase.from("business_settings").update({business_name:payload.name,business_address:payload.address,payment_note:business.payment_note,cutoff_day:business.cutoff_day}).eq("id",1),
+        supabase.from("business_settings").update({business_name:payload.name,business_address:payload.address,payment_note:business.payment_note,cutoff_day:business.cutoff_day}).eq("club_id",currentClub.id),
         supabase.from("venues").update({name:payload.short_name||payload.name,legal_name:payload.name,invoice_address:payload.address,brand_color:payload.primary_colour,payment_note:payload.bank_details||business.payment_note}).eq("club_id",currentClub.id)
       ]);
       setBusiness({...business,business_name:payload.name,business_address:payload.address});
@@ -2192,7 +2192,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
   })();
 
   return <div className="portal">
-    <Sidebar tab={tab} setTab={(t:Tab)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
+    <Sidebar tab={tab} setTab={(t:Tab)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} clubName={currentClub?.name} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
       <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle">AV Gymnastics</div></div><div className="topActions"><span className="versionBadge">v5.1</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">

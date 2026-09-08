@@ -1,15 +1,43 @@
 -- Version 1.2 Sprint 2 — Dated Employment Records
--- Apply after v1_2_sprint_1_employment_pay_foundation.sql.
+-- Apply after v1_2_sprint_1_employment_pay_foundation.sql and the current
+-- club architecture migrations (including v1.5 when used on production).
+-- Additive only: creates dated records from current profile terms.
 begin;
 
 do $preflight$
 declare missing text[]:=array[]::text[];
 begin
   if to_regclass('public.profiles') is null then missing:=array_append(missing,'public.profiles'); end if;
+  if to_regclass('public.clubs') is null then missing:=array_append(missing,'public.clubs'); end if;
   if to_regclass('public.venues') is null then missing:=array_append(missing,'public.venues'); end if;
   if to_regclass('public.staff_venues') is null then missing:=array_append(missing,'public.staff_venues'); end if;
   if to_regprocedure('public.can_manage_profile(uuid)') is null then missing:=array_append(missing,'public.can_manage_profile(uuid)'); end if;
+  if to_regprocedure('public.current_club_id()') is null then missing:=array_append(missing,'public.current_club_id()'); end if;
   if cardinality(missing)>0 then raise exception using errcode='P0001',message='Employment records preflight failed: '||array_to_string(missing,', '); end if;
+  if exists(
+    select 1 from (values
+      ('club_id','uuid'),('employment_type','text'),('standard_rate','numeric'),('enhanced_rate','numeric'),
+      ('annual_salary','numeric'),('contracted_weekly_hours','numeric'),('working_weeks_per_year','numeric'),
+      ('can_volunteer','boolean'),('invoice_required','boolean')
+    ) expected(name,type)
+    where not exists(
+      select 1 from information_schema.columns actual
+      where actual.table_schema='public' and actual.table_name='profiles'
+        and actual.column_name=expected.name and actual.data_type=expected.type
+    )
+  ) then raise exception using errcode='P0001',message='Employment records requires the current employment foundation columns on public.profiles'; end if;
+  if exists(select 1 from public.profiles where club_id is null) or exists(select 1 from public.venues where club_id is null and active=true) then
+    raise exception using errcode='P0001',message='Employment records requires club ownership on every profile and active venue';
+  end if;
+  if exists(select 1 from public.profiles where employment_type not in ('hourly','salaried','volunteer')) then
+    raise exception using errcode='P0001',message='Employment records stopped: a profile has an unsupported employment type';
+  end if;
+  if exists(
+    select 1 from public.staff_venues sv
+    join public.profiles p on p.id=sv.profile_id
+    join public.venues v on v.id=sv.venue_id
+    where p.club_id<>v.club_id
+  ) then raise exception using errcode='P0001',message='Employment records stopped: a staff-to-venue assignment crosses club boundaries'; end if;
 end
 $preflight$;
 
@@ -17,6 +45,7 @@ create extension if not exists btree_gist with schema extensions;
 
 create table if not exists public.employment_records(
   id uuid primary key default gen_random_uuid(),
+  club_id uuid not null default public.current_club_id(),
   profile_id uuid not null,
   organisation_id uuid not null,
   employment_type text not null,
@@ -41,7 +70,7 @@ do $compatibility$
 begin
   if exists(
     select 1 from (values
-      ('id','uuid'),('profile_id','uuid'),('organisation_id','uuid'),('employment_type','text'),
+      ('id','uuid'),('club_id','uuid'),('profile_id','uuid'),('organisation_id','uuid'),('employment_type','text'),
       ('standard_rate','numeric'),('enhanced_rate','numeric'),('annual_salary','numeric'),
       ('contracted_weekly_hours','numeric'),('working_weeks_per_year','numeric'),
       ('calculated_internal_hourly_rate','numeric'),('can_volunteer','boolean'),('invoice_required','boolean'),
@@ -55,6 +84,9 @@ $compatibility$;
 
 do $constraints$
 begin
+  if not exists(select 1 from pg_constraint where conrelid='public.employment_records'::regclass and conname='employment_records_club_fk') then
+    alter table public.employment_records add constraint employment_records_club_fk foreign key(club_id) references public.clubs(id) on delete restrict not valid;
+  end if;
   if not exists(select 1 from pg_constraint where conrelid='public.employment_records'::regclass and conname='employment_records_profile_fk') then
     alter table public.employment_records add constraint employment_records_profile_fk foreign key(profile_id) references public.profiles(id) on delete restrict not valid;
   end if;
@@ -63,7 +95,7 @@ begin
   end if;
   if not exists(select 1 from pg_constraint where conrelid='public.employment_records'::regclass and conname='employment_records_values_valid') then
     alter table public.employment_records add constraint employment_records_values_valid check(
-      employment_type in ('hourly','salaried','contractor','volunteer')
+      employment_type in ('hourly','salaried','volunteer')
       and standard_rate>=0 and enhanced_rate>=0
       and (annual_salary is null or annual_salary>=0)
       and (contracted_weekly_hours is null or contracted_weekly_hours>0)
@@ -74,6 +106,7 @@ begin
   end if;
 end
 $constraints$;
+alter table public.employment_records validate constraint employment_records_club_fk;
 alter table public.employment_records validate constraint employment_records_profile_fk;
 alter table public.employment_records validate constraint employment_records_organisation_fk;
 alter table public.employment_records validate constraint employment_records_values_valid;
@@ -91,11 +124,11 @@ end
 $overlap_constraint$;
 
 insert into public.employment_records(
-  profile_id,organisation_id,employment_type,standard_rate,enhanced_rate,annual_salary,
+  club_id,profile_id,organisation_id,employment_type,standard_rate,enhanced_rate,annual_salary,
   contracted_weekly_hours,working_weeks_per_year,can_volunteer,invoice_required,effective_from,effective_to,active
 )
-select distinct p.id,sv.venue_id,p.employment_type,p.standard_rate,p.enhanced_rate,p.annual_salary,
-  p.contracted_weekly_hours,p.working_weeks_per_year,p.can_volunteer,p.invoice_required,current_date,null,true
+select distinct p.club_id,p.id,sv.venue_id,p.employment_type,p.standard_rate,p.enhanced_rate,p.annual_salary,
+  p.contracted_weekly_hours,p.working_weeks_per_year,p.can_volunteer,p.invoice_required,current_date,null::date,true
 from public.profiles p
 join public.staff_venues sv on sv.profile_id=p.id
 where not exists(
@@ -105,15 +138,37 @@ where not exists(
 
 create index if not exists employment_records_profile_dates_idx on public.employment_records(profile_id,effective_from desc);
 create index if not exists employment_records_organisation_dates_idx on public.employment_records(organisation_id,effective_from,effective_to);
+create index if not exists employment_records_club_dates_idx on public.employment_records(club_id,effective_from,effective_to);
+
+create or replace function public.employment_record_tenant_guard()
+returns trigger language plpgsql security definer set search_path=pg_catalog,public as $function$
+declare profile_club uuid;organisation_club uuid;
+begin
+  select club_id into profile_club from public.profiles where id=new.profile_id;
+  select club_id into organisation_club from public.venues where id=new.organisation_id;
+  if profile_club is null or organisation_club is null or profile_club<>organisation_club then
+    raise exception using errcode='23514',message='Employment profile and organisation must belong to the same club';
+  end if;
+  if new.club_id is not null and new.club_id<>profile_club then
+    raise exception using errcode='42501',message='Employment record club assignment is invalid';
+  end if;
+  new.club_id:=profile_club;
+  return new;
+end
+$function$;
+drop trigger if exists employment_record_tenant_guard on public.employment_records;
+create trigger employment_record_tenant_guard before insert or update on public.employment_records
+for each row execute function public.employment_record_tenant_guard();
+revoke all on function public.employment_record_tenant_guard() from public;
 
 alter table public.employment_records enable row level security;
 do $policies$
 begin
   if not exists(select 1 from pg_policies where schemaname='public' and tablename='employment_records' and policyname='employment_records_read') then
-    create policy employment_records_read on public.employment_records for select to authenticated using(profile_id=auth.uid() or public.can_manage_profile(profile_id));
+    create policy employment_records_read on public.employment_records for select to authenticated using((club_id=public.current_club_id() and profile_id=auth.uid()) or public.can_manage_profile(profile_id));
   end if;
   if not exists(select 1 from pg_policies where schemaname='public' and tablename='employment_records' and policyname='employment_records_manage') then
-    create policy employment_records_manage on public.employment_records for all to authenticated using(public.can_manage_profile(profile_id)) with check(public.can_manage_profile(profile_id));
+    create policy employment_records_manage on public.employment_records for all to authenticated using(public.can_manage_profile(profile_id)) with check((club_id=public.current_club_id() or public.is_platform_admin()) and public.can_manage_profile(profile_id));
   end if;
 end
 $policies$;
@@ -121,18 +176,31 @@ grant select,insert,update on public.employment_records to authenticated;
 
 create or replace function public.create_employment_record_version(p_existing_id uuid,p_record jsonb)
 returns uuid language plpgsql security invoker set search_path=pg_catalog,public as $function$
-declare existing public.employment_records%rowtype;new_id uuid;
+declare existing public.employment_records%rowtype;new_id uuid;record_profile uuid;record_organisation uuid;record_club uuid;
 begin
+  begin
+    record_profile:=(p_record->>'profile_id')::uuid;
+    record_organisation:=(p_record->>'organisation_id')::uuid;
+  exception when invalid_text_representation then
+    raise exception using errcode='22023',message='Employment record profile or organisation is invalid';
+  end;
+  select club_id into record_club from public.profiles where id=record_profile;
+  if record_club is null or (record_club<>public.current_club_id() and not public.is_platform_admin()) or not public.can_manage_profile(record_profile) then
+    raise exception using errcode='42501',message='Employment record cannot be managed';
+  end if;
   if p_existing_id is not null then
     select * into existing from public.employment_records where id=p_existing_id for update;
     if not found then raise exception using errcode='P0001',message='Employment record was not found or cannot be managed'; end if;
+    if existing.profile_id<>record_profile or existing.organisation_id<>record_organisation or existing.club_id<>record_club then
+      raise exception using errcode='42501',message='An employment version must retain its staff member, organisation and club';
+    end if;
     if existing.effective_from>=current_date then raise exception using errcode='P0001',message='A record beginning today cannot be versioned again today'; end if;
     update public.employment_records set effective_to=current_date-1,active=false,updated_at=now() where id=p_existing_id;
   end if;
 
-  insert into public.employment_records(profile_id,organisation_id,employment_type,standard_rate,enhanced_rate,annual_salary,contracted_weekly_hours,working_weeks_per_year,can_volunteer,invoice_required,effective_from,effective_to,active)
+  insert into public.employment_records(club_id,profile_id,organisation_id,employment_type,standard_rate,enhanced_rate,annual_salary,contracted_weekly_hours,working_weeks_per_year,can_volunteer,invoice_required,effective_from,effective_to,active)
   values(
-    (p_record->>'profile_id')::uuid,(p_record->>'organisation_id')::uuid,p_record->>'employment_type',
+    record_club,record_profile,record_organisation,p_record->>'employment_type',
     coalesce((p_record->>'standard_rate')::numeric,0),coalesce((p_record->>'enhanced_rate')::numeric,0),
     nullif(p_record->>'annual_salary','')::numeric,nullif(p_record->>'contracted_weekly_hours','')::numeric,nullif(p_record->>'working_weeks_per_year','')::numeric,
     coalesce((p_record->>'can_volunteer')::boolean,false),coalesce((p_record->>'invoice_required')::boolean,false),
