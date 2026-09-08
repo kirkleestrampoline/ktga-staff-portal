@@ -11,6 +11,7 @@ export default function SetPasswordPage(){
   const [confirm,setConfirm]=useState("");
   const [digits,setDigits]=useState<string[]>(()=>Array(8).fill(""));
   const [identifier,setIdentifier]=useState("");
+  const [clubCode,setClubCode]=useState("");
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState("");
   const [ready,setReady]=useState(false);
@@ -33,7 +34,9 @@ export default function SetPasswordPage(){
         return;
       }
       const savedIdentifier=sessionStorage.getItem("av-recovery-identifier")||"";
+      const savedClubCode=sessionStorage.getItem("av-recovery-club-code")||"";
       setIdentifier(savedIdentifier);
+      setClubCode(savedClubCode);
       if(!savedIdentifier)setMessage("Start password recovery from the sign-in page to request a code.");
       setReady(true);
     }
@@ -57,11 +60,12 @@ export default function SetPasswordPage(){
       if(!identifier){setBusy(false);setMessage("Start password recovery from the sign-in page to request a code.");return}
       if(!/^\d{8}$/.test(token)){setBusy(false);setMessage("Enter the 8-digit verification code.");return}
       try{
-        const response=await fetch("/api/password-reset",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"verify_and_change",identifier,token,password})});
+        const response=await fetch("/api/password-reset",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"verify_and_change",club_code:clubCode,identifier,token,password})});
         const body=await response.json();
         setBusy(false);
         if(!response.ok){setMessage(body.error||"Recovery code is invalid or expired.");return}
         sessionStorage.removeItem("av-recovery-identifier");
+        sessionStorage.removeItem("av-recovery-club-code");
         setComplete(true);setMessage("");
       }catch{setBusy(false);setMessage("Password recovery is temporarily unavailable. Please try again.")}
       return;
@@ -77,7 +81,7 @@ export default function SetPasswordPage(){
     if(!identifier||resendSeconds>0)return;
     setBusy(true);setMessage("");
     try{
-      await fetch("/api/password-reset",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"request",identifier})});
+      await fetch("/api/password-reset",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"request",club_code:clubCode,identifier})});
       setMessage("If this account has a recovery email, a new code has been sent.");
       setResendSeconds(60);
     }catch{setMessage("Could not request another code. Please try again.")}

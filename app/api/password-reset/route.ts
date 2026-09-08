@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createHash } from "crypto";
+import { resolvePortalAccount } from "@/lib/portal-account";
 
 const PUBLIC_MESSAGE="If this account has a recovery email, a recovery code has been sent. Otherwise contact an administrator.";
-type RecoveryProfile={id:string;username:string|null;email:string|null;contact_email:string|null;auth_email:string|null};
 type RateEntry={startedAt:number;count:number};
 
 const RATE_WINDOW_MS=15*60*1000;
@@ -42,10 +42,11 @@ export async function POST(req:NextRequest){
   const body=await req.json();
   const action=String(body.action||"request");
   const identifier=String(body.identifier||"").trim().toLowerCase();
+  const clubCode=String(body.club_code||"").trim().toLowerCase();
   const clientAddress=(req.headers.get("x-forwarded-for")||req.headers.get("x-real-ip")||"unknown").split(",")[0].trim();
   const generic=NextResponse.json({ok:true,message:PUBLIC_MESSAGE});
-  if(!identifier)return action==="request"?generic:NextResponse.json({error:"Enter your username or recovery email."},{status:400});
-  if(rateLimited(action,`${clientAddress}:${identifier}`,action==="request"?REQUEST_LIMIT:VERIFY_LIMIT))return action==="request"?generic:NextResponse.json({error:"Too many attempts. Wait before trying again."},{status:429});
+  if(!identifier)return action==="request"?generic:NextResponse.json({error:"Enter your username."},{status:400});
+  if(rateLimited(action,`${clientAddress}:${clubCode}:${identifier}`,action==="request"?REQUEST_LIMIT:VERIFY_LIMIT))return action==="request"?generic:NextResponse.json({error:"Too many attempts. Wait before trying again."},{status:429});
 
   const url=process.env.NEXT_PUBLIC_SUPABASE_URL;
   const secret=process.env.SUPABASE_SECRET_KEY;
@@ -56,18 +57,16 @@ export async function POST(req:NextRequest){
   }
 
   const admin=createSupabaseClient(url,secret,{auth:{autoRefreshToken:false,persistSession:false,detectSessionInUrl:false}});
-  let query=admin.from("profiles").select("id,username,email,contact_email,auth_email");
-  const{data,error:lookupError}=identifier.includes("@")
-    ? await query.or(`email.eq.${identifier},contact_email.eq.${identifier},auth_email.eq.${identifier}`).maybeSingle()
-    : await query.ilike("username",identifier).maybeSingle();
-  const profile=(data||null) as RecoveryProfile|null;
-
-  if(lookupError)console.warn("[password-recovery] profile lookup failed",{action,code:lookupError.code});
-  if(!profile?.username){
+  const resolution=await resolvePortalAccount(admin,identifier,clubCode);
+  if(resolution.status==="ambiguous")return NextResponse.json({error:"This username is used by more than one club. Enter your club code to continue.",code:"CLUB_CODE_REQUIRED"},{status:409});
+  if(resolution.status==="lookup_error")console.warn("[password-recovery] profile lookup failed",{action,code:resolution.code});
+  if(resolution.status!=="found"||!resolution.profile.username){
     console.info("[password-recovery] request did not resolve to a portal account",{action});
     return action==="request"?generic:NextResponse.json({error:"Recovery code is invalid or expired."},{status:400});
   }
-  const recoveryEmail=String(profile.contact_email||profile.email||"").trim().toLowerCase();
+  const{profile,club}=resolution;
+  if(profile.role!=="admin"&&!club.active)return action==="request"?generic:NextResponse.json({error:"Recovery code is invalid or expired."},{status:400});
+  const recoveryEmail=String(profile.contact_email||"").trim().toLowerCase();
   if(!recoveryEmail){
     console.info("[password-recovery] portal account has no recovery email",{action,userId:profile.id});
     return action==="request"?generic:NextResponse.json({error:"Recovery code is invalid or expired."},{status:400});

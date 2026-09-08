@@ -6,11 +6,13 @@ import AvLogo from "@/components/av-logo";
 
 function MailGlyph(){return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5h16v11H4z" fill="none" stroke="currentColor" strokeWidth="1.7"/><path d="m4.7 7.2 7.3 5.7 7.3-5.7" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg>}
 function LockGlyph(){return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" strokeWidth="1.7"/><path d="M8.3 10V7.4a3.7 3.7 0 0 1 7.4 0V10" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>}
+function ClubGlyph(){return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16M6 20V8l6-4 6 4v12M9 11h2m2 0h2m-6 4h2m2 0h2" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg>}
 function EyeGlyph({off=false}:{off?:boolean}){return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.8 12s3.4-5.2 9.2-5.2S21.2 12 21.2 12s-3.4 5.2-9.2 5.2S2.8 12 2.8 12Z" fill="none" stroke="currentColor" strokeWidth="1.6"/><circle cx="12" cy="12" r="2.5" fill="none" stroke="currentColor" strokeWidth="1.6"/>{off&&<path d="m4 4 16 16" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>}</svg>}
 
 export default function LoginPage(){
   const supabase=createClient();
   const[identifier,setIdentifier]=useState("");
+  const[clubCode,setClubCode]=useState("");
   const[password,setPassword]=useState("");
   const[message,setMessage]=useState("");
   const[busy,setBusy]=useState(false);
@@ -19,7 +21,7 @@ export default function LoginPage(){
 
   async function signIn(event:FormEvent){
     event.preventDefault();setBusy(true);setMessage("");
-    const res=await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({identifier,password})});
+    const res=await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({club_code:clubCode,identifier,password})});
     const body=await res.json();
     setBusy(false);
     if(!res.ok){setMessage(body.error||"Could not sign in.");return}
@@ -28,12 +30,14 @@ export default function LoginPage(){
 
   async function requestRecovery(event:FormEvent){
     event.preventDefault();
-    if(!identifier.trim()){setMessage("Enter your username or recovery email first.");return}
+    if(!identifier.trim()){setMessage("Enter your username first.");return}
     setBusy(true);setMessage("");
     try{
-      const res=await fetch("/api/password-reset",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"request",identifier})});
-      if(!res.ok)throw new Error("Password recovery is temporarily unavailable. Please try again.");
+      const res=await fetch("/api/password-reset",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"request",club_code:clubCode,identifier})});
+      const body=await res.json();
+      if(!res.ok)throw new Error(body.error||"Password recovery is temporarily unavailable. Please try again.");
       sessionStorage.setItem("av-recovery-identifier",identifier.trim().toLowerCase());
+      sessionStorage.setItem("av-recovery-club-code",clubCode.trim().toLowerCase());
       window.location.href="/set-password?mode=recovery";
     }catch(error:any){setMessage(error?.message||"Password recovery is temporarily unavailable. Please try again.");setBusy(false)}
   }
@@ -51,8 +55,9 @@ export default function LoginPage(){
     <section className="v3LoginFormPanel">
       <div className="v3MobileBrand"><AvLogo size={52} showWordmark/></div>
       <form className="v3LoginCard" onSubmit={recovering?requestRecovery:signIn}>
-        <div className="v3LoginHeading"><span className="v3Eyebrow">AV Gymnastics</span><h2>{recovering?"Recover your account":"Welcome back"}</h2><p>{recovering?"Enter your username or recovery email and we will send an 8-digit code.":"Sign in to continue to your workspace."}</p></div>
-        <div className="v3Field"><label>Username or email</label><div className="v3InputShell"><span className="v3InputIcon"><MailGlyph/></span><input type="text" autoCapitalize="none" autoCorrect="off" autoComplete="username" placeholder="e.g. gabby" value={identifier} onChange={e=>setIdentifier(e.target.value)} required/></div></div>
+        <div className="v3LoginHeading"><span className="v3Eyebrow">AV Gymnastics</span><h2>{recovering?"Recover your account":"Welcome back"}</h2><p>{recovering?"Enter your club code and username and we will send an 8-digit code.":"Sign in to continue to your workspace."}</p></div>
+        <div className="v3Field"><label>Club code <span className="muted">(optional during transition)</span></label><div className="v3InputShell"><span className="v3InputIcon"><ClubGlyph/></span><input type="text" autoCapitalize="none" autoCorrect="off" autoComplete="organization" placeholder="e.g. greenhead" value={clubCode} onChange={e=>setClubCode(e.target.value.toLowerCase().replace(/\s+/g,""))}/></div><div className="fieldHint">Use your club's short code. It is required when another club uses the same username.</div></div>
+        <div className="v3Field"><label>Username</label><div className="v3InputShell"><span className="v3InputIcon"><MailGlyph/></span><input type="text" autoCapitalize="none" autoCorrect="off" autoComplete="username" placeholder="e.g. gabby" value={identifier} onChange={e=>setIdentifier(e.target.value)} required/></div></div>
         {!recovering&&<div className="v3Field"><div className="v3FieldHead"><label>Password</label><button type="button" className="v3TextButton" onClick={()=>{setRecovering(true);setMessage("")}}>Forgot password?</button></div><div className="v3InputShell"><span className="v3InputIcon"><LockGlyph/></span><input type={showPassword?"text":"password"} autoComplete="current-password" placeholder="Enter your password" value={password} onChange={e=>setPassword(e.target.value)} required/><button className="v3PasswordToggle" type="button" aria-label={showPassword?"Hide password":"Show password"} onClick={()=>setShowPassword(!showPassword)}><EyeGlyph off={showPassword}/></button></div></div>}
         {message&&<div className="v3LoginNotice">{message}</div>}
         <button className="v3SignInButton" disabled={busy}>{busy?<><span className="v3Spinner"/>{recovering?"Sending…":"Signing in…"}</>:recovering?"Send Recovery Code":"Sign in"}</button>

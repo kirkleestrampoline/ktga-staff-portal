@@ -28,7 +28,6 @@ export async function POST(req:NextRequest){
   if(!ownerName||!USERNAME_RE.test(username)||!ownerEmail.includes("@")||password.length<8)return NextResponse.json({error:"Valid owner name, username, recovery email and an 8-character password are required"},{status:400});
   if(name.localeCompare(ownerName,undefined,{sensitivity:"accent"})===0)return NextResponse.json({error:"Club name must identify the club, not the Club Owner"},{status:400});
   const admin=adminClient();
-  const{data:duplicate}=await admin.from("profiles").select("id").ilike("username",username).maybeSingle();if(duplicate)return NextResponse.json({error:"That username is already in use"},{status:409});
   const{data:newClub,error:clubError}=await admin.from("clubs").insert({name,slug,email:contactEmail,telephone:clean(club.telephone)||null,timezone:clean(club.timezone)||"Europe/London",primary_colour:clean(club.primary_colour)||"#6D3A91",secondary_colour:clean(club.secondary_colour)||"#243044",active:club.active!==false}).select("id,name,slug").single();
   if(clubError||!newClub)return NextResponse.json({error:clubError?.code==="23505"?"That club name or slug already exists":"Club creation failed"},{status:clubError?.code==="23505"?409:400});
   const authEmail=`${username}.${randomUUID().slice(0,8)}@login.avgymnastics.invalid`;let authId:string|null=null;

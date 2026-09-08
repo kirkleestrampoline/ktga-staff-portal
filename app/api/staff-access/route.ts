@@ -99,14 +99,14 @@ export async function POST(req: NextRequest) {
     ))return NextResponse.json({error:"Salaried staff require a non-negative annual salary, contracted weekly hours up to 168, and working weeks between 1 and 52"},{status:400});
 
     if(portalAccess){
-      const{data:existing}=await admin.from("profiles").select("id").ilike("username",username).maybeSingle();
+      const{data:existing}=await admin.from("profiles").select("id").eq("club_id",targetClubId).ilike("username",username).limit(1).maybeSingle();
       if(existing)return NextResponse.json({error:"That username is already in use"},{status:409});
     }
 
     // Every profile currently shares its id with auth.users. Staff without portal
     // access therefore receive an inaccessible Auth shell, but no login username.
     const accountKey=portalAccess?username:`staff.${randomUUID().slice(0,8)}`;
-    const authEmail=portalAccess&&contactEmail?contactEmail:`${accountKey}.${randomUUID().slice(0,8)}@login.avgymnastics.invalid`;
+    const authEmail=`${accountKey}.${randomUUID().slice(0,8)}@login.avgymnastics.invalid`;
     const authPassword=portalAccess?password:randomUUID()+randomUUID();
     const{error:provisionError}=await admin.from("pending_auth_user_clubs").upsert({
       auth_email:authEmail.toLowerCase(),club_id:targetClubId,created_by:actorId,
@@ -212,7 +212,7 @@ export async function POST(req: NextRequest) {
     if(username&&!USERNAME_RE.test(username))return NextResponse.json({error:"Username must be 3–32 characters using letters, numbers, dots, dashes or underscores"},{status:400});
 
     if(username){
-      const{data:usernameOwner}=await admin.from("profiles").select("id").ilike("username",username).neq("id",profileId).maybeSingle();
+      const{data:usernameOwner}=await admin.from("profiles").select("id").eq("club_id",targetClubId).ilike("username",username).neq("id",profileId).limit(1).maybeSingle();
       if(usernameOwner)return NextResponse.json({error:"That username is already in use"},{status:409});
     }
 
