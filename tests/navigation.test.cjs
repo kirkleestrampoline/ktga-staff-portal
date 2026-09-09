@@ -37,3 +37,15 @@ test('future modules are disabled, described, and visible only to administrators
 test('Staff Rota keeps the original schedule destination',()=>{
  assert.equal(navigationForRole('admin').find(isNavigationGroup).children.find(item=>item.label==='Staff Rota').id,'schedule');
 });
+test('mobile Menu is second and contains only permitted platform sections',()=>{
+ const {mobileNavigationForRole}=load('lib/navigation.ts');
+ for(const role of ['admin','club_owner','org_admin']){
+  const {primary,menu}=mobileNavigationForRole(role);
+  assert.equal(primary[1].id,'staff-module');
+  assert.deepEqual(menu.map(item=>item.label),['Staff','Members','Classes','Schedule','Progress','Finance','Communications']);
+ }
+ const staff=mobileNavigationForRole('coach');
+ assert.equal(staff.primary[1].id,'staff-module');
+ assert.deepEqual(staff.menu.map(item=>item.label),['Staff']);
+ assert.deepEqual(staff.primary.map(item=>item.id),['schedule','staff-module','profile']);
+});

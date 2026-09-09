@@ -3184,3 +3184,9 @@ td .btn{min-height:36px;padding:7px 11px;font-size:11.5px}
 .comingSoonModule h1{margin:0;font-size:clamp(26px,5vw,36px);line-height:1.2}
 .comingSoonModule p{margin:0;color:#6a6373;line-height:1.65}
 .comingSoonModule button{min-height:44px;margin-top:8px}
+
+.staffMobileSheet .staffDestinationGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.staffMobileSheet .staffDestinationGrid>button{min-height:48px;padding:10px 8px;gap:8px;background:#f7f4fa}
+.staffMobileSheet .staffDestinationGrid>button svg{flex-shrink:0;width:18px}
+.staffMobileSheet .staffDestinationGrid>button strong{font-size:12px}
+.staffMobileSheet .staffDestinationGrid>button.active{background:#eee5f6}

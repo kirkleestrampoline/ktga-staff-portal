@@ -39,3 +39,12 @@ export function isNavigationGroup(item:NavigationItem):item is NavigationGroup{r
 export function navigationItemActive(item:NavigationItem,tab:DashboardTab):boolean{
   return isNavigationGroup(item)?item.children.some(child=>child.id===tab):item.id===tab;
 }
+
+export function mobileNavigationForRole(role:string){
+  const items=navigationForRole(role);
+  const staff=items.find(isNavigationGroup)!;
+  const topLevel=items.filter(item=>!isFutureModule(item));
+  // Staff have no Club Overview permission; retain their schedule as the first shortcut.
+  const primary=topLevel[0]?.id==="staff-module"?[staff.children.find(item=>item.id==="schedule")!,...topLevel]:topLevel;
+  return {primary,menu:items.filter(item=>isNavigationGroup(item)||isFutureModule(item))};
+}
