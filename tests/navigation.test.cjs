@@ -1,0 +1,39 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const load=require('./load-typescript.cjs')();
+const {navigationForRole,isFutureModule,futureModules,isNavigationGroup,navigationItemActive}=load('lib/navigation.ts');
+const {dashboardTabs,coachDashboardTabs,dashboardTabForRole}=load('types/navigation.ts');
+const links=items=>items.filter(item=>!isFutureModule(item)).flatMap(item=>isNavigationGroup(item)?item.children:[item]);
+for(const role of ['admin','club_owner','org_admin','coach','unknown'])test(`${role}: navigation preserves exactly the existing allowed destinations`,()=>{
+ const items=navigationForRole(role),actual=links(items).map(item=>item.id);
+ assert.deepEqual([...actual].sort(),[...(['admin','club_owner','org_admin'].includes(role)?dashboardTabs:coachDashboardTabs)].sort());
+ assert.equal(new Set(actual).size,actual.length);
+ for(const id of actual)assert.equal(dashboardTabForRole(id,role),id);
+});
+test('administrator module order and Staff children match the release',()=>{
+ const items=navigationForRole('club_owner');
+ assert.deepEqual(items.map(item=>item.label),['Club Overview','Staff','Members','Classes','Schedule','Progress','Finance','Communications','Reports','Settings','My Profile']);
+ assert.deepEqual(items.find(isNavigationGroup).children.map(item=>item.label),['People','Availability','Staff Rota','Leave','Workforce','Expenses','Payroll','Staff Invoices']);
+});
+test('every Staff child activates its parent, outside pages do not',()=>{
+ const group=navigationForRole('admin').find(isNavigationGroup);
+ for(const child of group.children)assert.equal(navigationItemActive(group,child.id),true);
+ for(const tab of ['dashboard','reports','settings','profile'])assert.equal(navigationItemActive(group,tab),false);
+});
+test('staff module is not a page destination; coach personal labels are retained',()=>{
+ const items=navigationForRole('coach');
+ assert.deepEqual(items.map(item=>item.id),['staff-module','profile']);
+ assert.equal(dashboardTabs.includes('staff-module'),false);
+ assert.equal(items[0].children.find(item=>item.id==='timesheets').label,'My Timesheet');
+ assert.equal(items[0].children.find(item=>item.id==='invoices').label,'My Payslips');
+});
+
+test('future modules are disabled, described, and visible only to administrators',()=>{
+ assert.equal(futureModules.length,6);
+ for(const role of ['admin','club_owner','org_admin'])assert.deepEqual(navigationForRole(role).filter(isFutureModule),futureModules);
+ for(const role of ['coach','unknown',''])assert.equal(navigationForRole(role).some(isFutureModule),false);
+ for(const module of futureModules){assert.equal(module.enabled,false);assert.ok(module.description.length>20);assert.equal(navigationItemActive(module,'schedule'),false)}
+});
+test('Staff Rota keeps the original schedule destination',()=>{
+ assert.equal(navigationForRole('admin').find(isNavigationGroup).children.find(item=>item.label==='Staff Rota').id,'schedule');
+});
