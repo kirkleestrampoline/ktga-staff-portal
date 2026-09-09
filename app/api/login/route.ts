@@ -25,13 +25,12 @@ export async function POST(req:NextRequest){
   const{profile,club}=resolution;
   if(!profile.username)return NextResponse.json({error:"This staff profile does not have portal access."},{status:403});
   if(!profile.is_active)return NextResponse.json({error:"This account is inactive. Contact an administrator."},{status:403});
-  if(profile.role!=="admin"&&!club.active)return NextResponse.json({error:"This club workspace is suspended. Contact your administrator.",code:"CLUB_SUSPENDED"},{status:403});
+  if(club.active!==true)return NextResponse.json({error:"This club workspace is suspended. Contact your administrator.",code:"CLUB_SUSPENDED"},{status:403});
 
   let authEmail=String(profile.auth_email||"").trim().toLowerCase();
   if(!authEmail){
     const{data:userData}=await admin.auth.admin.getUserById(profile.id);
     authEmail=String(userData.user?.email||"").trim().toLowerCase();
-    if(authEmail)await admin.from("profiles").update({auth_email:authEmail}).eq("id",profile.id);
   }
   if(!authEmail)return NextResponse.json({error:"This account is not configured for login. Contact an administrator."},{status:400});
 
@@ -39,6 +38,10 @@ export async function POST(req:NextRequest){
   const{data,error}=await supabase.auth.signInWithPassword({email:authEmail,password});
   if(error||!data.user)return NextResponse.json({error:"Invalid username or password"},{status:401});
 
+  if(data.user.id!==profile.id){
+    await supabase.auth.signOut();
+    return NextResponse.json({error:"Account configuration could not be verified"},{status:403});
+  }
   await admin.from("profiles").update({last_login_at:new Date().toISOString()}).eq("id",profile.id);
   return NextResponse.json({ok:true,force_password_reset:Boolean(profile.force_password_reset)});
 }

@@ -1,27 +1,15 @@
+import { requirePlatformAdmin } from "@/lib/platform-admin";
+import { launchResetEnabled } from "@/lib/security/account-policy";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  if (!launchResetEnabled(process.env.ENABLE_LAUNCH_RESET)) {
+    return NextResponse.json({error:"Feature disabled",code:"FEATURE_DISABLED"},{status:403});
   }
-
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("role,club_id")
-    .eq("id", user.id)
-    .single();
-
-  if (profileError || !profile || profile.role!=="admin" || !profile.club_id) {
-    return NextResponse.json({ error: "Super Admin only" }, { status: 403 });
-  }
+  const actor=await requirePlatformAdmin();
+  if(!actor)return NextResponse.json({error:"Active Platform Admin access required"},{status:403});
+  const {user,profile}=actor;
 
   const body = await req.json();
 

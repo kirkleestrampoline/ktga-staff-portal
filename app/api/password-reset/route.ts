@@ -65,7 +65,7 @@ export async function POST(req:NextRequest){
     return action==="request"?generic:NextResponse.json({error:"Recovery code is invalid or expired."},{status:400});
   }
   const{profile,club}=resolution;
-  if(profile.role!=="admin"&&!club.active)return action==="request"?generic:NextResponse.json({error:"Recovery code is invalid or expired."},{status:400});
+  if(!profile.is_active||club.active!==true)return action==="request"?generic:NextResponse.json({error:"Recovery code is invalid or expired."},{status:400});
   const recoveryEmail=String(profile.contact_email||"").trim().toLowerCase();
   if(!recoveryEmail){
     console.info("[password-recovery] portal account has no recovery email",{action,userId:profile.id});
@@ -104,7 +104,7 @@ export async function POST(req:NextRequest){
   const authEmail=String(profile.auth_email||"").trim().toLowerCase();
   if(!authEmail)return NextResponse.json({error:"Recovery code is invalid or expired."},{status:400});
   const{data:verification,error:verifyError}=await recoveryClient.auth.verifyOtp({email:authEmail,token,type:"recovery"});
-  if(verifyError||!verification.user){
+  if(verifyError||!verification.user||verification.user.id!==profile.id){
     console.warn("[password-recovery] code verification failed",{userId:profile.id,code:(verifyError as any)?.code||"invalid_otp"});
     return NextResponse.json({error:"Recovery code is invalid or expired."},{status:400});
   }

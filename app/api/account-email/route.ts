@@ -1,11 +1,13 @@
+import { requireActiveAccount } from "@/lib/security/account-access";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 export async function POST(req:NextRequest){
   const supabase=await createClient();
-  const{data:{user}}=await supabase.auth.getUser();
-  if(!user)return NextResponse.json({error:"Not signed in"},{status:401});
+  const actor=await requireActiveAccount(supabase);
+  if(!actor)return NextResponse.json({error:"Active account and club required"},{status:403});
+  const {user}=actor;
 
   const body=await req.json();
   const email=String(body.email||"").trim().toLowerCase();
@@ -22,7 +24,7 @@ export async function POST(req:NextRequest){
   const authEmail=String(profile.auth_email||user.email||"");
   const{error:profileError}=await admin.from("profiles").update({
     email:email||null,contact_email:email||null,auth_email:authEmail
-  }).eq("id",user.id);
+  }).eq("id",user.id).eq("club_id",actor.profile.club_id);
   if(profileError)return NextResponse.json({error:profileError.message},{status:400});
   return NextResponse.json({ok:true});
 }

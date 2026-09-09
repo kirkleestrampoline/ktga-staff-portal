@@ -2,23 +2,22 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
+import { requireActiveAccount, authoriseStaffTarget } from "@/lib/security/account-access";
+import { canAssignStaffRole } from "@/lib/security/account-policy";
+import { exactInsensitivePattern } from "@/lib/security/exact-match";
 
 const USERNAME_RE=/^[a-z0-9][a-z0-9._-]{2,31}$/;
-const UUID_RE=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-
-  const { data: me, error: actorError } = await supabase.from("profiles").select("role,club_id,is_active").eq("id", user.id).single();
-  if (actorError || !me || !me.is_active || !["admin","club_owner","org_admin"].includes(me.role)) {
-    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  const actor = await requireActiveAccount(supabase);
+  if (!actor || !["admin", "club_owner", "org_admin"].includes(actor.profile.role)) {
+    return NextResponse.json({ error: "Active administrator access required" }, { status: 403 });
   }
+  const { user, profile: me } = actor;
 
   const actorId=user.id;
   const actorRole=me.role as "admin"|"club_owner"|"org_admin";
-  const actorClubId=me.club_id as string|null;
   const url=process.env.NEXT_PUBLIC_SUPABASE_URL;
   const secret=process.env.SUPABASE_SECRET_KEY;
   if(!url||!secret)return NextResponse.json({error:"Supabase server configuration is missing"},{status:500});
@@ -30,25 +29,7 @@ export async function POST(req: NextRequest) {
   if(Object.prototype.hasOwnProperty.call(body,"club_id")){
     return NextResponse.json({error:"Club assignment is managed by the server"},{status:400});
   }
-  if(!actorClubId){
-    return NextResponse.json({error:"Your administrator profile is not assigned to a club"},{status:400});
-  }
-  if(!UUID_RE.test(actorClubId)){
-    console.error("[staff-access] administrator profile has an invalid club_id",{actorId});
-    return NextResponse.json({error:"Your administrator club assignment is invalid"},{status:400});
-  }
-  const{data:actorClub,error:clubError}=await admin.from("clubs").select("id,active").eq("id",actorClubId).maybeSingle();
-  if(clubError){
-    console.error("[staff-access] club resolution failed",{actorId,clubId:actorClubId,code:clubError.code});
-    return NextResponse.json({error:"Your club assignment could not be verified"},{status:500});
-  }
-  if(!actorClub){
-    return NextResponse.json({error:"Your assigned club no longer exists"},{status:400});
-  }
-  if(!actorClub.active){
-    return NextResponse.json({error:"Your assigned club is inactive"},{status:403});
-  }
-  const targetClubId=actorClub.id;
+  const targetClubId=actor.club.id;
 
   async function allowedVenueIds(){
     if(actorRole==="admin"||actorRole==="club_owner"){
@@ -57,18 +38,40 @@ export async function POST(req: NextRequest) {
       const{data}=await query;
       return(data||[]).map((x:any)=>x.id);
     }
-    const{data}=await admin.from("staff_venues").select("venue_id,venues!inner(club_id)").eq("profile_id",actorId).eq("is_admin",true).eq("venues.club_id",targetClubId);
+    const{data}=await admin.from("staff_venues").select("venue_id,venues!inner(club_id)").eq("profile_id",actorId).eq("is_admin",true).eq("venues.club_id",targetClubId).eq("venues.active",true);
     return(data||[]).map((x:any)=>x.venue_id);
   }
-  const allowed=await allowedVenueIds();
+  const allowed=body.action==="create_account"?await allowedVenueIds():[];
 
-  async function canManage(profileId:string){
-    if(actorRole==="admin"||actorRole==="club_owner"){
-      const{data}=await admin.from("profiles").select("id").eq("id",profileId).eq("club_id",targetClubId).maybeSingle();
-      return Boolean(data);
+  // Explicit action allowlist prevents new or manipulated actions bypassing target checks.
+  if (!["create_account", "set_password", "update_identity", "set_contact_email", "update_access"].includes(body.action)) {
+    return NextResponse.json({error:"Unknown action"},{status:400});
+  }
+  if (body.action !== "create_account" && body.action !== "update_access" && Object.prototype.hasOwnProperty.call(body,"role")) {
+    return NextResponse.json({error:"Role changes require the account access action"},{status:400});
+  }
+  const target = body.action === "create_account" ? null : await authoriseStaffTarget(admin, actor, String(body.profile_id || ""));
+  if (body.action !== "create_account" && !target) {
+    return NextResponse.json({error:"You do not manage this staff member"},{status:403});
+  }
+
+  if (body.action === "update_access") {
+    const changes: {role?: string; is_active?: boolean; force_password_reset?: boolean} = {};
+    if (Object.prototype.hasOwnProperty.call(body,"role")) {
+      if (!canAssignStaffRole(actorRole,body.role) || (actorRole === "org_admin" && body.role !== target!.role)) {
+        return NextResponse.json({error:"Protected roles cannot be assigned here"},{status:403});
+      }
+      changes.role=body.role;
     }
-    const{data:links}=await admin.from("staff_venues").select("venue_id").eq("profile_id",profileId);
-    return!(links||[]).some((x:any)=>!allowed.includes(x.venue_id));
+    for (const key of ["is_active", "force_password_reset"] as const) {
+      if (Object.prototype.hasOwnProperty.call(body,key)) {
+        if (typeof body[key] !== "boolean") return NextResponse.json({error:"Invalid account access value"},{status:400});
+        changes[key]=body[key];
+      }
+    }
+    if (!Object.keys(changes).length) return NextResponse.json({error:"No account access changes"},{status:400});
+    const {error}=await admin.from("profiles").update(changes).eq("id",target!.id).eq("club_id",targetClubId);
+    return error ? NextResponse.json({error:"Could not update account access"},{status:400}) : NextResponse.json({ok:true});
   }
 
   if(body.action==="create_account"){
@@ -78,7 +81,9 @@ export async function POST(req: NextRequest) {
     const contactEmail=String(body.email||"").trim().toLowerCase();
     const portalAccess=body.portal_access!==false;
     const venueIds:string[]=Array.isArray(body.venue_ids)?body.venue_ids:[];
-    const role=(actorRole==="admin"||actorRole==="club_owner")&&body.role==="org_admin"?"org_admin":"coach";
+    const role=body.role??"coach";
+    if(!canAssignStaffRole(actorRole,role))return NextResponse.json({error:"Protected roles cannot be assigned here"},{status:403});
+    if(actorRole==="org_admin"&&!venueIds.length)return NextResponse.json({error:"Choose a managed venue"},{status:403});
     const forcePasswordReset=body.force_password_reset!==false;
     const employmentType=["hourly","salaried","volunteer"].includes(body.employment_type)?body.employment_type:"hourly";
     const standardRate=Number(body.standard_rate??body.hourly_rate??0);
@@ -99,7 +104,8 @@ export async function POST(req: NextRequest) {
     ))return NextResponse.json({error:"Salaried staff require a non-negative annual salary, contracted weekly hours up to 168, and working weeks between 1 and 52"},{status:400});
 
     if(portalAccess){
-      const{data:existing}=await admin.from("profiles").select("id").eq("club_id",targetClubId).ilike("username",username).limit(1).maybeSingle();
+      const{data:existing,error:usernameError}=await admin.from("profiles").select("id").eq("club_id",targetClubId).ilike("username",exactInsensitivePattern(username)!).limit(1).maybeSingle();
+      if(usernameError)return NextResponse.json({error:"Could not verify username availability"},{status:503});
       if(existing)return NextResponse.json({error:"That username is already in use"},{status:409});
     }
 
@@ -178,17 +184,13 @@ export async function POST(req: NextRequest) {
 
     // Critical safety guard: admin password tools can never mutate the actor's own auth record.
     if(profileId===actorId)return NextResponse.json({error:"For safety, change your own password from My Profile → Security"},{status:400});
-    if(!(await canManage(profileId)))return NextResponse.json({error:"You do not manage this staff member"},{status:403});
 
-    const{data:person}=await admin.from("profiles").select("id,username,is_active").eq("id",profileId).single();
-    if(!person)return NextResponse.json({error:"Staff member not found"},{status:404});
-
-    const{error:authError}=await admin.auth.admin.updateUserById(profileId,{password,email_confirm:true});
+    const{error:authError}=await admin.auth.admin.updateUserById(target!.id,{password,email_confirm:true});
     if(authError)return NextResponse.json({error:authError.message},{status:400});
 
     const{error:profileError}=await admin.from("profiles").update({
       force_password_reset:forcePasswordReset,password_changed_at:new Date().toISOString()
-    }).eq("id",profileId);
+    }).eq("id",target!.id).eq("club_id",targetClubId);
     if(profileError)return NextResponse.json({error:profileError.message},{status:400});
 
     return NextResponse.json({ok:true});
@@ -197,14 +199,8 @@ export async function POST(req: NextRequest) {
   if(body.action==="update_identity"||body.action==="set_contact_email"){
     const profileId=String(body.profile_id||"");
     if(!profileId)return NextResponse.json({error:"Staff member is required"},{status:400});
-    if(!(await canManage(profileId)))return NextResponse.json({error:"You do not manage this staff member"},{status:403});
 
-    const{data:person,error:personError}=await admin.from("profiles").select("id,username,full_name,email,contact_email,auth_email,club_id").eq("id",profileId).single();
-    if(personError||!person){
-      console.error("[staff-access] identity profile lookup failed",{actorId,profileId,code:personError?.code,message:personError?.message});
-      return NextResponse.json({error:"Staff member not found",code:"STAFF_NOT_FOUND"},{status:404});
-    }
-    if(person.club_id!==targetClubId)return NextResponse.json({error:"You do not manage this staff member",code:"TENANT_MISMATCH"},{status:403});
+    const person=target!;
 
     const username=body.action==="update_identity"?String(body.username||"").trim().toLowerCase():String(person.username||"").trim().toLowerCase();
     const contactEmail=String(body.email||"").trim().toLowerCase();
@@ -212,12 +208,13 @@ export async function POST(req: NextRequest) {
     if(username&&!USERNAME_RE.test(username))return NextResponse.json({error:"Username must be 3–32 characters using letters, numbers, dots, dashes or underscores"},{status:400});
 
     if(username){
-      const{data:usernameOwner}=await admin.from("profiles").select("id").eq("club_id",targetClubId).ilike("username",username).neq("id",profileId).limit(1).maybeSingle();
+      const{data:usernameOwner,error:usernameError}=await admin.from("profiles").select("id").eq("club_id",targetClubId).ilike("username",exactInsensitivePattern(username)!).neq("id",profileId).limit(1).maybeSingle();
+      if(usernameError)return NextResponse.json({error:"Could not verify username availability"},{status:503});
       if(usernameOwner)return NextResponse.json({error:"That username is already in use"},{status:409});
     }
 
     const authEmail=person.auth_email;
-    const{error:metaError}=await admin.auth.admin.updateUserById(profileId,{user_metadata:{
+    const{error:metaError}=await admin.auth.admin.updateUserById(target!.id,{user_metadata:{
       username:username||null,
       full_name:fullName,
       contact_email:contactEmail||null
@@ -229,7 +226,7 @@ export async function POST(req: NextRequest) {
 
     const{error:profileError}=await admin.from("profiles").update({
       username:username||null,email:contactEmail||null,contact_email:contactEmail||null
-    }).eq("id",profileId);
+    }).eq("id",target!.id).eq("club_id",targetClubId);
     if(profileError){
       console.error("[staff-access] identity profile update failed",{actorId,profileId,clubId:targetClubId,code:profileError.code,message:profileError.message});
       return NextResponse.json({error:"Could not save the staff recovery details",code:"PROFILE_IDENTITY_UPDATE_FAILED"},{status:400});

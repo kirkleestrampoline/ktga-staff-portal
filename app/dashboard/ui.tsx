@@ -95,7 +95,7 @@ const dateText=(s:string|null|undefined)=>s?new Date(`${s.slice(0,10)}T12:00:00`
 const cutoffDate=(month:string,day=1)=>{const[y,m]=month.split("-").map(Number);return new Date(y,m,day,23,59,59)};
 const fmtStamp=(s:string)=>new Date(s).toLocaleString("en-GB",{dateStyle:"medium",timeStyle:"short"});
 
-export default function Dashboard({initialProfile,initialTab,initialMonth}:{initialProfile:Profile;initialTab:Tab;initialMonth:string}){
+export default function Dashboard({initialProfile,initialTab,initialMonth,launchResetEnabled=false}:{initialProfile:Profile;initialTab:Tab;initialMonth:string;launchResetEnabled?:boolean}){
   const isPlatformAdmin=initialProfile.role==="admin";
   const isClubOwner=initialProfile.role==="club_owner";
   const isAdmin=isPlatformAdmin||isClubOwner||initialProfile.role==="org_admin";
@@ -1048,10 +1048,17 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       if(!res.ok){setSaving(false);flash(j.error||"Could not update username/email.");return}
     }
     if(employmentFoundationAvailable&&(staffEdit.employment_type||"hourly")==="salaried"&&(staffEdit.annual_salary==null||!Number.isFinite(Number(staffEdit.annual_salary))||Number(staffEdit.annual_salary)<0||staffEdit.contracted_weekly_hours==null||!Number.isFinite(Number(staffEdit.contracted_weekly_hours))||Number(staffEdit.contracted_weekly_hours)<=0||Number(staffEdit.contracted_weekly_hours)>168||staffEdit.working_weeks_per_year==null||!Number.isFinite(Number(staffEdit.working_weeks_per_year))||Number(staffEdit.working_weeks_per_year)<1||Number(staffEdit.working_weeks_per_year)>52)){setSaving(false);flash("Salaried staff require a non-negative salary, contracted hours up to 168, and working weeks between 1 and 52.");return}
+    const accessChanges={
+      ...(original?.is_active!==staffEdit.is_active?{is_active:staffEdit.is_active}:{}),
+      ...(canManageRoles&&original?.role!==staffEdit.role?{role:staffEdit.role}:{}),
+      ...(Boolean(original?.force_password_reset)!==Boolean(staffEdit.force_password_reset)?{force_password_reset:Boolean(staffEdit.force_password_reset)}:{})
+    };
+    if(Object.keys(accessChanges).length){
+      const response=await fetch("/api/staff-access",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update_access",profile_id:staffEdit.id,...accessChanges})});
+      if(!response.ok){const result=await response.json();flash(result.error||"Could not update account access.");return}
+    }
     const payload={
-      full_name:staffEdit.full_name,phone:staffEdit.phone,address:staffEdit.address,hourly_rate:Number(staffEdit.hourly_rate||0),is_active:staffEdit.is_active,
-      ...(canManageRoles?{role:staffEdit.role}:{}),
-      username:nextUsername||null,email:nextEmail||null,contact_email:nextEmail||null,
+      full_name:staffEdit.full_name,phone:staffEdit.phone,address:staffEdit.address,hourly_rate:Number(staffEdit.hourly_rate||0),
       account_name:staffEdit.account_name,sort_code:staffEdit.sort_code,account_number:staffEdit.account_number,utr:staffEdit.utr,invoice_prefix:staffEdit.invoice_prefix,
       emergency_contact_name:staffEdit.emergency_contact_name||null,emergency_contact_phone:staffEdit.emergency_contact_phone||null,
       dbs_expiry:staffEdit.dbs_expiry||null,first_aid_expiry:staffEdit.first_aid_expiry||null,safeguarding_expiry:staffEdit.safeguarding_expiry||null,qualifications:staffEdit.qualifications||null,
@@ -1061,7 +1068,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
         annual_salary:staffEdit.annual_salary==null?null:Number(staffEdit.annual_salary),contracted_weekly_hours:staffEdit.contracted_weekly_hours==null?null:Number(staffEdit.contracted_weekly_hours),working_weeks_per_year:staffEdit.working_weeks_per_year==null?null:Number(staffEdit.working_weeks_per_year),invoice_required:Boolean(staffEdit.invoice_required)
       }:{}),
       job_title:staffEdit.job_title||null,employment_status:staffEdit.employment_status||"active",start_date:staffEdit.start_date||null,payroll_id:staffEdit.payroll_id||null,
-      force_password_reset:Boolean(staffEdit.force_password_reset),admin_notes:staffEdit.admin_notes||null
+      admin_notes:staffEdit.admin_notes||null
     };
     const{error}=await supabase.from("profiles").update(payload).eq("id",staffEdit.id);
     if(!error&&staffProfileFoundationAvailable){try{await saveCoachQualifications(staffEdit.id)}catch(qualificationError:any){setSaving(false);flash(qualificationError?.message||"Could not save coach qualifications.");return}}
@@ -2723,12 +2730,12 @@ export default function Dashboard({initialProfile,initialTab,initialMonth}:{init
       <div className="grid grid4"><StatCard label="Total hours" value={adminHours.toFixed(2)} foot={monthLabel(month)} icon={<ClockIcon/>}/><StatCard label="Estimated coach cost" value={money(adminRows.reduce((a,r)=>a+r.value,0))} foot="Hours × agreed rates" icon={<PoundIcon/>}/><StatCard label="Average hours" value={avg.toFixed(2)} foot="Per active coach" icon={<UsersIcon/>}/><StatCard label="Submission rate" value={adminRows.length?`${Math.round(submittedCount/adminRows.length*100)}%`:"0%"} foot={`${submittedCount} submitted`} icon={<CheckIcon/>}/></div>
       <div className="section"><div className="card"><div className="sectionHeader"><div><h2>Cost by coach</h2><p>Current selected month.</p></div></div><div className="mobileDataList">{[...adminRows].sort((a,b)=>b.value-a.value).map(r=><div className="mobileReportRow" key={r.coach.id}><strong>{r.coach.full_name}</strong><span>{r.hours.toFixed(2)}h</span><b>{money(r.value)}</b></div>)}</div><div className="tableWrap desktopDataTable"><table><thead><tr><th>Coach</th><th className="num">Hours</th><th className="num">Cost</th></tr></thead><tbody>{[...adminRows].sort((a,b)=>b.value-a.value).map(r=><tr key={r.coach.id}><td>{r.coach.full_name}</td><td className="num">{r.hours.toFixed(2)}</td><td className="num">{money(r.value)}</td></tr>)}</tbody></table></div></div></div>
       {isAdmin&&<div className="section"><button className="btn btnSecondary v504AccordionToggle" type="button" aria-expanded={auditOpen} onClick={()=>setAuditOpen(!auditOpen)}><span>{auditOpen?"Hide activity history":"View activity history"}</span><b aria-hidden="true">⌄</b></button>{auditOpen&&<div className="card" style={{marginTop:12}}><div className="activityList">{audits.slice(0,30).map(a=><div className="activityItem" key={a.id}><div className="activityIcon"><ClockIcon/></div><div><div className="activityText"><strong>{a.action.replaceAll("_"," ")}</strong> · {a.entity_type}</div><div className="activityTime">{fmtStamp(a.created_at)}</div></div></div>)}{!audits.length&&<div className="empty">No recorded activity yet.</div>}</div></div>}</div>}
-    {isPlatformAdmin&&<div className="section"><PageHead title="Launch tools" sub="Clear test data before real staff begin using the portal."/><div className="card dangerZone"><div className="formSection"><div className="formSectionTitle"><h3>System reset</h3><p>This is permanent. It keeps AV branding, Club settings and the Super Admin account you are currently using.</p></div><div className="resetSummary"><strong>Always cleared</strong><span>Scheduled sessions · classes · regular shift templates · shifts · timesheets · invoices · audit/test activity</span></div><label className="checkCard resetOption"><input type="checkbox" checked={resetRemoveStaff} onChange={e=>setResetRemoveStaff(e.target.checked)}/><span><strong>Also remove every other staff account</strong><small>Use this only when you want a completely clean launch. Your current Super Admin is protected.</small></span></label><div className="field"><label>Type RESET MY DATA to enable</label><input value={resetConfirm} onChange={e=>setResetConfirm(e.target.value)} placeholder="RESET MY DATA" autoComplete="off"/></div><button className="btn btnDanger" type="button" disabled={resetBusy||resetConfirm!=="RESET MY DATA"} onClick={runLaunchReset}>{resetBusy?"Resetting…":resetRemoveStaff?"Reset data & remove other staff":"Reset operational data"}</button></div></div></div>}
+    {isPlatformAdmin&&launchResetEnabled&&<div className="section"><PageHead title="Launch tools" sub="Clear test data before real staff begin using the portal."/><div className="card dangerZone"><div className="formSection"><div className="formSectionTitle"><h3>System reset</h3><p>This is permanent. It keeps AV branding, Club settings and the Super Admin account you are currently using.</p></div><div className="resetSummary"><strong>Always cleared</strong><span>Scheduled sessions · classes · regular shift templates · shifts · timesheets · invoices · audit/test activity</span></div><label className="checkCard resetOption"><input type="checkbox" checked={resetRemoveStaff} onChange={e=>setResetRemoveStaff(e.target.checked)}/><span><strong>Also remove every other staff account</strong><small>Use this only when you want a completely clean launch. Your current Super Admin is protected.</small></span></label><div className="field"><label>Type RESET MY DATA to enable</label><input value={resetConfirm} onChange={e=>setResetConfirm(e.target.value)} placeholder="RESET MY DATA" autoComplete="off"/></div><button className="btn btnDanger" type="button" disabled={resetBusy||resetConfirm!=="RESET MY DATA"} onClick={runLaunchReset}>{resetBusy?"Resetting…":resetRemoveStaff?"Reset data & remove other staff":"Reset operational data"}</button></div></div></div>}
     </>
   }
 
   async function runLaunchReset(){
-    if(!isPlatformAdmin){flash("Super Admin only.");return}
+    if(!isPlatformAdmin||!launchResetEnabled){flash("Feature disabled.");return}
     if(resetConfirm!=="RESET MY DATA"){flash('Type "RESET MY DATA" exactly before resetting.');return}
     const warning=resetRemoveStaff
       ?"This permanently clears all operational/test data AND deletes every other user account. Your current Super Admin and Club settings remain. Continue?"

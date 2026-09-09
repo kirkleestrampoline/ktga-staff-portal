@@ -1,3 +1,4 @@
+import { exactInsensitivePattern } from "./security/exact-match";
 export type PortalProfile={
   id:string;club_id:string|null;role:string;username:string|null;email:string|null;
   contact_email:string|null;auth_email:string|null;is_active:boolean;
@@ -15,11 +16,13 @@ export type PortalResolution=
 export async function resolvePortalAccount(admin:any,rawUsername:unknown,rawClubCode:unknown,options:{allowEmail?:boolean}={}):Promise<PortalResolution>{
   const username=String(rawUsername||"").trim().toLowerCase();
   const clubCode=String(rawClubCode||"").trim().toLowerCase();
-  if(!username)return{status:"not_found"};
+  const usernamePattern=exactInsensitivePattern(username);
+  const clubPattern=clubCode?exactInsensitivePattern(clubCode):null;
+  if(!usernamePattern||(clubCode&&!clubPattern))return{status:"not_found"};
 
   let club:{id:string;slug:string;active:boolean}|null=null;
   if(clubCode){
-    const{data:clubs,error}=await admin.from("clubs").select("id,slug,active").ilike("slug",clubCode).limit(2);
+    const{data:clubs,error}=await admin.from("clubs").select("id,slug,active").ilike("slug",clubPattern!).limit(2);
     if(error)return{status:"lookup_error",code:error.code};
     if(!clubs||clubs.length!==1||!clubs[0].active)return{status:"not_found"};
     club=clubs[0];
@@ -29,7 +32,7 @@ export async function resolvePortalAccount(admin:any,rawUsername:unknown,rawClub
   let profiles:PortalProfile[]=[];
   if(options.allowEmail&&username.includes("@")){
     const lookups=await Promise.all(["auth_email","contact_email","email"].map(async field=>{
-      let query=admin.from("profiles").select(fields).ilike(field,username).limit(2);
+      let query=admin.from("profiles").select(fields).ilike(field,usernamePattern).limit(2);
       if(club)query=query.eq("club_id",club.id);
       return query;
     }));
@@ -37,7 +40,7 @@ export async function resolvePortalAccount(admin:any,rawUsername:unknown,rawClub
     if(failed?.error)return{status:"lookup_error",code:failed.error.code};
     profiles=Array.from(new Map(lookups.flatMap(result=>result.data||[]).map(profile=>[profile.id,profile])).values()) as PortalProfile[];
   }else{
-    let query=admin.from("profiles").select(fields).ilike("username",username).limit(2);
+    let query=admin.from("profiles").select(fields).ilike("username",usernamePattern).limit(2);
     if(club)query=query.eq("club_id",club.id);
     const{data,error}=await query;
     if(error)return{status:"lookup_error",code:error.code};
