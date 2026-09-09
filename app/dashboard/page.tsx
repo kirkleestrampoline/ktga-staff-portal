@@ -28,6 +28,8 @@ export default async function DashboardPage({searchParams}:{searchParams:Promise
   const{data:club,error:clubError}=await supabase.from("clubs").select("active").eq("id",profile.club_id).maybeSingle();
   if(clubError||!club||club.active!==true)redirect("/suspended");
 
+  if(profile.role==="admin")redirect("/platform-admin");
+
   const params=await searchParams;
   const requestedTab=params.tab;
   const initialTab=dashboardTabForRole(Array.isArray(requestedTab)?requestedTab[0]:requestedTab,profile.role);

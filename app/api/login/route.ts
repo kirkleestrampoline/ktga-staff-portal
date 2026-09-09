@@ -1,3 +1,4 @@
+import { accountHome } from "@/lib/platform-navigation";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
@@ -43,5 +44,5 @@ export async function POST(req:NextRequest){
     return NextResponse.json({error:"Account configuration could not be verified"},{status:403});
   }
   await admin.from("profiles").update({last_login_at:new Date().toISOString()}).eq("id",profile.id);
-  return NextResponse.json({ok:true,force_password_reset:Boolean(profile.force_password_reset)});
+  return NextResponse.json({ok:true,redirect_to:accountHome(profile.role),force_password_reset:Boolean(profile.force_password_reset)});
 }

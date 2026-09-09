@@ -25,7 +25,7 @@ export default function LoginPage(){
     const body=await res.json();
     setBusy(false);
     if(!res.ok){setMessage(body.error||"Could not sign in.");return}
-    window.location.href=body.force_password_reset?"/set-password?mode=forced":"/dashboard";
+    window.location.href=body.force_password_reset?"/set-password?mode=forced":body.redirect_to==="/platform-admin"?"/platform-admin":"/dashboard";
   }
 
   async function requestRecovery(event:FormEvent){
