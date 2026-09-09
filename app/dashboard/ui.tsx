@@ -4,6 +4,7 @@ import { actualTimeRequest, approvalTimeRequest, canEditShift, type ActualTimes 
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import MembersView from "@/components/members/members-view";
 import Sidebar from "@/components/sidebar";
 import MobileNav from "@/components/mobile-nav";
 import StatCard from "@/components/stat-card";
@@ -2261,6 +2262,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
           {tab==="schedule"&&ScheduleView()}
           {tab==="leave"&&LeaveView()}
           {tab==="expenses"&&ExpensesView()}
+          {tab==="members"&&isAdmin&&<MembersView/>}
           {tab==="timesheets"&&TimesheetView()}
           {tab==="invoices"&&InvoicesView()}
           {tab==="staff"&&isAdmin&&StaffView()}

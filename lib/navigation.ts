@@ -6,7 +6,7 @@ export type NavigationGroup={id:"staff-module";label:string;icon:NavigationIcon;
 export type FutureModule={id:`module-${string}`;label:string;icon:NavigationIcon;description:string}&({enabled:false}|{enabled:true;destination:DashboardTab});
 export type NavigationItem=NavigationLink|NavigationGroup|FutureModule;
 export const futureModules:FutureModule[]=[
-  {id:"module-members",label:"Members",icon:"users",enabled:false,description:"Bring athletes, families and guardians together in one club membership workspace."},
+  {id:"module-members",label:"Members",icon:"users",enabled:true,destination:"members",description:"Bring athletes, families and guardians together in one club membership workspace."},
   {id:"module-classes",label:"Classes",icon:"calendar",enabled:false,description:"Organise programmes, classes and enrolments across your club."},
   {id:"module-schedule",label:"Schedule",icon:"calendar",enabled:false,description:"Plan club sessions and activities in one shared timetable."},
   {id:"module-progress",label:"Progress",icon:"chart",enabled:false,description:"Track athlete skills, achievements and development over time."},
@@ -37,7 +37,7 @@ export function navigationForRole(role:string):NavigationItem[]{
 }
 export function isNavigationGroup(item:NavigationItem):item is NavigationGroup{return "children" in item}
 export function navigationItemActive(item:NavigationItem,tab:DashboardTab):boolean{
-  return isNavigationGroup(item)?item.children.some(child=>child.id===tab):item.id===tab;
+  return isNavigationGroup(item)?item.children.some(child=>child.id===tab):isFutureModule(item)?item.enabled&&item.destination===tab:item.id===tab;
 }
 
 export function mobileNavigationForRole(role:string){
@@ -46,5 +46,9 @@ export function mobileNavigationForRole(role:string){
   const topLevel=items.filter(item=>!isFutureModule(item));
   // Staff have no Club Overview permission; retain their schedule as the first shortcut.
   const primary=topLevel[0]?.id==="staff-module"?[staff.children.find(item=>item.id==="schedule")!,...topLevel]:topLevel;
-  return {primary,menu:items.filter(item=>isNavigationGroup(item)||isFutureModule(item))};
+  const menu=items.filter(item=>isNavigationGroup(item)||isFutureModule(item));
+  const directStaff=menu.length===1&&menu[0].id==="staff-module";
+  const staffLabels:Partial<Record<DashboardTab,string>>={schedule:"My Schedule",availability:"Availability",leave:"Leave & Availability",timesheets:"My Timesheets",expenses:"My Expenses"};
+  const staffDestinations=staff.children.map(item=>directStaff?{...item,label:staffLabels[item.id]||item.label}:item);
+  return {primary,menu,directStaff,staffDestinations};
 }

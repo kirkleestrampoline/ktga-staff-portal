@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const load=require('./load-typescript.cjs')();
 const {navigationForRole,isFutureModule,futureModules,isNavigationGroup,navigationItemActive}=load('lib/navigation.ts');
 const {dashboardTabs,coachDashboardTabs,dashboardTabForRole}=load('types/navigation.ts');
-const links=items=>items.filter(item=>!isFutureModule(item)).flatMap(item=>isNavigationGroup(item)?item.children:[item]);
+const links=items=>items.flatMap(item=>isNavigationGroup(item)?item.children:isFutureModule(item)?item.enabled?[{id:item.destination}]:[]:[item]);
 for(const role of ['admin','club_owner','org_admin','coach','unknown'])test(`${role}: navigation preserves exactly the existing allowed destinations`,()=>{
  const items=navigationForRole(role),actual=links(items).map(item=>item.id);
  assert.deepEqual([...actual].sort(),[...(['admin','club_owner','org_admin'].includes(role)?dashboardTabs:coachDashboardTabs)].sort());
@@ -28,11 +28,11 @@ test('staff module is not a page destination; coach personal labels are retained
  assert.equal(items[0].children.find(item=>item.id==='invoices').label,'My Payslips');
 });
 
-test('future modules are disabled, described, and visible only to administrators',()=>{
+test('module availability and descriptions remain administrator-only',()=>{
  assert.equal(futureModules.length,6);
  for(const role of ['admin','club_owner','org_admin'])assert.deepEqual(navigationForRole(role).filter(isFutureModule),futureModules);
  for(const role of ['coach','unknown',''])assert.equal(navigationForRole(role).some(isFutureModule),false);
- for(const module of futureModules){assert.equal(module.enabled,false);assert.ok(module.description.length>20);assert.equal(navigationItemActive(module,'schedule'),false)}
+ for(const module of futureModules){assert.equal(module.enabled,module.id==='module-members');assert.ok(module.description.length>20);assert.equal(navigationItemActive(module,'schedule'),false)}
 });
 test('Staff Rota keeps the original schedule destination',()=>{
  assert.equal(navigationForRole('admin').find(isNavigationGroup).children.find(item=>item.label==='Staff Rota').id,'schedule');
@@ -48,4 +48,28 @@ test('mobile Menu is second and contains only permitted platform sections',()=>{
  assert.equal(staff.primary[1].id,'staff-module');
  assert.deepEqual(staff.menu.map(item=>item.label),['Staff']);
  assert.deepEqual(staff.primary.map(item=>item.id),['schedule','staff-module','profile']);
+});
+
+test('Members is one enabled section, never separate Families or Athletes modules',()=>{
+ const module=navigationForRole('club_owner').find(item=>item.id==='module-members');
+ assert.equal(module.enabled,true);assert.equal(module.destination,'members');
+ assert.equal(navigationItemActive(module,'members'),true);
+ assert.equal(dashboardTabForRole('members','coach'),'schedule');
+ assert.equal(navigationForRole('coach').some(item=>item.id==='module-members'),false);
+ assert.equal(navigationForRole('admin').some(item=>['Families','Athletes'].includes(item.label)),false);
+});
+test('staff mobile Menu opens only existing permitted destinations with personal labels',()=>{
+ const {mobileNavigationForRole}=load('lib/navigation.ts');
+ const mobile=mobileNavigationForRole('coach');
+ assert.equal(mobile.directStaff,true);
+ const desktop=navigationForRole('coach').find(isNavigationGroup).children;
+ assert.deepEqual(mobile.staffDestinations.map(item=>item.id),desktop.map(item=>item.id));
+ assert.deepEqual(mobile.staffDestinations.map(item=>item.label),['My Schedule','Leave & Availability','My Expenses','My Timesheets','My Payslips']);
+ assert.equal(mobile.staffDestinations.some(item=>['staff','workforce','availability'].includes(item.id)),false);
+ assert.equal(desktop.find(item=>item.id==='timesheets').label,'My Timesheet');
+ for(const role of ['admin','club_owner','org_admin']){
+  const admin=mobileNavigationForRole(role);
+  assert.equal(admin.directStaff,false);
+  assert.deepEqual(admin.staffDestinations,navigationForRole(role).find(isNavigationGroup).children);
+ }
 });

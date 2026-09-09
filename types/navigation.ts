@@ -1,4 +1,5 @@
 export type DashboardTab=
+  | "members"
   | "dashboard"
   | "availability"
   | "schedule"
@@ -12,7 +13,7 @@ export type DashboardTab=
   | "settings"
   | "profile";
 
-export const dashboardTabs:DashboardTab[]=["dashboard","availability","schedule","leave","staff","workforce","expenses","timesheets","invoices","reports","settings","profile"];
+export const dashboardTabs:DashboardTab[]=["members","dashboard","availability","schedule","leave","staff","workforce","expenses","timesheets","invoices","reports","settings","profile"];
 export const coachDashboardTabs:DashboardTab[]=["schedule","leave","expenses","timesheets","invoices","profile"];
 
 export function defaultDashboardTab(role:string):DashboardTab{
