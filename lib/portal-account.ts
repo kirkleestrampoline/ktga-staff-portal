@@ -1,3 +1,4 @@
+import { lookupDiagnostic, type LookupDiagnostic } from "./security/lookup-diagnostic";
 import { exactInsensitivePattern } from "./security/exact-match";
 export type PortalProfile={
   id:string;club_id:string|null;role:string;username:string|null;email:string|null;
@@ -9,7 +10,7 @@ export type PortalResolution=
   |{status:"found";profile:PortalProfile;club:{id:string;slug:string;active:boolean}}
   |{status:"ambiguous"}
   |{status:"not_found"}
-  |{status:"lookup_error";code?:string};
+  |{status:"lookup_error";code?:string;diagnostic:LookupDiagnostic};
 
 // This helper is server-only in practice: callers pass the service-role client.
 // Limit(2) is intentional; it detects ambiguity without returning account lists.
@@ -22,8 +23,8 @@ export async function resolvePortalAccount(admin:any,rawUsername:unknown,rawClub
 
   let club:{id:string;slug:string;active:boolean}|null=null;
   if(clubCode){
-    const{data:clubs,error}=await admin.from("clubs").select("id,slug,active").ilike("slug",clubPattern!).limit(2);
-    if(error)return{status:"lookup_error",code:error.code};
+    const{data:clubs,error,status}=await admin.from("clubs").select("id,slug,active").ilike("slug",clubPattern!).limit(2);
+    if(error)return{status:"lookup_error",code:error.code,diagnostic:lookupDiagnostic("club_code",error,status)};
     if(!clubs||clubs.length!==1||!clubs[0].active)return{status:"not_found"};
     club=clubs[0];
   }
@@ -37,13 +38,13 @@ export async function resolvePortalAccount(admin:any,rawUsername:unknown,rawClub
       return query;
     }));
     const failed=lookups.find(result=>result.error);
-    if(failed?.error)return{status:"lookup_error",code:failed.error.code};
+    if(failed?.error)return{status:"lookup_error",code:failed.error.code,diagnostic:lookupDiagnostic("profile_email",failed.error,failed.status)};
     profiles=Array.from(new Map(lookups.flatMap(result=>result.data||[]).map(profile=>[profile.id,profile])).values()) as PortalProfile[];
   }else{
     let query=admin.from("profiles").select(fields).ilike("username",usernamePattern).limit(2);
     if(club)query=query.eq("club_id",club.id);
-    const{data,error}=await query;
-    if(error)return{status:"lookup_error",code:error.code};
+    const{data,error,status}=await query;
+    if(error)return{status:"lookup_error",code:error.code,diagnostic:lookupDiagnostic("profile_username",error,status)};
     profiles=(data||[]) as PortalProfile[];
   }
   if(!profiles||profiles.length===0)return{status:"not_found"};
@@ -51,8 +52,8 @@ export async function resolvePortalAccount(admin:any,rawUsername:unknown,rawClub
 
   const profile=profiles[0] as PortalProfile;
   if(!club){
-    const{data:resolvedClub,error:clubError}=await admin.from("clubs").select("id,slug,active").eq("id",profile.club_id).maybeSingle();
-    if(clubError)return{status:"lookup_error",code:clubError.code};
+    const{data:resolvedClub,error:clubError,status}=await admin.from("clubs").select("id,slug,active").eq("id",profile.club_id).maybeSingle();
+    if(clubError)return{status:"lookup_error",code:clubError.code,diagnostic:lookupDiagnostic("profile_club",clubError,status)};
     if(!resolvedClub)return{status:"not_found"};
     club=resolvedClub;
   }

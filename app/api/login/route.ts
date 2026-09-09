@@ -1,3 +1,4 @@
+import { loginFetch } from "@/lib/security/lookup-diagnostic";
 import { accountHome } from "@/lib/platform-navigation";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
@@ -14,12 +15,12 @@ export async function POST(req:NextRequest){
   const url=process.env.NEXT_PUBLIC_SUPABASE_URL;
   const secret=process.env.SUPABASE_SECRET_KEY;
   if(!url||!secret)return NextResponse.json({error:"Server configuration is missing"},{status:500});
-  const admin=createAdminClient(url,secret,{auth:{autoRefreshToken:false,persistSession:false}});
+  const admin=createAdminClient(url,secret,{auth:{autoRefreshToken:false,persistSession:false},global:{fetch:loginFetch}});
 
   const resolution=await resolvePortalAccount(admin,identifier,clubCode,{allowEmail:true});
   if(resolution.status==="ambiguous")return NextResponse.json({error:"These login details are used by more than one club. Enter your club code to continue.",code:"CLUB_CODE_REQUIRED"},{status:409});
   if(resolution.status==="lookup_error"){
-    console.error("[login] account resolution failed",{code:resolution.code});
+    console.error("[login] account resolution failed",resolution.diagnostic);
     return NextResponse.json({error:"Sign-in is temporarily unavailable"},{status:503});
   }
   if(resolution.status!=="found")return NextResponse.json({error:"Invalid club code, username or password"},{status:401});
