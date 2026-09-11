@@ -4,6 +4,11 @@ import { actualTimeRequest, approvalTimeRequest, canEditShift, type ActualTimes 
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import {masterClassEligible} from "@/lib/classes/lifecycle";
+import MasterClassOverlay from "@/components/classes/master-class-overlay";
+import {captureClassReturnContext} from "@/lib/classes/console-context";
+import type {CalendarData as ClassCalendarData} from "@/lib/classes/model";
+import ClassesView from "@/components/classes/classes-view";
 import MembersView from "@/components/members/members-view";
 import Sidebar from "@/components/sidebar";
 import MobileNav from "@/components/mobile-nav";
@@ -36,9 +41,9 @@ type Business={id:number;business_name:string;business_address:string|null;payme
 type Club={id:string;name:string;short_name:string|null;logo_url:string|null;primary_colour:string;secondary_colour:string;email:string|null;telephone:string|null;website:string|null;address:string|null;bank_details:string|null;payroll_month:number;mileage_rate:number;timezone:string;currency:string;active:boolean};
 type AdminRow={coach:Profile;hours:number;value:number;timesheet:Timesheet|null;invoice:Invoice|null};
 type Audit={id:string;actor_id:string|null;subject_id:string|null;action:string;entity_type:string;entity_id:string|null;details:any;created_at:string};
-type ClassTemplate={id:string;class_profile_id:string;venue_id:string;name:string;programme?:string|null;minimum_age?:number|null;maximum_age?:number|null;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;active:boolean;notes:string|null;session_colour?:string;capacity?:number|null;warn_if_understaffed?:boolean;critical_if_no_lead?:boolean;allow_below_recommended_qualification?:boolean;lead_coaches_required?:number;assistant_coaches_required?:number;minimum_coaches?:number;maximum_coaches?:number;lead_recommended_qualification_id?:string|null;assistant_recommended_qualification_id?:string|null};
+type ClassTemplate={profile_active?:boolean;start_date?:string|null;end_date?:string|null;effective_from?:string|null;effective_to?:string|null;publication_status?:"draft"|"published";id:string;class_profile_id:string;venue_id:string;name:string;programme?:string|null;minimum_age?:number|null;maximum_age?:number|null;weekday:number;start_time:string;finish_time:string;break_minutes:number;coaches_required:number;active:boolean;notes:string|null;session_colour?:string;capacity?:number|null;warn_if_understaffed?:boolean;critical_if_no_lead?:boolean;allow_below_recommended_qualification?:boolean;lead_coaches_required?:number;assistant_coaches_required?:number;minimum_coaches?:number;maximum_coaches?:number;lead_recommended_qualification_id?:string|null;assistant_recommended_qualification_id?:string|null};
 type ClassProfile=Omit<ClassTemplate,"id"|"class_profile_id"|"venue_id"|"weekday"|"start_time"|"finish_time"|"break_minutes"|"coaches_required"|"notes">&{id:string};
-type ClassStaffingSlot={id:string;class_id:string;slot_number:number;default_profile_id:string|null};
+type ClassStaffingSlot={active?:boolean;id:string;class_id:string;slot_number:number;default_profile_id:string|null};
 type QualificationType={id:string;name:string;description:string|null;active:boolean;qualification_family:string|null;qualification_level:number|null};
 type CoachQualification={id:string;coach_id:string;qualification_id:string;awarded_date:string|null;expiry_date:string|null;notes:string|null};
 type EmploymentRecord={id:string;profile_id:string;organisation_id:string;employment_type:"hourly"|"salaried"|"volunteer";standard_rate:number;enhanced_rate:number;annual_salary:number|null;contracted_weekly_hours:number|null;working_weeks_per_year:number|null;calculated_internal_hourly_rate:number|null;can_volunteer:boolean;invoice_required:boolean;effective_from:string;effective_to:string|null;active:boolean;created_at:string;updated_at:string};
@@ -157,7 +162,8 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
   const [managedVenueIds,setManagedVenueIds]=useState<string[]>([]);
   const [classes,setClasses]=useState<ClassTemplate[]>([]);
   const [archivedClasses,setArchivedClasses]=useState<ClassTemplate[]>([]);
-  const [showArchivedClasses,setShowArchivedClasses]=useState(false);
+  const [masterClassConsole,setMasterClassConsole]=useState<{profileId:string;restore:()=>void}|null>(null);
+  const [classesRequestedId,setClassesRequestedId]=useState<string|null>(null);
   const [includeArchivedClassCopies,setIncludeArchivedClassCopies]=useState(false);
   const [classActionsOpen,setClassActionsOpen]=useState<string|null>(null);
   const [classSlots,setClassSlots]=useState<ClassStaffingSlot[]>([]);
@@ -677,8 +683,8 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
   function hydrateClassSessions(rows:any[],profiles:ClassProfile[]):ClassTemplate[]{
     return rows.map(row=>{
       const profile=profiles.find(item=>item.id===row.class_profile_id);
-      if(!profile)return row as ClassTemplate;
-      return{...row,...profile,id:row.id,class_profile_id:row.class_profile_id,venue_id:row.venue_id,weekday:row.weekday,start_time:row.start_time,finish_time:row.finish_time,break_minutes:row.break_minutes,notes:row.notes,active:Boolean(row.active&&profile.active)} as ClassTemplate;
+      if(!profile)return {...row,active:false,profile_active:false} as ClassTemplate;
+      return{...row,...profile,id:row.id,class_profile_id:row.class_profile_id,venue_id:row.venue_id,weekday:row.weekday,start_time:row.start_time,finish_time:row.finish_time,break_minutes:row.break_minutes,notes:row.notes,profile_active:profile.active,active:Boolean(row.active&&profile.active&&profile.publication_status==="published")} as ClassTemplate;
     });
   }
   function selectableQualifications(selectedId?:string){return sortedQualifications(qualificationTypes.filter(q=>q.active||q.id===selectedId))}
@@ -1457,8 +1463,8 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
     if(slotsError)throw slotsError;
     if(scheduleError)throw scheduleError;
     if(!scheduleRequestIsCurrent(requestId,requestedMonth,"overview",ss?.length||0))return;
-    setClasses(hydrateClassSessions(c||[],(profiles||[]) as ClassProfile[]));
-    setClassSlots((slots||[]) as ClassStaffingSlot[]);
+    setClasses(hydrateClassSessions(c||[],(profiles||[]) as ClassProfile[]).filter(item=>item.active));
+    setClassSlots((slots||[]).filter((slot:any)=>slot.active!==false) as ClassStaffingSlot[]);
     setScheduledShifts((ss||[]) as ScheduledShift[]);
   }
 
@@ -1491,8 +1497,8 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
     if(!scheduleRequestIsCurrent(requestId,requestedMonth,"schedule",ss?.length||0))return;
     const hydratedClasses=hydrateClassSessions(c||[],(profiles||[]) as ClassProfile[]);
     setClasses(hydratedClasses.filter(item=>item.active));
-    setArchivedClasses(hydratedClasses.filter(item=>!item.active&&(profiles||[]).some(profile=>profile.id===item.class_profile_id&&profile.active===false)));
-    setClassSlots((slots||[]) as ClassStaffingSlot[]);
+    setArchivedClasses(hydratedClasses.filter(item=>!item.active&&(profiles||[]).some(profile=>profile.id===item.class_profile_id&&profile.active===false&&profile.publication_status!=="draft")));
+    setClassSlots((slots||[]).filter((slot:any)=>slot.active!==false) as ClassStaffingSlot[]);
     setScheduledShifts((ss||[]) as ScheduledShift[]);
     setRemovedOccurrences((removed||[]) as RemovedOccurrence[]);
     const classColumnsReady=!(c||[]).length||Object.prototype.hasOwnProperty.call((c||[])[0],"lead_coaches_required");
@@ -1508,7 +1514,17 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
     return{key:crypto.randomUUID(),venue_id:venueId,weekday,start_time:"16:30",finish_time:"18:00",break_minutes:0,coaches_required:1,coach_ids:[],payment_types:[],notes:"",lead_coaches_required:1,assistant_coaches_required:0,minimum_coaches:1,maximum_coaches:1,lead_recommended_qualification_id:"",assistant_recommended_qualification_id:""};
   }
 
-  function openNewClass(defaultDay=1){
+  function openNewClass(_day?:number){setClassesRequestedId(null);setMasterTimetableOpen(false);setTab("classes")}
+  function openEditClass(c:ClassTemplate,trigger:HTMLElement){
+    if(!c.class_profile_id)return;
+    setMasterClassConsole({profileId:c.class_profile_id,restore:captureClassReturnContext(trigger)});
+  }
+  function refreshMasterClassData(data:ClassCalendarData){
+    setClasses(hydrateClassSessions(data.sessions as ClassTemplate[],data.profiles as unknown as ClassProfile[]).filter(item=>item.active));
+    setClassSlots(data.slots.filter(slot=>slot.active).map(slot=>({...slot,default_payment_type:slot.payment_type})) as unknown as ClassStaffingSlot[]);
+    flash("Class saved. Existing staff assignments are unchanged.");
+  }
+  function legacyOpenNewClass(defaultDay=1){
     const av=adminVenues();
     const occurrence=blankClassOccurrence(defaultDay,av[0]?.id||"");
     setClassModal({
@@ -1567,7 +1583,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
     await Promise.all([loadSchedule(),loadAdmin(false)]);
   }
 
-  function openEditClass(c:ClassTemplate){
+  function legacyOpenEditClass(c:ClassTemplate){
     // A Class Profile owns every linked recurring session.
     const group=[...classes,...archivedClasses]
       .filter(x=>c.class_profile_id?x.class_profile_id===c.class_profile_id:x.venue_id===c.venue_id&&x.name===c.name)
@@ -1763,13 +1779,13 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
 
       for(let i=0;i<required;i++){
         const slotNumber=i+1;
-        const default_profile_id=occurrence.coach_ids[i]||null;
         const existing=existingSlots.find(x=>x.slot_number===slotNumber);
+        const default_profile_id=occurrence.coach_ids[i]||(existing?.active===false?existing.default_profile_id:null);
 
         if(existing){
           const{error}=await supabase
             .from("class_staffing_slots")
-            .update({default_profile_id})
+            .update({default_profile_id,active:true})
             .eq("id",existing.id);
           if(error){setSaving(false);flash(error.message);return}
           savedSlots.push({...existing,default_profile_id});
@@ -1777,7 +1793,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
           const{data:newSlot,error}=await supabase.from("class_staffing_slots").insert({
             class_id:classId,
             slot_number:slotNumber,
-            default_profile_id
+            default_profile_id,active:true
           }).select("id,class_id,slot_number,default_profile_id").single();
           if(error){setSaving(false);flash(error.message);return}
           savedSlots.push(newSlot as ClassStaffingSlot);
@@ -1788,20 +1804,25 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
       if(excess.length){
         const{error}=await supabase
           .from("class_staffing_slots")
-          .delete()
+          .update({active:false})
           .in("id",excess.map(x=>x.id));
         if(error){setSaving(false);flash(error.message);return}
       }
 
       // Existing master occurrences may already have generated schedule rows.
       // New occurrences do not, so do not let schedule-sync interrupt multi-day creation.
+      const previousClass=classes.find(item=>item.id===classId);
+      const scheduleChanged=Boolean(previousClass&&(previousClass.weekday!==Number(occurrence.weekday)||previousClass.start_time.slice(0,5)!==occurrence.start_time.slice(0,5)||previousClass.finish_time.slice(0,5)!==occurrence.finish_time.slice(0,5)||previousClass.venue_id!==occurrence.venue_id||previousClass.break_minutes!==Number(occurrence.break_minutes||0)||previousClass.name!==profilePayload.name||existingSlots.some(slot=>slot.active!==false&&slot.slot_number<=required&&slot.default_profile_id!==(occurrence.coach_ids[slot.slot_number-1]||null))));
       if(occurrence.id){
-        const{error:syncError}=await supabase.rpc("sync_class_schedule",{p_class_id:classId});
-        if(syncError){setSaving(false);flash(syncError.message);return}
-        for(let i=0;i<savedSlots.length;i++){
+        if(scheduleChanged){
+          const{error:syncError}=await supabase.rpc("sync_class_schedule",{p_class_id:classId});
+          if(syncError){setSaving(false);flash(syncError.message);return}
+        }
+        const requirementsChanged=existingSlots.filter(slot=>slot.active!==false).length!==required;
+        for(let i=0;i<savedSlots.length&&(!requirementsChanged||scheduleChanged);i++){
           const defaultProfileId=occurrence.coach_ids[i]||null;
           if(!defaultProfileId)continue;
-          const{error:paymentError}=await supabase.from("scheduled_shifts").update({payment_type:occurrence.payment_types[i]||"standard",updated_at:new Date().toISOString()}).eq("staffing_slot_id",savedSlots[i].id).eq("profile_id",defaultProfileId).eq("status","scheduled");
+          const{error:paymentError}=await supabase.from("scheduled_shifts").update({payment_type:occurrence.payment_types[i]||"standard",updated_at:new Date().toISOString()}).eq("staffing_slot_id",savedSlots[i].id).eq("profile_id",defaultProfileId).eq("status","scheduled").neq("payment_type",occurrence.payment_types[i]||"standard");
           if(paymentError){setSaving(false);flash(paymentError.message);return}
         }
       }
@@ -1822,7 +1843,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
     setClassModal(null);
     flash(classModal.id
       ?`${classModal.name} master timetable updated.`
-      :`${classModal.name} added across ${occurrences.length} weekly session${occurrences.length===1?"":"s"}.`
+      :`${classModal.name} saved as Draft. Open Classes to review and explicitly publish to Master Timetable.`
     );
     await loadSchedule();
   }
@@ -1850,14 +1871,8 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
     if(!error){setClassActionsOpen(null);setClassModal(null);await loadSchedule()}
   }
 
-  function ClassMoreActions({classItem}:{classItem:ClassTemplate}){
-    const actionKey=classItem.class_profile_id||classItem.id;
-    const isOpen=classActionsOpen===actionKey;
-    return <div className="v313MoreWrap" onClick={event=>event.stopPropagation()}>
-      <button className="btn btnSecondary" type="button" aria-haspopup="menu" aria-expanded={isOpen} onClick={()=>setClassActionsOpen(isOpen?null:actionKey)}>More Actions <span className="v313Chevron">⌄</span></button>
-      {isOpen&&<><button className="v313MenuScrim" type="button" aria-label="Close class actions" onClick={()=>setClassActionsOpen(null)}/><div className="v313MoreMenu" role="menu"><button type="button" onClick={()=>{setClassActionsOpen(null);duplicateClassGroup(classItem)}}>Duplicate Class</button>{classItem.active?<button type="button" onClick={()=>{setClassActionsOpen(null);void archiveClass(classItem)}}>Archive Class</button>:<button type="button" onClick={()=>{setClassActionsOpen(null);void restoreClass(classItem)}}>Restore Class</button>}<div className="v313MenuDivider"/><button className="danger" type="button" onClick={()=>void permanentlyDeleteClass(classItem)}>Delete Class</button></div></>}
-    </div>;
-  }
+  function ClassMoreActions({classItem}:{classItem:ClassTemplate}){return <button type="button" className="btn btnSecondary" onClick={e=>{e.stopPropagation();openEditClass(classItem,e.currentTarget)}}>Manage class</button>}
+
 
   async function generateSchedule(){
     const{data,error}=await supabase.rpc("generate_schedule_month",{p_month_start:`${month}-01`});
@@ -2263,6 +2278,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
           {tab==="leave"&&LeaveView()}
           {tab==="expenses"&&ExpensesView()}
           {tab==="members"&&isAdmin&&<MembersView/>}
+          {tab==="classes"&&isAdmin&&<ClassesView initialProfileId={classesRequestedId} onOpened={()=>setClassesRequestedId(null)}/>}
           {tab==="timesheets"&&TimesheetView()}
           {tab==="invoices"&&InvoicesView()}
           {tab==="staff"&&isAdmin&&StaffView()}
@@ -2282,6 +2298,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
     {staffEdit&&StaffModal()}
     {templateOpen&&TemplateModal()}
     {masterTimetableOpen&&MasterTimetablePanel()}
+    {masterClassConsole&&<MasterClassOverlay profileId={masterClassConsole.profileId} canEdit={isAdmin} restore={masterClassConsole.restore} onClose={()=>setMasterClassConsole(null)} onSaved={refreshMasterClassData} onOpenInClasses={()=>{setClassesRequestedId(masterClassConsole.profileId);setMasterClassConsole(null);setMasterTimetableOpen(false);setTab("classes")}}/>}
     {classModal&&ClassModal()}
     {oneOffShiftModal&&OneOffShiftModal()}
     {adminScheduleShift&&AdminScheduleShiftModal()}
@@ -2361,7 +2378,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
 
   function ScheduleView(){
     const dayNames=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-    const masterTimetableClasses=showArchivedClasses?[...classes,...archivedClasses]:classes;
+    const masterTimetableClasses=classes.filter(c=>masterClassEligible(c,adminScheduleDate.startsWith(month)?adminScheduleDate:`${month}-01`)&&venues.some(v=>v.id===c.venue_id&&v.active)&&classSlots.some(slot=>slot.class_id===c.id&&slot.active!==false));
     const rotaCoachId=initialProfile.id;
     const adminSelected=new Date(`${adminScheduleDate}T12:00:00`);
     const adminWeekStart=new Date(adminSelected);adminWeekStart.setDate(adminSelected.getDate()-((adminSelected.getDay()+6)%7));
@@ -2471,7 +2488,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
       <div className="grid grid4 scheduleSummary"><StatCard label="Normal monthly cost" value={money(normalCost)} foot="Regular timetable" icon={<PoundIcon/>}/><StatCard label="Current forecast" value={money(forecastCost)} foot={`${plannedSchedule.length} scheduled staffing shifts`} icon={<CalendarIcon/>}/><StatCard label="Actual cost so far" value={money(actualScheduleCost)} foot={`${money(actualScheduleCost-forecastCost)} vs forecast`} icon={<CheckIcon/>}/><StatCard label="Unassigned shifts" value={String(unassignedScheduleCount)} foot={unassignedScheduleCount?"Needs a coach":"Fully staffed"} icon={<UsersIcon/>}/></div>
       {pendingAdditionalCount>0&&<div className="v311ApprovalBanner"><div className="v311ApprovalIcon"><ClockIcon/></div><div><strong>{pendingAdditionalCount} additional work {pendingAdditionalCount===1?"request":"requests"} awaiting approval</strong><span>These were recorded by staff outside their rota. Review them below in the schedule.</span></div><span className="v311ApprovalCount">{pendingAdditionalCount}</span></div>}
       <div className="card v510MasterLauncher section"><div className="v510MasterLauncherIcon"><CalendarIcon/></div><div><h2>Weekly Master Timetable</h2><p>Configure recurring weekly classes.</p></div><button className="btn btnSecondary" type="button" onClick={()=>{setMasterTimetableDay(null);setMasterTimetableOpen(true)}}>Master TT</button></div>
-      <div className="grid scheduleAdminGrid section"><div className="card v436MasterTimetableCard"><div className="sectionHeader"><div><h2>Weekly master timetable</h2><p>Sunday–Saturday. Add as many different classes as you need on the same day or at the same time.</p></div><div className="row"><label className="v12ArchiveToggle"><input type="checkbox" checked={showArchivedClasses} onChange={event=>setShowArchivedClasses(event.target.checked)}/> Show Archived Classes</label><button className="btn btnSecondary" onClick={()=>openNewClass()}><PlusIcon/>Create Class</button></div></div><div className="masterTimetable">{[1,2,3,4,5,6,0].map(day=>{const dayClasses=masterTimetableClasses.filter(c=>(!scheduleFilter||c.venue_id===scheduleFilter)&&c.weekday===day).sort((a,b)=>a.start_time.localeCompare(b.start_time)||a.name.localeCompare(b.name)),expanded=!!masterDaysExpanded[day],dayHours=dayClasses.reduce((total,c)=>total+classTemplateHours(c),0);return <div className={`masterDay ${expanded?"expanded":"collapsed"}`} key={day}><div className="masterDayHead"><button className="v436MasterDayToggle" type="button" aria-expanded={expanded} onClick={()=>setMasterDaysExpanded(current=>({...current,[day]:!current[day]}))}><strong>{dayNames[day]}</strong><span>{dayClasses.length} {dayClasses.length===1?"class":"classes"} · {dayHours.toFixed(2)}h</span><b aria-hidden="true">⌄</b></button><button className="btn btnSecondary v501DesktopDayAdd" type="button" onClick={()=>openNewClass(day)}><PlusIcon/>Create Class</button></div><div className="masterDayClasses"><button className="btn btnPrimary v501MobileDayAdd" type="button" onClick={()=>openNewClass(day)}><PlusIcon/>Create Class</button>{dayClasses.map(c=>{const slots=classSlots.filter(x=>x.class_id===c.id).sort((a,b)=>a.slot_number-b.slot_number),fullyAssigned=slots.length>0&&slots.every(x=>Boolean(x.default_profile_id));return <div style={{"--org-colour":c.session_colour||"#6D3A91"} as React.CSSProperties} className={`masterClassRow masterClassClickable ${venueColourClass(c.venue_id)} ${fullyAssigned?"assigned":"unassigned"} ${c.active?"":"v12ArchivedClass"}`} key={c.id} role="button" tabIndex={0} onClick={()=>openEditClass(c)} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openEditClass(c)}}}><div className="masterTime">{c.start_time.slice(0,5)}–{c.finish_time.slice(0,5)}</div><div className="masterClassInfo"><strong>{c.name}{!c.active&&<span className="v12ArchivedBadge">Archived</span>}</strong><span className="v504DesktopClassContext">{c.start_time.slice(0,5)}–{c.finish_time.slice(0,5)}</span><small>{slots.map(x=>profileById(x.default_profile_id)?.full_name||"Unassigned").join(" · ")}</small><em>Click to edit</em></div><div className="masterClassActions"><button className="btn btnPrimary" type="button" onClick={e=>{e.stopPropagation();openEditClass(c)}}>Edit</button><ClassMoreActions classItem={c}/></div></div>})}{!dayClasses.length&&<div className="masterEmpty">No regular classes</div>}</div></div>})}</div></div>
+      <div className="grid scheduleAdminGrid section"><div className="card v436MasterTimetableCard"><div className="sectionHeader"><div><h2>Weekly master timetable</h2><p>Sunday–Saturday. Add as many different classes as you need on the same day or at the same time.</p></div><div className="row"><button className="btn btnSecondary" onClick={()=>{setMasterTimetableOpen(false);setTab("classes")}}>Manage class library</button><button className="btn btnSecondary" onClick={()=>openNewClass()}><PlusIcon/>Create Class</button></div></div><div className="masterTimetable">{[1,2,3,4,5,6,0].map(day=>{const dayClasses=masterTimetableClasses.filter(c=>(!scheduleFilter||c.venue_id===scheduleFilter)&&c.weekday===day).sort((a,b)=>a.start_time.localeCompare(b.start_time)||a.name.localeCompare(b.name)),expanded=!!masterDaysExpanded[day],dayHours=dayClasses.reduce((total,c)=>total+classTemplateHours(c),0);return <div className={`masterDay ${expanded?"expanded":"collapsed"}`} key={day}><div className="masterDayHead"><button className="v436MasterDayToggle" type="button" aria-expanded={expanded} onClick={()=>setMasterDaysExpanded(current=>({...current,[day]:!current[day]}))}><strong>{dayNames[day]}</strong><span>{dayClasses.length} {dayClasses.length===1?"class":"classes"} · {dayHours.toFixed(2)}h</span><b aria-hidden="true">⌄</b></button><button className="btn btnSecondary v501DesktopDayAdd" type="button" onClick={()=>openNewClass(day)}><PlusIcon/>Create Class</button></div><div className="masterDayClasses"><button className="btn btnPrimary v501MobileDayAdd" type="button" onClick={()=>openNewClass(day)}><PlusIcon/>Create Class</button>{dayClasses.map(c=>{const slots=classSlots.filter(x=>x.class_id===c.id).sort((a,b)=>a.slot_number-b.slot_number),fullyAssigned=slots.length>0&&slots.every(x=>Boolean(x.default_profile_id));return <div style={{"--org-colour":c.session_colour||"#6D3A91"} as React.CSSProperties} className={`masterClassRow masterClassClickable ${venueColourClass(c.venue_id)} ${fullyAssigned?"assigned":"unassigned"} ${c.active?"":"v12ArchivedClass"}`} key={c.id} role="button" tabIndex={0} onClick={e=>openEditClass(c,e.currentTarget)} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openEditClass(c,e.currentTarget)}}}><div className="masterTime">{c.start_time.slice(0,5)}–{c.finish_time.slice(0,5)}</div><div className="masterClassInfo"><strong>{c.name}{!c.active&&<span className="v12ArchivedBadge">Archived</span>}</strong><span className="v504DesktopClassContext">{c.start_time.slice(0,5)}–{c.finish_time.slice(0,5)}</span><small>{slots.map(x=>profileById(x.default_profile_id)?.full_name||"Unassigned").join(" · ")}</small><em>Click to edit</em></div><div className="masterClassActions"><button className="btn btnPrimary" type="button" onClick={e=>{e.stopPropagation();openEditClass(c,e.currentTarget)}}>Edit</button>{ClassMoreActions({classItem:c})}</div></div>})}{!dayClasses.length&&<div className="masterEmpty">No regular classes</div>}</div></div>})}</div></div>
       <div className="card v436StaffingCard"><div className="sectionHeader"><div><h2>{monthLabel(month)} staffing</h2><p>Drag one staffing card onto another to swap coach assignments. Use Agenda for detailed editing.</p></div><div className="scheduleLegend"><span>Forecast {money(forecastCost)}</span><span>Confirmed {money(confirmedScheduleCost)}</span></div></div>
       <div className="v514MobileStaffingControls"><div className="v514StickyControls"><div className="v503RangeTabs">{(["day","week","month"] as const).map(view=><button type="button" className={adminScheduleRange===view?"active":""} key={view} onClick={()=>setAdminScheduleRange(view)}>{view[0].toUpperCase()+view.slice(1)}</button>)}</div><div className="v503RangeNav"><button type="button" aria-label={`Previous ${adminScheduleRange}`} onClick={()=>moveAdminRange(-1)}>←</button><strong>{adminScheduleRange==="month"?monthLabel(month):adminScheduleRange==="day"?new Date(`${adminBounds.from}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"}):`${new Date(`${adminBounds.from}T12:00:00`).toLocaleDateString("en-GB",{day:"numeric",month:"short"})} – ${new Date(`${adminBounds.to}T12:00:00`).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}`}</strong><button type="button" aria-label={`Next ${adminScheduleRange}`} onClick={()=>moveAdminRange(1)}>→</button></div></div><div className="v515FilterRow"><div className="v514ViewToggle"><button className={`btn ${scheduleView==="calendar"?"btnPrimary":"btnSecondary"}`} onClick={()=>setScheduleView("calendar")}>Calendar</button><button className={`btn ${scheduleView==="agenda"?"btnPrimary":"btnSecondary"}`} onClick={()=>setScheduleView("agenda")}>Agenda</button></div></div><div className="v514StaffingActions"><button className="btn btnAccent" type="button" onClick={openOneOffShift}><PlusIcon/>Shift</button><button className="btn btnSecondary" type="button" onClick={()=>{setMasterTimetableDay(null);setMasterTimetableOpen(true)}}>Master TT</button><div className="v313MoreWrap"><button className="btn btnSecondary" type="button" onClick={()=>setMonthActionsOpen(!monthActionsOpen)}>More <span className="v313Chevron">⌄</span></button>{monthActionsOpen&&<><button className="v313MenuScrim" aria-label="Close month actions" onClick={()=>setMonthActionsOpen(false)}/><div className="v313MoreMenu"><button type="button" onClick={()=>{setMonthActionsOpen(false);void generateSchedule()}}>Load shifts</button><button type="button" onClick={()=>{setMonthActionsOpen(false);void clonePreviousScheduleMonth()}}>Duplicate previous month</button><button type="button" onClick={()=>{setMonthActionsOpen(false);void copyScheduleWeek()}}>Copy a week</button><div className="v313MenuDivider"/><button type="button" className="danger" onClick={()=>{setMonthActionsOpen(false);void clearScheduleMonth()}}>Clear this month</button></div></>}</div></div></div>
       {scheduleView==="calendar"?<div className={`staffingBoard v503Range-${adminScheduleRange}`}>{(()=>{
@@ -3018,7 +3035,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
 
   function MasterTimetablePanel(){
     const panelDayNames=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-    const masterTimetableClasses=showArchivedClasses?[...classes,...archivedClasses]:classes;
+    const masterTimetableClasses=classes.filter(c=>masterClassEligible(c,adminScheduleDate.startsWith(month)?adminScheduleDate:`${month}-01`)&&venues.some(v=>v.id===c.venue_id&&v.active)&&classSlots.some(slot=>slot.class_id===c.id&&slot.active!==false));
     const closePanel=()=>{setMasterTimetableOpen(false);setMasterTimetableDay(null)};
     return <div className="v510MasterOverlay" role="presentation">
       <aside className="v510MasterPanel" role="dialog" aria-modal="true" aria-labelledby="master-timetable-title">
@@ -3026,7 +3043,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
           onTouchStart={e=>{masterTimetableTouchY.current=e.touches[0]?.clientY??null}}
           onTouchCancel={()=>{masterTimetableTouchY.current=null}}
           onTouchEnd={e=>{const start=masterTimetableTouchY.current,end=e.changedTouches[0]?.clientY;masterTimetableTouchY.current=null;if(start!==null&&end!==undefined&&end-start>90)closePanel()}}><span/></div>
-        <header className="v510MasterPanelHead"><div><span>Schedule configuration</span><h2 id="master-timetable-title">Weekly Master Timetable</h2><p>Configure recurring weekly classes.</p></div><div className="v12MasterHeadActions"><label className="v12ArchiveToggle"><input type="checkbox" checked={showArchivedClasses} onChange={event=>setShowArchivedClasses(event.target.checked)}/> Show Archived Classes</label><div className="row"><button className="btn btnPrimary" type="button" onClick={()=>openNewClass(masterTimetableDay??1)}><PlusIcon/>Create Class</button><button className="iconButton" type="button" aria-label="Close master timetable" onClick={closePanel}>×</button></div></div></header>
+        <header className="v510MasterPanelHead"><div><span>Schedule configuration</span><h2 id="master-timetable-title">Weekly Master Timetable</h2><p>Configure recurring weekly classes.</p></div><div className="v12MasterHeadActions"><button className="btn btnSecondary" onClick={()=>{setMasterTimetableOpen(false);setTab("classes")}}>Manage class library</button><div className="row"><button className="btn btnPrimary" type="button" onClick={()=>openNewClass(masterTimetableDay??1)}><PlusIcon/>Create Class</button><button className="iconButton" type="button" aria-label="Close master timetable" onClick={closePanel}>×</button></div></div></header>
         <div className="v510MasterPanelBody">
           {[1,2,3,4,5,6,0].map(day=>{
             const dayClasses=masterTimetableClasses.filter(c=>(!scheduleFilter||c.venue_id===scheduleFilter)&&c.weekday===day).sort((a,b)=>a.start_time.localeCompare(b.start_time)||a.name.localeCompare(b.name));
@@ -3035,7 +3052,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
             return <section className={`v510MasterDay ${expanded?"expanded":""}`} key={day}>
               <button className="v510MasterDayHead" type="button" aria-expanded={expanded} onClick={()=>setMasterTimetableDay(expanded?null:day)}><span><strong>{panelDayNames[day]}</strong><small>{dayClasses.length} {dayClasses.length===1?"class":"classes"} • {hours.toFixed(2)}h</small></span><b aria-hidden="true">⌄</b></button>
               {expanded&&<div className="v510MasterDayContent"><button className="btn btnPrimary v510AddClass" type="button" onClick={()=>openNewClass(day)}><PlusIcon/>Create Class</button>
-                {dayClasses.map(c=>{const slots=classSlots.filter(x=>x.class_id===c.id).sort((a,b)=>a.slot_number-b.slot_number);const assigned=slots.map(x=>profileById(x.default_profile_id)?.full_name).filter(Boolean);return <article className={`v510MasterClass ${c.active?"":"v12ArchivedClass"}`} style={{borderLeftColor:c.session_colour||"#6D3A91"}} key={c.id}><time>{c.start_time.slice(0,5)}–{c.finish_time.slice(0,5)}</time><h3>{c.name}{!c.active&&<span className="v12ArchivedBadge">Archived</span>}</h3><div className={assigned.length?"assigned":"unassigned"}><small>Assigned</small><strong>{assigned.length?assigned.join(" · "):"Unassigned"}</strong></div><div className="v12ClassCardActions"><button className="btn btnPrimary" type="button" onClick={()=>openEditClass(c)}>Edit</button><ClassMoreActions classItem={c}/></div></article>})}
+                {dayClasses.map(c=>{const slots=classSlots.filter(x=>x.class_id===c.id).sort((a,b)=>a.slot_number-b.slot_number);const assigned=slots.map(x=>profileById(x.default_profile_id)?.full_name).filter(Boolean);return <article className={`v510MasterClass ${c.active?"":"v12ArchivedClass"}`} style={{borderLeftColor:c.session_colour||"#6D3A91"}} key={c.id} role="button" tabIndex={0} onClick={e=>{if(!(e.target as HTMLElement).closest('button'))openEditClass(c,e.currentTarget)}} onKeyDown={e=>{if(e.target===e.currentTarget&&(e.key==='Enter'||e.key===' ')){e.preventDefault();openEditClass(c,e.currentTarget)}}}><time>{c.start_time.slice(0,5)}–{c.finish_time.slice(0,5)}</time><h3>{c.name}{!c.active&&<span className="v12ArchivedBadge">Archived</span>}</h3><div className={assigned.length?"assigned":"unassigned"}><small>Assigned</small><strong>{assigned.length?assigned.join(" · "):"Unassigned"}</strong></div><div className="v12ClassCardActions"><button className="btn btnPrimary" type="button" onClick={e=>openEditClass(c,e.currentTarget)}>Edit</button>{ClassMoreActions({classItem:c})}</div></article>})}
                 {!dayClasses.length&&<div className="v510MasterEmpty"><strong>No regular classes</strong><span>Add the first recurring class for {panelDayNames[day]}.</span></div>}
               </div>}
             </section>;

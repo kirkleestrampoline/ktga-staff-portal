@@ -1,5 +1,6 @@
 "use client";
-import { useEffect,useRef,useState } from 'react';
+import {useMemberDialog} from './use-member-dialog';
+import { useRef,useState } from 'react';
 import { athleteError,contactError,creationError,journeys,journeyLabel,newAthlete,newContact,type Athlete,type AthleteDraft,type Contact,type ContactDraft,type Family,type FamilyDraft } from '@/lib/members/model';
 import type { MemberCommand,WriteResult } from '@/lib/members/management';
 export type EditorSpec={kind:'create'|'family'|'contact'|'athlete';family?:Family;record?:Contact|Athlete};
@@ -13,7 +14,7 @@ export default function MemberEditor({spec,onSave,onClose,onSaved}:{spec:EditorS
   return {...newContact(),...names(r),email:r?.email||'',phone:r?.phone||'',relationship:links[0]?.relationship||'parent',is_primary:r?spec.family?.primary_contact_id===r.id:spec.kind==='create',is_emergency:r?links.some(l=>l.is_emergency):true,athlete_ids:r?links.map(l=>l.athlete_id):spec.family?.athletes.filter(a=>a.status==='active').map(a=>a.id)||[]};
  });
  const [athletes,setAthletes]=useState<AthleteDraft[]>(()=>{const r=spec.kind==='athlete'?spec.record as Athlete:undefined;return [{...newAthlete(),...names(r),date_of_birth:r?.date_of_birth||'',gender:r?.gender||'',journey_status:r?.journey_status||'enquiry'}]});
- useEffect(()=>{const d=dialog.current!,trigger=document.activeElement as HTMLElement|null;d.showModal();return ()=>{d.close();trigger?.focus()}},[]);
+ useMemberDialog(dialog);
  function changed(){setWarnings([]);setAck(false);setError('')}
  function setC(next:ContactDraft){changed();setContact(next)}
  function setA(index:number,next:AthleteDraft){changed();setAthletes(current=>current.map((a,i)=>i===index?next:a))}

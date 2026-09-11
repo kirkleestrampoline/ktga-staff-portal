@@ -28,6 +28,6 @@ test('mobile danger modal opens natively, restores focus and refuses Escape whil
  let closed=0,opened=0,focused=0,cancelled=0;
  const element=Delete({family:{display_name:'Family',contacts:[],athletes:[]},onClose:()=>closed++,onDelete:async()=>{}});
  element.props.ref.current={showModal:()=>opened++,close:()=>closed++};
- const old=global.document;global.document={activeElement:{focus:()=>focused++}};
- try{const cleanup=effect();assert.equal(opened,1);element.props.onCancel({preventDefault:()=>cancelled++});assert.equal(cancelled,1);assert.equal(closed,0);cleanup();assert.equal(closed,1);assert.equal(focused,1)}finally{global.document=old}
+ const dom=require('./member-dialog-dom.cjs')();element.props.ref.current.style=dom.dialog.style;document.activeElement.focus=()=>focused++;
+ try{const cleanup=effect();assert.equal(opened,1);element.props.onCancel({preventDefault:()=>cancelled++});assert.equal(cancelled,1);assert.equal(closed,0);cleanup();assert.equal(closed,1);assert.equal(focused,1)}finally{dom.restore()}
 });

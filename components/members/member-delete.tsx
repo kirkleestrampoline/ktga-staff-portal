@@ -1,11 +1,12 @@
 "use client";
-import {useEffect,useRef,useState} from 'react';
+import {useMemberDialog} from './use-member-dialog';
+import {useRef,useState} from 'react';
 import type {Family,Athlete} from '@/lib/members/model';
 import {singleFlight} from '@/lib/members/single-flight';
 export default function MemberDelete({family,athlete,onClose,onDelete}:{family:Family;athlete?:Athlete;onClose:()=>void;onDelete:(name:string)=>Promise<void>}){
  const dialog=useRef<HTMLDialogElement>(null),run=useRef(singleFlight());const [name,setName]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const expected=athlete?.display_name||family.display_name;
- useEffect(()=>{const d=dialog.current!,trigger=document.activeElement as HTMLElement|null;d.showModal();return()=>{d.close();trigger?.focus()}},[]);
+ useMemberDialog(dialog);
  return <dialog ref={dialog} className="memberEditor memberDangerModal memberScheduleForm" aria-labelledby="member-delete-title" onCancel={e=>{e.preventDefault();if(!busy)onClose()}}>
  <div className="v311AdminShiftHero"><div><span>Permanent deletion</span><h2 id="member-delete-title">Delete {athlete?'athlete':'family'}?</h2></div><button className="iconButton" aria-label="Close deletion confirmation" disabled={busy} onClick={onClose}>×</button></div>
  <div className="memberEditorBody"><p><strong>{expected}</strong> will be permanently removed. This cannot be undone.</p>

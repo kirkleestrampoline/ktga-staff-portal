@@ -32,7 +32,7 @@ test('module availability and descriptions remain administrator-only',()=>{
  assert.equal(futureModules.length,6);
  for(const role of ['admin','club_owner','org_admin'])assert.deepEqual(navigationForRole(role).filter(isFutureModule),futureModules);
  for(const role of ['coach','unknown',''])assert.equal(navigationForRole(role).some(isFutureModule),false);
- for(const module of futureModules){assert.equal(module.enabled,module.id==='module-members');assert.ok(module.description.length>20);assert.equal(navigationItemActive(module,'schedule'),false)}
+ for(const module of futureModules){assert.equal(module.enabled,['module-members','module-classes'].includes(module.id));assert.ok(module.description.length>20);assert.equal(navigationItemActive(module,'schedule'),false)}
 });
 test('Staff Rota keeps the original schedule destination',()=>{
  assert.equal(navigationForRole('admin').find(isNavigationGroup).children.find(item=>item.label==='Staff Rota').id,'schedule');

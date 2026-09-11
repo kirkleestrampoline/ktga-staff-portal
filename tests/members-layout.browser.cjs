@@ -1,0 +1,23 @@
+// Local synthetic fixture only. Start headless Chrome with --remote-debugging-port=9333.
+const fs=require('node:fs'),assert=require('node:assert/strict'),ts=require('typescript'),React=require('react');
+const {renderToStaticMarkup}=require('react-dom/server'),load=require('./load-typescript.cjs')();
+const Console=load('components/members/member-console.tsx').default;
+const Delete=load('components/members/member-delete.tsx').default;
+const Editor=load('components/members/member-editor.tsx').default;
+const long=Array.from({length:35},(_,i)=>React.createElement('section',{className:'memberDetailSection',key:i},React.createElement('h3',null,`Athlete ${i} with a long family name`),React.createElement('dl',null,React.createElement('dt',null,'Email'),React.createElement('dd',null,'verylongfamilycontactaddresswithoutspaces@example.test')),React.createElement('button',null,`Edit athlete ${i}`)));
+const fixtures=[React.createElement(Console,{title:'Long family and athlete account name',reference:'Active',onClose(){}},long),React.createElement(Editor,{spec:{kind:'create'},onSave:async()=>{},onClose(){},onSaved(){}}),React.createElement(Delete,{family:{display_name:'Synthetic family',contacts:[],athletes:Array.from({length:30},(_,i)=>({id:`athlete-${i}`,display_name:`Athlete ${i}`}))},onClose(){},onDelete:async()=>{}})];
+const hook=ts.transpileModule(fs.readFileSync('components/members/use-member-dialog.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+(async()=>{
+ const targets=await fetch('http://127.0.0.1:9333/json').then(r=>r.json());const ws=new WebSocket(targets.find(t=>t.type==='page').webSocketDebuggerUrl);await new Promise(r=>ws.addEventListener('open',r,{once:true}));let id=0;const pending=new Map();ws.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(m.error):p.resolve(m.result)}});const call=(method,params={})=>new Promise((resolve,reject)=>{pending.set(++id,{resolve,reject});ws.send(JSON.stringify({id,method,params}))});const run=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true});if(r.exceptionDetails)throw new Error(JSON.stringify(r.exceptionDetails));return r.result.value};
+ const results=[];
+ for(const width of [375,390,1280])for(let fixture=0;fixture<fixtures.length;fixture++){
+  await call('Emulation.setDeviceMetricsOverride',{width,height:800,deviceScaleFactor:1,mobile:width<600});
+  await call('Page.enable');await call('Page.setDocumentContent',{frameId:(await call('Page.getFrameTree')).frameTree.frame.id,html:`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${fs.readFileSync('app/globals.css','utf8')}</style><main class="main"><button id="trigger">Open</button>${renderToStaticMarkup(fixtures[fixture])}</main>`});
+  await run(`window.cleanup?.();window.cleanup=null;document.querySelector('#trigger').focus();{const exports={};const require=()=>({useEffect:fn=>{window.cleanup=fn()}});${hook};exports.useMemberDialog({current:document.querySelector('dialog')})}`);
+  const layout=await run(`(()=>{const d=document.querySelector('dialog'),body=d.querySelector('.v405ScheduleControlBody,.memberEditorBody'),rect=d.getBoundingClientRect(),hero=d.firstElementChild.getBoundingClientRect(),foot=d.lastElementChild.getBoundingClientRect();body.scrollTop=body.scrollHeight;return {width:rect.width,height:rect.height,top:rect.top,bottom:rect.bottom,hero:hero.top,foot:foot.bottom,overflow:d.scrollWidth>d.clientWidth,scrollable:body.scrollHeight>body.clientHeight,atBottom:Math.abs(body.scrollHeight-body.clientHeight-body.scrollTop)<2,locked:document.body.style.position}})()`);
+  assert.ok(layout.top>=0&&layout.bottom<=801,JSON.stringify({width,fixture,layout}));assert.equal(layout.overflow,false);assert.equal(layout.locked,'fixed');if(width<600)assert.equal(layout.width,width);else assert.ok(layout.width<1000);if(fixture===0){assert.equal(layout.scrollable,true);assert.equal(layout.atBottom,true)}
+  for(let n=0;n<12;n++){await call('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});await call('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});assert.ok(await run(`document.querySelector('dialog').contains(document.activeElement)||document.activeElement===document.body`))}
+  await run('window.cleanup();window.cleanup=null');assert.equal(await run("document.activeElement.id"),'trigger');results.push({viewportWidth:width,fixture,...layout});
+ }
+ console.log(JSON.stringify(results,null,2));ws.close();
+})().catch(e=>{console.error(e);process.exitCode=1});
