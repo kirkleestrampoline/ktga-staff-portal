@@ -159,3 +159,9 @@
 .classesConsole{overflow:hidden;overscroll-behavior:contain}
 .classesConsole .v405ScheduleControlBody{overscroll-behavior:contain;overflow-x:hidden}
 .classesConsole .v405ScheduleControlFoot{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px;padding:12px 16px;padding-bottom:max(12px,env(safe-area-inset-bottom))}
+
+/* Explicit geometry, independent of legacy modal wrappers and section content. */
+dialog.classesConsole[open]{position:fixed;inset:0;margin:auto;box-sizing:border-box;width:min(820px,calc(100vw - 40px));max-width:none;height:min(820px,calc(var(--member-height,100svh) - 40px));max-height:none;overflow:hidden;grid-template-rows:auto minmax(0,1fr) auto}
+.classesConsole>footer{display:flex!important;justify-content:flex-end;gap:8px;flex-wrap:wrap;padding:12px 16px}
+.classesConsole .v311AdminShiftHero>div{min-width:0}.classesConsole h2{overflow-wrap:anywhere}.classesConsole .iconButton{min-height:44px!important;min-width:44px!important}
+@media(max-width:640px){dialog.classesConsole[open]{inset:var(--member-top,0px) 0 auto;margin:0;width:100%;height:var(--member-height,100svh);border-radius:0!important}.classesConsole input,.classesConsole select,.classesConsole textarea{font-size:16px}.classesConsole>footer{padding-bottom:calc(12px + env(safe-area-inset-bottom))}}

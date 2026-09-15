@@ -1,0 +1,38 @@
+// Synthetic rendered components only; no app server, credentials or data service.
+// Start Chrome with --headless --remote-debugging-port=9333 --user-data-dir=/tmp/av-usability-chrome
+const fs=require('node:fs'),assert=require('node:assert/strict'),ts=require('typescript'),React=require('react'),{renderToStaticMarkup:render}=require('react-dom/server'),loader=require('./load-typescript.cjs');
+const load=loader(),Console=load('components/classes/class-console.tsx').default;
+let state=0;const Card=loader({react:{...React,useState:v=>[state++===0?true:v,()=>{}]}})('components/actual-time-card.tsx').default;
+const card=render(React.createElement(Card,{staff:'Synthetic coach with a long name',className:'Recreational gymnastics',planned:{start:'16:00',finish:'18:00',breakMinutes:0},actual:{start:'16:15',finish:'17:45',breakMinutes:0},selected:true,disabled:false,onSelect(){},onChange(){}}));
+const dialog=render(React.createElement(Console,{title:'Synthetic gymnastics class',status:'Published · Internal',onClose(){},footer:React.createElement('button',null,'Edit class')},React.createElement('div',null,card)));
+const dashboard=fs.readFileSync('app/dashboard/ui.tsx','utf8');const line=dashboard.split('\n').find(l=>l.includes('<div className="v514MobileStaffingControls">'));
+const jsx=line.trim();const expression=ts.transpileModule('export default '+jsx,{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.CommonJS},fileName:'fixture.tsx'}).outputText;
+const context={adminScheduleRange:'day',adminBounds:{from:'2026-09-15',to:'2026-09-15'},month:'2026-09',scheduleView:'calendar',monthActionsOpen:true,PlusIcon:()=>null,setAdminScheduleRange(){},moveAdminRange(){},setScheduleView(){},openOneOffShift(){},setMasterTimetableDay(){},setMasterTimetableOpen(){},setMonthActionsOpen(){},generateSchedule(){},clonePreviousScheduleMonth(){},copyScheduleWeek(){},clearScheduleMonth(){}};const exp={};new Function('require','exports',...Object.keys(context),expression)(require,exp,...Object.values(context));const toolbar=render(exp.default);
+const hook=ts.transpileModule(fs.readFileSync('components/members/use-member-dialog.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+(async()=>{
+ const targets=await fetch('http://127.0.0.1:9333/json').then(r=>r.json()),ws=new WebSocket(targets.find(t=>t.type==='page').webSocketDebuggerUrl);await new Promise(r=>ws.addEventListener('open',r,{once:true}));let id=0;const pending=new Map();ws.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(m.error):p.resolve(m.result)}});const call=(method,params={})=>new Promise((resolve,reject)=>{pending.set(++id,{resolve,reject});ws.send(JSON.stringify({id,method,params}))});const run=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value};
+ const css=fs.readFileSync('app/globals.css','utf8')+fs.readFileSync('components/classes/classes.css','utf8');const results=[];
+ for(const width of [375,390,1280]){
+ await call('Emulation.setDeviceMetricsOverride',{width,height:800,deviceScaleFactor:1,mobile:width<600});await call('Page.enable');await call('Page.setDocumentContent',{frameId:(await call('Page.getFrameTree')).frameTree.frame.id,html:`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><main class="main"><div class="v513ScheduleWorkspace"><div class="v436StaffingCard">${toolbar}</div></div><button id="trigger">Open class</button>${dialog}</main>`});
+ if(width<600){const layout=await run(`(()=>{const t=document.querySelector('.v514MobileStaffingControls');return {overflow:document.documentElement.scrollWidth>innerWidth,buttons:[...t.querySelectorAll('button')].filter(b=>b.getBoundingClientRect().width&& !b.classList.contains('v313MenuScrim')).map(b=>({text:b.textContent,height:b.getBoundingClientRect().height,left:b.getBoundingClientRect().left,right:b.getBoundingClientRect().right}))}})()`);assert.equal(layout.overflow,false,JSON.stringify(layout));for(const b of layout.buttons){assert.ok(b.height>=44,JSON.stringify(b));assert.ok(b.left>=0&&b.right<=width,JSON.stringify(b))}}
+ const open=`document.querySelector('#trigger').focus();{const exports={};const require=()=>({useEffect:fn=>{window.cleanup=fn()}});${hook};exports.useMemberDialog({current:document.querySelector('dialog')})}`;
+ let baseline;
+ for(let n=0;n<12;n++){
+ await run(open);
+ for(const content of ['<p>Short activity section</p>',card.repeat(5),card]){
+ await run(`document.querySelector('dialog .modalBody').innerHTML=${JSON.stringify(content)}`);
+ const rect=await run(`(()=>{const d=document.querySelector('dialog'),r=d.getBoundingClientRect(),foot=d.lastElementChild.getBoundingClientRect();return {width:r.width,height:r.height,top:r.top,bottom:r.bottom,foot:foot.bottom,overflow:d.scrollWidth>d.clientWidth,locked:document.body.style.position}})()`);
+ baseline??=rect;assert.equal(rect.height,baseline.height);assert.equal(rect.width,baseline.width);assert.ok(rect.top>=0&&rect.bottom<=801&&rect.foot<=rect.bottom);assert.equal(rect.overflow,false);assert.equal(rect.locked,'fixed');
+ }
+ for(let tab=0;tab<4;tab++){await call('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});assert.ok(await run("document.querySelector('dialog').contains(document.activeElement)"))}
+ await run('window.cleanup();window.cleanup=null');assert.equal(await run('document.activeElement.id'),'trigger');assert.equal(await run('document.body.style.position'),'');
+ }
+ await run(open);if(width<600){await call('Emulation.setDeviceMetricsOverride',{width,height:420,deviceScaleFactor:1,mobile:true});await new Promise(r=>setTimeout(r,150));assert.ok(await run("document.querySelector('dialog').getBoundingClientRect().bottom<=421"));await call('Emulation.setDeviceMetricsOverride',{width,height:800,deviceScaleFactor:1,mobile:true})}
+ const shot=await call('Page.captureScreenshot',{format:'png'});fs.writeFileSync(`/tmp/av-class-${width}.png`,Buffer.from(shot.data,'base64'));await run('window.cleanup();window.cleanup=null');results.push({viewportWidth:width,cycles:12,...baseline});
+ // Render actual cards in their daily-confirmation shell, without Classes styles.
+ await run(`document.querySelector('dialog').remove();document.querySelector('.main').insertAdjacentHTML('beforeend',${JSON.stringify('<div class="modalBackdrop"><div class="modal modalWide v13DailyConfirmModal"><div class="modalHead"><h2>Confirm Selected Day</h2><button class="iconButton">×</button></div><div class="modalBody v13DailyConfirmBody">'+card.repeat(4)+'</div><div class="modalFoot"><button class="btn btnSecondary">Cancel</button><button class="btn btnPrimary">Confirm 4 shifts</button></div></div></div>')})`);
+ const actualLayout=await run(`(()=>{const d=document.querySelector('.v13DailyConfirmModal'),r=d.getBoundingClientRect();return {top:r.top,bottom:r.bottom,overflow:d.scrollWidth>d.clientWidth,inputs:[...d.querySelectorAll('input[type=time]')].map(i=>({width:i.getBoundingClientRect().width,height:i.getBoundingClientRect().height}))}})()`);assert.equal(actualLayout.overflow,false);assert.ok(actualLayout.top>=0&&actualLayout.bottom<=801);for(const i of actualLayout.inputs)assert.ok(i.width>=200&&i.height>=44,JSON.stringify(i));
+ fs.writeFileSync(`/tmp/av-actual-${width}.png`,Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64'));
+ }
+ console.log(JSON.stringify(results,null,2));ws.close();
+})().catch(e=>{console.error(e);process.exitCode=1});
