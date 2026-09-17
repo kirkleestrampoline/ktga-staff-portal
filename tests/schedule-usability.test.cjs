@@ -1,5 +1,11 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),React=require('react');
 const load=require('./load-typescript.cjs')();
+test('Staff Rota cold load waits for staff and admin month cost dependencies',()=>{
+ const source=fs.readFileSync('app/dashboard/ui.tsx','utf8');
+ const scheduleBranch=source.slice(source.indexOf('  async function loadTabData'),source.indexOf('  async function reloadLoadedTab'));
+ assert.match(scheduleBranch,/loadSchedule\(\).*runSharedDataLoad\("staff",loadStaff\).*loadAdmin\(true\)/s);
+ assert.match(source,/adminCostStatus==="ready"\?money\(actualScheduleCost\):adminCostStatus==="error"\?"Unavailable":"Loading…"/);
+});
 const {earlierFinish,resetActualTimes,validateActualTimes,confirmActualBatch}=load('lib/timesheet-actual.ts');
 const planned={start:'16:00',finish:'18:00',breakMinutes:10};
 test('quick choices calculate from scheduled end and preserve explicitly edited start; reset copies schedule',()=>{

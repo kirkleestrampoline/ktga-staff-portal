@@ -15,7 +15,7 @@ import Sidebar from "@/components/sidebar";
 import MobileNav from "@/components/mobile-nav";
 import StatCard from "@/components/stat-card";
 import StatusPill from "@/components/status-pill";
-import AvLogo from "@/components/av-logo";
+import ClubIdentity from "@/components/club-identity";
 import { CalendarIcon, ChartIcon, CheckIcon, ClockIcon, InvoiceIcon, MenuIcon, PlusIcon, PoundIcon, SearchIcon, UserIcon, UsersIcon } from "@/components/icons";
 import { dashboardTabForRole, type DashboardTab as Tab } from "@/types/navigation";
 import { qualificationSatisfies, rankCoachRecommendations, type RecommendationPriority } from "@/lib/staffing/recommendations";
@@ -154,6 +154,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
   const [staffEditVenueIds,setStaffEditVenueIds]=useState<string[]>([]);
   const [inviteVenueIds,setInviteVenueIds]=useState<string[]>([]);
   const [adminMonthShifts,setAdminMonthShifts]=useState<Shift[]>([]);
+  const [adminCostStatus,setAdminCostStatus]=useState<"loading"|"ready"|"error">("loading");
   const [templates,setTemplates]=useState<ShiftTemplate[]>([]);
   const [templateOpen,setTemplateOpen]=useState(false);
   const [auditOpen,setAuditOpen]=useState(false);
@@ -255,6 +256,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
   });
   const scheduleRequestSequence=useRef(0);
   const latestScheduleRequest=useRef(0);
+  const adminRequestSequence=useRef(0);
   const currentMonthRef=useRef(initialMonth);
   const deletedShiftIds=useRef<Set<string>>(new Set());
   const rotaDatePickerRef=useRef<HTMLInputElement|null>(null);
@@ -430,7 +432,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
     if(next==="availability"&&isAdmin)await Promise.all([runSharedDataLoad("venues",loadVenues),runSharedDataLoad("staff",loadStaff),runSharedDataLoad("leave",loadLeaveData),runSharedDataLoad("future-schedule",loadFutureUnstaffedShifts),runSharedDataLoad(`overview-schedule:${month}`,loadOverviewSchedule)]);
     else if(next==="staff"&&isAdmin)await Promise.all([runSharedDataLoad("venues",loadVenues),runSharedDataLoad("staff",loadStaff)]);
     else if(next==="schedule"){
-      if(isAdmin)await Promise.all([loadSchedule(),runSharedDataLoad(`extra-shifts:${month}`,loadPendingExtraShifts)]);
+      if(isAdmin)await Promise.all([loadSchedule(),runSharedDataLoad("staff",loadStaff),runSharedDataLoad(`extra-shifts:${month}`,loadPendingExtraShifts),loadAdmin(true)]);
       else await Promise.all([loadSchedule(),loadLeaveData()]);
     }else if(next==="leave")await loadLeaveData();
     else if(next==="expenses")await Promise.all([loadExpenses(),loadCurrentClub(),isAdmin?runSharedDataLoad("staff",loadStaff):Promise.resolve()]);
@@ -442,7 +444,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
   }
 
   async function reloadLoadedTab(current:Tab){
-    if(current==="schedule")await Promise.all([loadSchedule(),isAdmin?loadPendingExtraShifts():Promise.resolve()]);
+    if(current==="schedule")await Promise.all([loadSchedule(),isAdmin?runSharedDataLoad("staff",loadStaff):Promise.resolve(),isAdmin?loadPendingExtraShifts():Promise.resolve(),isAdmin?loadAdmin(true):Promise.resolve()]);
     else if(current==="expenses")await loadExpenses();
     else if(current==="timesheets")await Promise.all([loadExpenses(),loadCoachMonth(activeCoach.id),loadTemplates(activeCoach.id),isAdmin?loadAdmin(true):Promise.resolve()]);
     else if(current==="workforce"&&isAdmin)await Promise.all([loadAdmin(false),loadExpenses()]);
@@ -936,6 +938,8 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
 
   async function loadAdmin(includeInvoices=true){
     if(!isAdmin)return;
+    setAdminCostStatus("loading");
+    const requestId=++adminRequestSequence.current;
     const requestedMonth=month;
     const{from,to}=monthRange(requestedMonth);
     const [{data:coaches,error:coachesError},{data:ss,error:shiftsError},{data:ts,error:timesheetsError}]=await Promise.all([
@@ -943,18 +947,19 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
       supabase.from("shifts").select("*").gte("shift_date",from).lte("shift_date",to),
       supabase.from("timesheets").select("*").eq("month_start",from)
     ]);
-    if(coachesError)throw coachesError;
-    if(shiftsError)throw shiftsError;
-    if(timesheetsError)throw timesheetsError;
+    if(coachesError){setAdminCostStatus("error");throw coachesError}
+    if(shiftsError){setAdminCostStatus("error");throw shiftsError}
+    if(timesheetsError){setAdminCostStatus("error");throw timesheetsError}
     const tids=((ts||[]) as Timesheet[]).map(t=>t.id);
     let inv:Invoice[]=[];
     if(includeInvoices&&tids.length){
       const{data,error}=await supabase.from("invoices").select("*").in("timesheet_id",tids);
-      if(error)throw error;
+      if(error){setAdminCostStatus("error");throw error}
       inv=(data||[]) as Invoice[];
     }
-    if(requestedMonth!==currentMonthRef.current)return;
+    if(requestedMonth!==currentMonthRef.current||requestId!==adminRequestSequence.current)return;
     setAdminMonthShifts((ss||[]) as Shift[]);
+    setAdminCostStatus("ready");
     const rows=((coaches||[]) as Profile[]).map(c=>{
       const csh=((ss||[]) as Shift[]).filter(s=>s.coach_id===c.id&&(!s.approval_status||s.approval_status==="approved"));
       const h=csh.reduce((a,s)=>a+shiftHours(s),0);
@@ -2191,6 +2196,8 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
   const confirmedScheduleCost=scheduleScope.filter(s=>s.status==="confirmed").reduce((a,s)=>a+costForScheduledShift(s),0);
   const unassignedScheduleCount=plannedSchedule.filter(s=>!isAssignedShift(s)).length;
   const actualScheduleCost=adminMonthShifts.filter(s=>!scheduleFilter||s.venue_id===scheduleFilter).reduce((a,s)=>{const profile=profileById(s.coach_id);return a+(profile?payForWorkedShift(s,profile):0)},0);
+  const actualCostDisplay=adminCostStatus==="ready"?money(actualScheduleCost):adminCostStatus==="error"?"Unavailable":"Loading…";
+  const actualCostFoot=adminCostStatus==="ready"?"Confirmed timesheet hours":adminCostStatus==="error"?"Could not load confirmed hours":"Loading confirmed timesheet hours";
   const normalCost=classes.filter(c=>!scheduleFilter||c.venue_id===scheduleFilter).reduce((total,c)=>{
     const [y,m]=month.split("-").map(Number);const last=new Date(y,m,0).getDate();let occurrences=0;
     for(let d=1;d<=last;d++)if(new Date(y,m-1,d).getDay()===c.weekday)occurrences++;
@@ -2276,9 +2283,9 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
   })();
 
   return <div className="portal">
-    <Sidebar tab={tab} setTab={(t:Tab)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} clubName={currentClub?.name} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
+    <Sidebar tab={tab} setTab={(t:Tab)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} name={initialProfile.full_name} role={initialProfile.role} onSignOut={signOut} mobileOpen={mobileOpen} onClose={()=>setMobileOpen(false)}/>
     <div className="mainWrap">
-      <header className="topbar"><div className="row"><div className="v3HeaderLogo"><AvLogo size={31}/></div><div className="topTitle"><strong>AV Gymnastics Solutions</strong>{currentClub?.name&&<span>{currentClub.name}</span>}</div></div><div className="topActions"><span className="versionBadge">v5.1</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
+      <header className="topbar"><div className="row v3TopbarIdentity"><ClubIdentity name={currentClub?.name||"Club workspace"} logoUrl={currentClub?.logo_url} primaryColour={currentClub?.primary_colour}/></div><div className="topActions"><span className="versionBadge">v5.1</span><span className="muted desktopEmail" style={{fontSize:12}}>{initialProfile.email}</span></div></header>
       <main className="main">
         {mobilePageMeta&&<div className="v303MobilePageHero">
           <span>{mobilePageMeta.eyebrow}</span>
@@ -2322,7 +2329,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
     {confirmShift&&ConfirmShiftModal()}
     {dailyConfirmation&&DailyConfirmationModal()}
     {adjustShift&&AdjustmentModal()}
-    <MobileNav tab={tab} setTab={(t:Tab)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} role={initialProfile.role} name={initialProfile.full_name} clubName={currentClub?.name} open={mobileMoreOpen} setOpen={setMobileMoreOpen} onSignOut={signOut}/>
+    <MobileNav tab={tab} setTab={(t:Tab)=>{setAdminPersonalRota(false);setTab(t);if(t!=="timesheets")backToAdmin()}} role={initialProfile.role} name={initialProfile.full_name} clubName={currentClub?.name} logoUrl={currentClub?.logo_url} primaryColour={currentClub?.primary_colour} open={mobileMoreOpen} setOpen={setMobileMoreOpen} onSignOut={signOut}/>
   </div>;
 
   function PageHead({title,sub,children,centered=false,dashboard=false}:{title:string;sub:string;children?:React.ReactNode;centered?:boolean;dashboard?:boolean}){return <div className={`pageHead ${centered?"v434CenteredPageHead":""} ${dashboard?"v435DashboardHead":""}`}><div><h1>{title}</h1><p>{sub}</p></div>{children}</div>}
@@ -2380,7 +2387,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
         {criticalSchedulingCount===0&&warningSchedulingCount===0&&<div className="v402AllClear"><span aria-hidden="true">✓</span><div><strong>Schedule Healthy</strong><small>No immediate action is required.</small></div></div>}
         {schedulingIssues.length>0&&<div className="v402IssueGroups">{(["critical","warning","reminder"] as const).map(severity=>{const allIssues=schedulingIssues.filter(issue=>issue.severity===severity);if(!allIssues.length)return null;const expanded=expandedSchedulingSections[severity];const issues=expanded?allIssues:[];const heading=severity==="critical"?"Needs Immediate Attention":severity==="warning"?"Actions":"Planning";return <div className={`v402IssueGroup v406IssueSection ${severity} ${expanded?"expanded":"collapsed"}`} key={severity}><button className="v402SeverityHead v406SectionToggle" type="button" aria-expanded={expanded} onClick={()=>setExpandedSchedulingSections({...expandedSchedulingSections,[severity]:!expanded})}><span aria-hidden="true">{severity==="critical"?"●":severity==="warning"?"▲":"●"}</span><strong>{heading}</strong><small>{allIssues.length}</small><b aria-hidden="true">⌄</b></button>{issues.length>0&&<div className="v402IssueList">{issues.map(issue=><article className="v402Issue" key={issue.id}><span className="v402SeverityIcon" aria-label={`${heading} issue`}>{severity==="critical"?"!":severity==="warning"?"!":"i"}</span><div className="v402IssueMain"><strong>{issue.coach}</strong><span>{issue.description}</span><small>{new Date(`${issue.date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})}{issue.startTime?` · ${issue.startTime.slice(0,5)}–${issue.finishTime.slice(0,5)}`:" · Not scheduled"}</small></div><div className="v402IssueContext"><strong>{issue.className}</strong></div>{issue.extraShift?<div className="v503ApprovalActions"><button className="btn btnSuccess" type="button" onClick={()=>void approveExtraShift(issue.extraShift!)}>Approve</button><button className="btn btnDanger" type="button" onClick={()=>void rejectExtraShift(issue.extraShift!)}>Decline</button><button className="btn btnSecondary" type="button" onClick={()=>openSchedulingIssue(issue)}>Open</button></div>:<button className="btn btnSecondary" type="button" onClick={()=>openSchedulingIssue(issue)}>Fix Now</button>}</article>)}</div>}</div>})}{(!expandedSchedulingSections.critical||!expandedSchedulingSections.warning||!expandedSchedulingSections.reminder)&&<button className="v402ViewAll" type="button" onClick={()=>setExpandedSchedulingSections({critical:true,warning:true,reminder:true})}>View all scheduling issues</button>}</div>}
       </section>
-      <div className="grid grid4 section forecastCards"><StatCard label="Normal staffing cost" value={money(normalCost)} foot="Based on regular classes" icon={<CalendarIcon/>}/><StatCard label="Current forecast" value={money(forecastCost)} foot={`${unassignedScheduleCount} unassigned shifts`} icon={<PoundIcon/>}/><StatCard label="Actual cost so far" value={money(actualScheduleCost)} foot="Confirmed timesheet hours" icon={<CheckIcon/>}/><StatCard label="Forecast variance" value={money(forecastCost-normalCost)} foot={forecastCost>normalCost?"Above normal plan":"At / below normal plan"} icon={<ChartIcon/>}/></div>
+      <div className="grid grid4 section forecastCards"><StatCard label="Normal staffing cost" value={money(normalCost)} foot="Based on regular classes" icon={<CalendarIcon/>}/><StatCard label="Current forecast" value={money(forecastCost)} foot={`${unassignedScheduleCount} unassigned shifts`} icon={<PoundIcon/>}/><StatCard label="Actual cost so far" value={actualCostDisplay} foot={actualCostFoot} icon={<CheckIcon/>}/><StatCard label="Forecast variance" value={money(forecastCost-normalCost)} foot={forecastCost>normalCost?"Above normal plan":"At / below normal plan"} icon={<ChartIcon/>}/></div>
       <div className="card section todayCoaching v432TodayCoaching"><div className="sectionHeader"><div><h2>Today&apos;s coaching</h2><p>{new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</p></div><button className="btn btnSecondary" onClick={()=>setTab("schedule")}>Open Schedule</button></div><div className="v432SessionGrid">{scheduledShifts.filter(s=>s.shift_date===localDateKey()&&s.status!=="cancelled").sort((a,b)=>a.start_time.localeCompare(b.start_time)).map(s=><article className={`v432SessionCard ${s.profile_id?"assigned":"unassigned"}`} key={s.id}><time>{s.start_time.slice(0,5)}<small>{s.finish_time.slice(0,5)}</small></time><div><strong>{s.class_name}</strong><span>{venueName(s.venue_id)}</span></div><b>{profileById(s.profile_id)?.full_name||"Unassigned"}</b></article>)}{!scheduledShifts.some(s=>s.shift_date===localDateKey()&&s.status!=="cancelled")&&<div className="v432OverviewEmpty"><CalendarIcon/><div><strong>No coaching scheduled today</strong><span>Today&apos;s generated sessions will appear here.</span></div></div>}</div></div></>:<div className="section"><OverviewWidgetFallback widget="schedule"/></div>}
       <div className="grid grid2 section">{overviewWidgets.monthly.status==="loaded"?<div className="card"><div className="sectionHeader"><div><h2>Monthly status</h2><p>Open a coach to review or edit their shifts.</p></div><button className="btn btnSecondary" onClick={()=>setTab("timesheets")}>View all</button></div><div className="mobileDataList">{adminRows.slice(0,8).map(r=><button className="mobileDataCard" key={r.coach.id} onClick={()=>selectCoach(r.coach)}><div><strong>{r.coach.full_name}</strong><span>{r.hours.toFixed(2)} hours</span></div><StatusPill status={r.timesheet?.status}/></button>)}</div><div className="tableWrap desktopDataTable"><table><thead><tr><th>Coach</th><th className="num">Hours</th><th>Status</th><th></th></tr></thead><tbody>{adminRows.slice(0,8).map(r=><tr key={r.coach.id}><td><strong>{r.coach.full_name}</strong></td><td className="num">{r.hours.toFixed(2)}</td><td><StatusPill status={r.timesheet?.status}/></td><td><button className="btn btnSecondary" onClick={()=>selectCoach(r.coach)}>Open</button></td></tr>)}</tbody></table></div></div>:<OverviewWidgetFallback widget="monthly"/>}
       </div></>;
@@ -2500,7 +2507,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
       <FilterBar className="scheduleToolbar"><div className="row"><button className={`btn ${scheduleView==="calendar"?"btnPrimary":"btnSecondary"}`} onClick={()=>setScheduleView("calendar")}>Calendar</button><button className={`btn ${scheduleView==="agenda"?"btnPrimary":"btnSecondary"}`} onClick={()=>setScheduleView("agenda")}>Agenda</button></div></FilterBar>
       <div className="v503ScheduleRange"><div className="v503RangeTabs">{(["day","week","month"] as const).map(view=><button type="button" className={adminScheduleRange===view?"active":""} key={view} onClick={()=>setAdminScheduleRange(view)}>{view[0].toUpperCase()+view.slice(1)}</button>)}</div><div className="v503RangeNav"><button type="button" aria-label={`Previous ${adminScheduleRange}`} onClick={()=>moveAdminRange(-1)}>←</button><strong>{adminScheduleRange==="month"?monthLabel(month):adminScheduleRange==="day"?new Date(`${adminBounds.from}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"}):`${new Date(`${adminBounds.from}T12:00:00`).toLocaleDateString("en-GB",{day:"numeric",month:"short"})} – ${new Date(`${adminBounds.to}T12:00:00`).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}`}</strong><button type="button" aria-label={`Next ${adminScheduleRange}`} onClick={()=>moveAdminRange(1)}>→</button></div></div>
       <section className="card v515Configuration"><div><span>Configuration</span><p>One-off shifts, recurring classes and monthly setup.</p></div><div className="v515ConfigurationActions"><button className="btn btnAccent" type="button" onClick={openOneOffShift}><PlusIcon/>Add Shift</button><button className="btn btnSecondary" type="button" onClick={()=>{setMasterTimetableDay(null);setMasterTimetableOpen(true)}}>Master TT</button><div className="v313MoreWrap"><button className="btn btnSecondary" type="button" onClick={()=>setMonthActionsOpen(!monthActionsOpen)}>More <span className="v313Chevron">⌄</span></button>{monthActionsOpen&&<><button className="v313MenuScrim" aria-label="Close month actions" onClick={()=>setMonthActionsOpen(false)}/><div className="v313MoreMenu"><button type="button" onClick={()=>{setMonthActionsOpen(false);void generateSchedule()}}>Load shifts</button><button type="button" onClick={()=>{setMonthActionsOpen(false);void clonePreviousScheduleMonth()}}>Duplicate previous month</button><button type="button" onClick={()=>{setMonthActionsOpen(false);void copyScheduleWeek()}}>Copy a week</button><div className="v313MenuDivider"/><button type="button" className="danger" onClick={()=>{setMonthActionsOpen(false);void clearScheduleMonth()}}>Clear this month</button></div></>}</div></div></section>
-      <div className="grid grid4 scheduleSummary"><StatCard label="Normal monthly cost" value={money(normalCost)} foot="Regular timetable" icon={<PoundIcon/>}/><StatCard label="Current forecast" value={money(forecastCost)} foot={`${plannedSchedule.length} scheduled staffing shifts`} icon={<CalendarIcon/>}/><StatCard label="Actual cost so far" value={money(actualScheduleCost)} foot={`${money(actualScheduleCost-forecastCost)} vs forecast`} icon={<CheckIcon/>}/><StatCard label="Unassigned shifts" value={String(unassignedScheduleCount)} foot={unassignedScheduleCount?"Needs a coach":"Fully staffed"} icon={<UsersIcon/>}/></div>
+      <div className="grid grid4 scheduleSummary"><StatCard label="Normal monthly cost" value={money(normalCost)} foot="Regular timetable" icon={<PoundIcon/>}/><StatCard label="Current forecast" value={money(forecastCost)} foot={`${plannedSchedule.length} scheduled staffing shifts`} icon={<CalendarIcon/>}/><StatCard label="Actual cost so far" value={actualCostDisplay} foot={adminCostStatus==="ready"?`${money(actualScheduleCost-forecastCost)} vs forecast`:actualCostFoot} icon={<CheckIcon/>}/><StatCard label="Unassigned shifts" value={String(unassignedScheduleCount)} foot={unassignedScheduleCount?"Needs a coach":"Fully staffed"} icon={<UsersIcon/>}/></div>
       {pendingAdditionalCount>0&&<div className="v311ApprovalBanner"><div className="v311ApprovalIcon"><ClockIcon/></div><div><strong>{pendingAdditionalCount} additional work {pendingAdditionalCount===1?"request":"requests"} awaiting approval</strong><span>These were recorded by staff outside their rota. Review them below in the schedule.</span></div><span className="v311ApprovalCount">{pendingAdditionalCount}</span></div>}
       <div className="card v510MasterLauncher section"><div className="v510MasterLauncherIcon"><CalendarIcon/></div><div><h2>Weekly Master Timetable</h2><p>Configure recurring weekly classes.</p></div><button className="btn btnSecondary" type="button" onClick={()=>{setMasterTimetableDay(null);setMasterTimetableOpen(true)}}>Master TT</button></div>
       <div className="grid scheduleAdminGrid section"><div className="card v436MasterTimetableCard"><div className="sectionHeader"><div><h2>Weekly master timetable</h2><p>Sunday–Saturday. Add as many different classes as you need on the same day or at the same time.</p></div><div className="row"><button className="btn btnSecondary" onClick={()=>{setMasterTimetableOpen(false);setTab("classes")}}>Manage class library</button><button className="btn btnSecondary" onClick={()=>openNewClass()}><PlusIcon/>Create Class</button></div></div><div className="masterTimetable">{[1,2,3,4,5,6,0].map(day=>{const dayClasses=masterTimetableClasses.filter(c=>(!scheduleFilter||c.venue_id===scheduleFilter)&&c.weekday===day).sort((a,b)=>a.start_time.localeCompare(b.start_time)||a.name.localeCompare(b.name)),expanded=!!masterDaysExpanded[day],dayHours=dayClasses.reduce((total,c)=>total+classTemplateHours(c),0);return <div className={`masterDay ${expanded?"expanded":"collapsed"}`} key={day}><div className="masterDayHead"><button className="v436MasterDayToggle" type="button" aria-expanded={expanded} onClick={()=>setMasterDaysExpanded(current=>({...current,[day]:!current[day]}))}><strong>{dayNames[day]}</strong><span>{dayClasses.length} {dayClasses.length===1?"class":"classes"} · {dayHours.toFixed(2)}h</span><b aria-hidden="true">⌄</b></button><button className="btn btnSecondary v501DesktopDayAdd" type="button" onClick={()=>openNewClass(day)}><PlusIcon/>Create Class</button></div><div className="masterDayClasses"><button className="btn btnPrimary v501MobileDayAdd" type="button" onClick={()=>openNewClass(day)}><PlusIcon/>Create Class</button>{dayClasses.map(c=>{const slots=classSlots.filter(x=>x.class_id===c.id).sort((a,b)=>a.slot_number-b.slot_number),fullyAssigned=slots.length>0&&slots.every(x=>Boolean(x.default_profile_id));return <div style={{"--org-colour":c.session_colour||"#6D3A91"} as React.CSSProperties} className={`masterClassRow masterClassClickable ${venueColourClass(c.venue_id)} ${fullyAssigned?"assigned":"unassigned"} ${c.active?"":"v12ArchivedClass"}`} key={c.id} role="button" tabIndex={0} onClick={e=>openEditClass(c,e.currentTarget)} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openEditClass(c,e.currentTarget)}}}><div className="masterTime">{c.start_time.slice(0,5)}–{c.finish_time.slice(0,5)}</div><div className="masterClassInfo"><strong>{c.name}{!c.active&&<span className="v12ArchivedBadge">Archived</span>}</strong><span className="v504DesktopClassContext">{c.start_time.slice(0,5)}–{c.finish_time.slice(0,5)}</span><small>{slots.map(x=>profileById(x.default_profile_id)?.full_name||"Unassigned").join(" · ")}</small><em>Click to edit</em></div><div className="masterClassActions"><button className="btn btnPrimary" type="button" onClick={e=>{e.stopPropagation();openEditClass(c,e.currentTarget)}}>Edit</button>{ClassMoreActions({classItem:c})}</div></div>})}{!dayClasses.length&&<div className="masterEmpty">No regular classes</div>}</div></div>})}</div></div>

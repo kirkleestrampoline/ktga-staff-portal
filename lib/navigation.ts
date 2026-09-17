@@ -8,7 +8,6 @@ export type NavigationItem=NavigationLink|NavigationGroup|FutureModule;
 export const futureModules:FutureModule[]=[
   {id:"module-members",label:"Members",icon:"users",enabled:true,destination:"members",description:"Bring athletes, families and guardians together in one club membership workspace."},
   {id:"module-classes",label:"Classes",icon:"calendar",enabled:true,destination:"classes",description:"Organise programmes, classes and enrolments across your club."},
-  {id:"module-schedule",label:"Schedule",icon:"calendar",enabled:false,description:"Plan club sessions and activities in one shared timetable."},
   {id:"module-progress",label:"Progress",icon:"chart",enabled:false,description:"Track athlete skills, achievements and development over time."},
   {id:"module-finance",label:"Finance",icon:"invoice",enabled:false,description:"Manage membership billing and club payments in one place."},
   {id:"module-communications",label:"Communications",icon:"users",enabled:false,description:"Keep families and staff informed with club messages and updates."},

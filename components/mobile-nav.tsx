@@ -5,10 +5,12 @@ import type { DashboardTab as Tab } from "@/types/navigation";
 import { mobileNavigationForRole, navigationForRole, isFutureModule, type FutureModule, isNavigationGroup, navigationItemActive } from "@/lib/navigation";
 import ComingSoonModule from "./coming-soon-module";
 import NavigationIcon from "./navigation-icon";
+import ClubIdentity from "./club-identity";
+import AvBrandLockup from "./av-brand-lockup";
 
-type Props={tab:Tab;setTab:(t:Tab)=>void;role:string;name:string;clubName?:string;open:boolean;setOpen:(v:boolean)=>void;onSignOut:()=>void};
+type Props={tab:Tab;setTab:(t:Tab)=>void;role:string;name:string;clubName?:string;logoUrl?:string|null;primaryColour?:string|null;open:boolean;setOpen:(v:boolean)=>void;onSignOut:()=>void};
 
-export default function MobileNav({tab,setTab,role,name,clubName,open,setOpen,onSignOut}:Props){
+export default function MobileNav({tab,setTab,role,name,clubName,logoUrl,primaryColour,open,setOpen,onSignOut}:Props){
   const items=navigationForRole(role);
   const {primary:primaryItems,menu:menuItems,directStaff,staffDestinations}=mobileNavigationForRole(role);
   const [future,setFuture]=useState<FutureModule|null>(null);
@@ -30,7 +32,7 @@ export default function MobileNav({tab,setTab,role,name,clubName,open,setOpen,on
       <button className="mobileMoreScrim" aria-label="Close navigation menu" onClick={close}/>
       <section id={sheetId} className="mobileMoreSheet open staffMobileSheet" aria-label={directStaff?"Menu":submenu?"Staff navigation":"Menu"} onKeyDown={event=>{if(event.key==="Escape"){event.preventDefault();close()}}}>
         <div className="mobileMoreHandle"/>
-        <div className="mobileMoreHead"><div><strong>{directStaff?"Menu":"AV Gymnastics Solutions"}</strong><span>{clubName||name}</span></div><button type="button" onClick={close} aria-label="Close navigation menu">×</button></div>
+        <div className="mobileMoreHead"><div>{directStaff?<><strong>Menu</strong><span>{clubName||name}</span></>:<><AvBrandLockup size={28} singleLine/><ClubIdentity name={clubName||"Club workspace"} logoUrl={logoUrl} primaryColour={primaryColour} compact/></>}</div><button type="button" onClick={close} aria-label="Close navigation menu">×</button></div>
         <button ref={sheetButton} type="button" className="staffMobileBack" onClick={()=>!directStaff&&submenu?setSubmenu(false):close()}>{!directStaff&&submenu?"← Menu":"← Close menu"}</button>
         <nav className={`mobileMoreLinks ${showStaff?"staffDestinationGrid":""}`} aria-label={!directStaff&&submenu?"Staff":"Menu"}>
           {(showStaff?staffDestinations:menuItems).map(item=>isNavigationGroup(item)?<button type="button" key={item.id} onClick={openStaff}><NavigationIcon name={item.icon}/><span><strong>{item.label}</strong></span><span aria-hidden="true">›</span></button>:isFutureModule(item)?<button type="button" key={item.id} className={navigationItemActive(item,tab)?"active":""} aria-current={navigationItemActive(item,tab)?"page":undefined} onClick={()=>item.enabled?choose(item.destination):setFuture(item)}><NavigationIcon name={item.icon}/><span><strong>{item.label}</strong></span>{!item.enabled&&<small className="navigationSoonBadge">Soon</small>}</button>:<button type="button" key={item.id} aria-current={tab===item.id?"page":undefined} className={tab===item.id?"active":""} onClick={()=>choose(item.id)}><NavigationIcon name={item.icon}/><span><strong>{item.label}</strong></span></button>)}

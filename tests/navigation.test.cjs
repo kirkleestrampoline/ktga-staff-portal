@@ -1,5 +1,8 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const React=require('react');
+const {renderToStaticMarkup}=require('react-dom/server');
 const load=require('./load-typescript.cjs')();
 const {navigationForRole,isFutureModule,futureModules,isNavigationGroup,navigationItemActive}=load('lib/navigation.ts');
 const {dashboardTabs,coachDashboardTabs,dashboardTabForRole}=load('types/navigation.ts');
@@ -12,7 +15,7 @@ for(const role of ['admin','club_owner','org_admin','coach','unknown'])test(`${r
 });
 test('administrator module order and Staff children match the release',()=>{
  const items=navigationForRole('club_owner');
- assert.deepEqual(items.map(item=>item.label),['Club Overview','Staff','Members','Classes','Schedule','Progress','Finance','Communications','Reports','Settings','My Profile']);
+ assert.deepEqual(items.map(item=>item.label),['Club Overview','Staff','Members','Classes','Progress','Finance','Communications','Reports','Settings','My Profile']);
  assert.deepEqual(items.find(isNavigationGroup).children.map(item=>item.label),['People','Availability','Staff Rota','Leave','Workforce','Expenses','Payroll','Staff Invoices']);
 });
 test('every Staff child activates its parent, outside pages do not',()=>{
@@ -29,20 +32,40 @@ test('staff module is not a page destination; coach personal labels are retained
 });
 
 test('module availability and descriptions remain administrator-only',()=>{
- assert.equal(futureModules.length,6);
+ assert.equal(futureModules.length,5);
  for(const role of ['admin','club_owner','org_admin'])assert.deepEqual(navigationForRole(role).filter(isFutureModule),futureModules);
  for(const role of ['coach','unknown',''])assert.equal(navigationForRole(role).some(isFutureModule),false);
  for(const module of futureModules){assert.equal(module.enabled,['module-members','module-classes'].includes(module.id));assert.ok(module.description.length>20);assert.equal(navigationItemActive(module,'schedule'),false)}
 });
 test('Staff Rota keeps the original schedule destination',()=>{
  assert.equal(navigationForRole('admin').find(isNavigationGroup).children.find(item=>item.label==='Staff Rota').id,'schedule');
+ assert.equal(dashboardTabForRole('schedule','club_owner'),'schedule');
+});
+
+test('club identity uses initials and restrained primary colour in workspace navigation',()=>{
+ const Identity=load('components/club-identity.tsx').default;
+ const logo=renderToStaticMarkup(React.createElement(Identity,{name:'Greenhead Gymnastics',logoUrl:'https://cdn.example.test/logo.png',primaryColour:'#245f9e'}));
+ assert.doesNotMatch(logo,/<img|cdn\.example\.test/);assert.match(logo,/clubIdentityMark fallback/);assert.match(logo,/>GG<\/span>/);assert.match(logo,/Greenhead Gymnastics/);
+ const square=renderToStaticMarkup(React.createElement(Identity,{name:'Greenhead Gymnastics',logoUrl:'https://cdn.example.test/square.png'}));
+ assert.doesNotMatch(square,/<img/);assert.match(square,/clubIdentityMark fallback/);
+ const fallback=renderToStaticMarkup(React.createElement(Identity,{name:'Greenhead Gymnastics',logoUrl:'javascript:alert(1)',primaryColour:'purple'}));
+ assert.doesNotMatch(fallback,/javascript:|<img/);assert.match(fallback,/clubIdentityMark fallback/);assert.match(fallback,/>GG<\/span>/);assert.match(fallback,/Greenhead Gymnastics/);
+ const css=fs.readFileSync('app/globals.css','utf8');
+ assert.doesNotMatch(css,/clubIdentityMark\.hasLogo/);assert.match(css,/\.clubIdentityMark\{width:40px;height:40px/);assert.match(css,/\.clubIdentity\{display:flex;align-items:center/);
+});
+test('AV sidebar lockup keeps platform identity separate from club identity',()=>{
+ const source=fs.readFileSync('components/av-brand-lockup.tsx','utf8');
+ assert.match(source,/AV Gymnastics/);assert.match(source,/Solutions/);assert.doesNotMatch(source,/Coach\. Schedule\. Perform\./);
+ const Sidebar=load('components/sidebar.tsx').default;
+ const markup=renderToStaticMarkup(React.createElement(Sidebar,{tab:'dashboard',setTab:()=>{},name:'Coach',role:'coach',onSignOut:()=>{},mobileOpen:false,onClose:()=>{}}));
+ assert.match(markup,/avBrandLockup/);assert.match(markup,/AV Gymnastics Solutions/);assert.doesNotMatch(markup,/Coach\. Schedule\. Perform\.|clubName|Club workspace/);
 });
 test('mobile Menu is second and contains only permitted platform sections',()=>{
  const {mobileNavigationForRole}=load('lib/navigation.ts');
  for(const role of ['admin','club_owner','org_admin']){
   const {primary,menu}=mobileNavigationForRole(role);
   assert.equal(primary[1].id,'staff-module');
-  assert.deepEqual(menu.map(item=>item.label),['Staff','Members','Classes','Schedule','Progress','Finance','Communications']);
+  assert.deepEqual(menu.map(item=>item.label),['Staff','Members','Classes','Progress','Finance','Communications']);
  }
  const staff=mobileNavigationForRole('coach');
  assert.equal(staff.primary[1].id,'staff-module');
