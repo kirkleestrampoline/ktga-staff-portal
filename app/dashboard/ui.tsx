@@ -203,6 +203,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
   const [confirmShift,setConfirmShift]=useState<ScheduledShift|null>(null);
   const [dailyConfirmation,setDailyConfirmation]=useState<{profileId:string|null;date:string;selectedIds:string[];actuals:Record<string,ActualTimes>;results?:Record<string,string>;succeeded?:string[]}|null>(null);
   const dailyFlight=useRef(false);
+  const dailyConfirmationReturnFocus=useRef<HTMLElement|null>(null);
   const [adjustStart,setAdjustStart]=useState("");
   const [adjustFinish,setAdjustFinish]=useState("");
   const [adjustBreak,setAdjustBreak]=useState(0);
@@ -1992,7 +1993,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
     return scheduleScope.filter(shift=>shift.shift_date===date&&(!profileId||shift.profile_id===profileId)&&isEligibleForShiftConfirmation(shift));
   }
 
-  async function openDailyConfirmation(date:string,profileId:string|null=null){
+  async function openDailyConfirmation(date:string,profileId:string|null=null,opener?:HTMLElement){
     const candidates=eligibleDailyConfirmations(date,profileId);
     if(!candidates.length)return;
     const {data,error}=await supabase.from("timesheets").select("coach_id,status").eq("month_start",`${date.slice(0,7)}-01`).in("coach_id",candidates.map(shift=>shift.profile_id!));
@@ -2000,7 +2001,15 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
     const lockedCoaches=new Set((data||[]).filter(row=>row.status==="submitted"||row.status==="paid").map(row=>row.coach_id));
     const eligible=candidates.filter(shift=>!lockedCoaches.has(shift.profile_id));
     if(!eligible.length){flash("These timesheets are submitted or paid and cannot be edited.");return}
+    dailyConfirmationReturnFocus.current=opener||null;
     setDailyConfirmation({profileId,date,selectedIds:eligible.map(shift=>shift.id),actuals:Object.fromEntries(eligible.map(shift=>[shift.id,{start:shift.start_time.slice(0,5),finish:shift.finish_time.slice(0,5),breakMinutes:Number(shift.break_minutes||0)}]))});
+  }
+
+  function closeDailyConfirmation(){
+    const opener=dailyConfirmationReturnFocus.current;
+    dailyConfirmationReturnFocus.current=null;
+    setDailyConfirmation(null);
+    window.requestAnimationFrame(()=>opener?.focus());
   }
 
   async function confirmDailySelection(){
@@ -2013,9 +2022,14 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
       const result=await confirmActualBatch(selected.map(shift=>({id:shift.id,actual:review.actuals[shift.id],planned:{start:shift.start_time,finish:shift.finish_time,breakMinutes:Number(shift.break_minutes||0)}})),isAdmin,async request=>{
         const {error}=await supabase.rpc(request.name,request.args);if(error)throw new Error(error.message);
       });
+      await Promise.all([loadSchedule(),review.profileId?loadCoachMonth(review.profileId):Promise.resolve(),isAdmin?loadAdmin():Promise.resolve(),isAdmin?loadOverviewSchedule():Promise.resolve()]);
+      if(result.succeeded.length===selected.length){
+        closeDailyConfirmation();
+        flash(`${result.succeeded.length} shift${result.succeeded.length===1?"":"s"} confirmed successfully`);
+        return;
+      }
       setDailyConfirmation({...review,succeeded:[...(review.succeeded||[]),...result.succeeded],selectedIds:Object.keys(result.failed),results:result.failed});
       flash(`${result.succeeded.length} shifts processed; ${Object.keys(result.failed).length} need attention.`);
-      await Promise.all([loadSchedule(),review.profileId?loadCoachMonth(review.profileId):Promise.resolve(),isAdmin?loadAdmin():Promise.resolve(),isAdmin?loadOverviewSchedule():Promise.resolve()]);
     }catch(error){flash(error instanceof Error?error.message:'Unable to refresh shifts. Review the results before retrying.')}
     finally{dailyFlight.current=false;setSaving(false)}
   }
@@ -2427,7 +2441,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
         return <>
           <div className="v3CoachWelcome"><div><span className="v3WelcomeEyebrow">My coaching</span><h1>{`Good ${new Date().getHours()<12?"morning":new Date().getHours()<18?"afternoon":"evening"}, ${initialProfile.full_name.split(" ")[0]}`}</h1><p>{todayItems.length?`You have ${todayItems.length} coaching ${todayItems.length===1?"session":"sessions"} today.`:"You have no coaching scheduled today."}</p></div>{isAdmin&&adminPersonalRota&&<button className="btn btnSecondary" onClick={()=>setAdminPersonalRota(false)}>← Admin Schedule</button>}</div>
 
-          {todayConfirmable.length>0&&<div className="v13DailyConfirmAction"><button className="btn btnPrimary" type="button" onClick={()=>openDailyConfirmation(today,initialProfile.id)}>✓ Confirm Today&apos;s Work</button><span>{todayConfirmable.length} shift{todayConfirmable.length===1?"":"s"} ready for review</span></div>}
+          {todayConfirmable.length>0&&<div className="v13DailyConfirmAction"><button className="btn btnPrimary" type="button" onClick={event=>openDailyConfirmation(today,initialProfile.id,event.currentTarget)}>✓ Confirm Today&apos;s Work</button><span>{todayConfirmable.length} shift{todayConfirmable.length===1?"":"s"} ready for review</span></div>}
 
           <div className="v302MobileHero">
             <span className="v302HeroEyebrow">{todayItems.length?"Today's coaching":"A quieter day"}</span>
@@ -2964,7 +2978,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
       <div className="modalBody v405ScheduleControlBody">
         <div className="v11AssignedPrimaryActions">{LinkedClassAction({shift:s})}
           {s.status==="scheduled"&&s.profile_id&&<button className="btn btnPrimary" type="button" onClick={async()=>{await confirmScheduled(s);setAdminScheduleShift(null)}}>Confirm Worked</button>}
-          {eligibleDailyConfirmations(s.shift_date).length>0&&<button className="btn btnPrimary" type="button" onClick={()=>{setAdminScheduleShift(null);openDailyConfirmation(s.shift_date)}}>✓ Confirm Selected Day</button>}
+          {eligibleDailyConfirmations(s.shift_date).length>0&&<button className="btn btnPrimary" type="button" onClick={event=>{setAdminScheduleShift(null);openDailyConfirmation(s.shift_date,null,event.currentTarget)}}>✓ Confirm Selected Day</button>}
           <button className="btn btnSecondary" type="button" disabled={s.status==="cancelled"||s.status==="confirmed"} onClick={()=>{setAdminScheduleShift(null);setCoachAssignmentSearch("");openStaffingRecommendations(s)}}>Reassign Coach</button>
         </div>
         <div className="v311ShiftSummary"><div><span>Planned hours</span><strong>{scheduleHours(s).toFixed(2)}h</strong></div><div><span>Status</span><strong className={`scheduleStatus ${s.status}`}>{s.adjustment_status==="pending"?"Approval pending":s.status}</strong></div></div>
@@ -3021,13 +3035,13 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
     const scopedEmploymentType=review.profileId&&eligible.length?employmentTypeFor(eligible[0]):null;
     const toggle=(id:string)=>setDailyConfirmation({...review,selectedIds:review.selectedIds.includes(id)?review.selectedIds.filter(item=>item!==id):[...review.selectedIds,id]});
     return <div className="modalBackdrop"><div className="modal modalWide v13DailyConfirmModal">
-      <div className="modalHead"><div><span className="v3WelcomeEyebrow">Daily confirmation</span><h2>{review.profileId===initialProfile.id&&review.date===localDateKey()?"Confirm Today’s Work":"Confirm Selected Day"}</h2><p className="muted">{person?.full_name||"All staff"} · {new Date(`${review.date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</p></div><button className="iconButton" type="button" disabled={saving} onClick={()=>setDailyConfirmation(null)}>×</button></div>
+      <div className="modalHead"><div><span className="v3WelcomeEyebrow">Daily confirmation</span><h2>{review.profileId===initialProfile.id&&review.date===localDateKey()?"Confirm Today’s Work":"Confirm Selected Day"}</h2><p className="muted">{person?.full_name||"All staff"} · {new Date(`${review.date}T12:00:00`).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</p></div><button className="iconButton" type="button" disabled={saving} onClick={closeDailyConfirmation}>×</button></div>
       <div className="modalBody v13DailyConfirmBody">
         {review.succeeded?.length?<p role="status">Processed successfully: {review.succeeded.map(id=>{const shift=scheduleScope.find(s=>s.id===id);return shift?`${profileById(shift.profile_id)?.full_name||"Staff"} · ${shift.class_name} (${shift.start_time.slice(0,5)})`:id}).join('; ')}. These shifts will not be submitted again.</p>:null}
         <div className="v13ConfirmationRows">{eligible.filter(shift=>!review.succeeded?.includes(shift.id)).map(shift=><ActualTimeCard key={shift.id} staff={profileById(shift.profile_id)?.full_name||person?.full_name||"Staff"} className={shift.class_name} planned={{start:shift.start_time.slice(0,5),finish:shift.finish_time.slice(0,5),breakMinutes:Number(shift.break_minutes||0)}} actual={review.actuals[shift.id]} selected={review.selectedIds.includes(shift.id)} disabled={saving} error={review.results?.[shift.id]} onSelect={()=>toggle(shift.id)} onChange={actual=>setDailyConfirmation({...review,actuals:{...review.actuals,[shift.id]:actual},results:{...review.results,[shift.id]:''}})}/>)}</div>
         <div className="v13ConfirmationTotals"><div><span>Total Shifts</span><strong>{selected.length}</strong></div><div><span>Total Hours</span><strong>{totalHours.toFixed(2)}h</strong></div><div><span>{scopedEmploymentType==="salaried"?"Pay":scopedEmploymentType==="volunteer"?"Payment":"Estimated Hourly Earnings"}</span><strong>{scopedEmploymentType==="salaried"?"Salary Included":scopedEmploymentType==="volunteer"?"Volunteer":money(totalEarnings)}</strong></div></div>
       </div>
-      <div className="modalFoot"><button className="btn btnSecondary" type="button" disabled={saving} onClick={()=>setDailyConfirmation(null)}>{review.succeeded?.length?"Done":"Cancel"}</button><button className="btn btnPrimary" type="button" disabled={saving||selected.length===0} onClick={()=>void confirmDailySelection()}>{saving?"Confirming…":`Confirm ${selected.length||"Selected"} Shift${selected.length===1?"":"s"}`}</button></div>
+      <div className="modalFoot"><button className="btn btnSecondary" type="button" disabled={saving} onClick={closeDailyConfirmation}>{review.succeeded?.length?"Done":"Cancel"}</button><button className="btn btnPrimary" type="button" disabled={saving||selected.length===0} onClick={()=>void confirmDailySelection()}>{saving?"Confirming…":review.succeeded?.length?`Retry ${selected.length} failed shift${selected.length===1?"":"s"}`:`Confirm ${selected.length||"Selected"} Shift${selected.length===1?"":"s"}`}</button></div>
     </div></div>;
   }
 

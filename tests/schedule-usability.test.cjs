@@ -39,3 +39,20 @@ test('confirmation controller blocks concurrent submissions and retains only fai
  const fn=new Function(...Object.keys(context),body+';return confirmDailySelection')(...Object.values(context));const first=fn();await fn();assert.equal(calls.length,1);release();await first;
  assert.deepEqual(updated.succeeded,['a']);assert.deepEqual(updated.selectedIds,['b']);assert.equal(updated.results.b,'Month locked');assert.equal(updated.actuals.b.finish,'17:45');assert.deepEqual(saving,[true,false]);assert.equal(context.dailyFlight.current,false);
 });
+test('all-success confirmation closes, reports the original count, and does not resubmit successes',async()=>{
+ const source=fs.readFileSync('app/dashboard/ui.tsx','utf8');const body=source.slice(source.indexOf('  async function confirmDailySelection()'),source.indexOf('  async function openAdjustment'));
+ const shifts=['a','b','c'].map(id=>({id,start_time:'16:00',finish_time:'18:00',break_minutes:10}));
+ const review={date:'2026-09-15',profileId:null,selectedIds:['a','b','c'],actuals:{a:planned,b:planned,c:planned}};
+ let updated='unchanged',toast='',refreshes=0,calls=0;
+ const context={dailyConfirmation:review,dailyFlight:{current:false},eligibleDailyConfirmations:()=>shifts,setSaving(){},confirmActualBatch:async items=>{calls+=items.length;return{succeeded:items.map(item=>item.id),failed:{}}},isAdmin:true,supabase:{rpc:async()=>({error:null})},setDailyConfirmation:value=>updated=value,closeDailyConfirmation:()=>{updated=null},flash:value=>{toast=value},loadSchedule:async()=>{refreshes++},loadCoachMonth:async()=>{},loadAdmin:async()=>{},loadOverviewSchedule:async()=>{}};
+ const fn=new Function(...Object.keys(context),body+';return confirmDailySelection')(...Object.values(context));await fn();
+ assert.equal(updated,null);assert.equal(toast,'3 shifts confirmed successfully');assert.equal(refreshes,1);assert.equal(calls,3);
+});
+test('empty confirmation cannot submit and partial retry is failure-only',()=>{
+ const source=fs.readFileSync('app/dashboard/ui.tsx','utf8');
+ assert.match(source,/disabled=\{saving\|\|selected\.length===0\}/);
+ assert.match(source,/Retry \$\{selected\.length\} failed shift/);
+ assert.match(source,/selectedIds:Object\.keys\(result\.failed\)/);
+ assert.match(source,/if\(result\.succeeded\.length===selected\.length\)/);
+ assert.match(source,/closeDailyConfirmation\(\);\s*flash\(`\$\{result\.succeeded\.length\} shift/);
+});
