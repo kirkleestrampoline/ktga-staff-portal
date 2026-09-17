@@ -7,6 +7,7 @@ module.exports = function loader(overrides = {}) {
   const cache = new Map();
   function load(filename) {
     filename = path.resolve(filename);
+    if (path.extname(filename) === '.css') return {};
     if (cache.has(filename)) return cache.get(filename).exports;
     const module = { exports: {} };
     cache.set(filename, module);
