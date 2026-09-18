@@ -8,7 +8,7 @@ function harness(data=fixture()){
  const client={rpc:async(name,args)=>{calls.push({name,args});return {data:{id:'imported',sessions:data.sessions.map(s=>({...s,staffing:[]}))},error:null}}};
  const View=loader({react:mockReact,'./classes.css':{},'@/lib/supabase/client':{createClient:()=>client}})('components/classes/classes-view.tsx').default;
  function render(){index=0;refIndex=0;return View({})}
- function open(mode){const library=nodes(render()).find(n=>n.props?.onLifecycle&&n.props?.onOpen);const Library=loader({react:{...React,useState:x=>[x,()=>{}]}})('components/classes/class-library.tsx').default;button(Library(library.props),mode==='edit'?'Edit':'View').props.onClick();return render()}
+ function open(mode){button(render(),'Class Library').props.onClick();const library=nodes(render()).find(n=>n.props?.onLifecycle&&n.props?.onOpen);const Library=loader({react:{...React,useState:x=>[x,()=>{}]}})('components/classes/class-library.tsx').default;button(Library(library.props),mode==='edit'?'Edit':'Open class').props.onClick();return render()}
  return {render,open,calls,data};
 }
 function form(tree){return nodes(tree).find(n=>n.type==='form')}

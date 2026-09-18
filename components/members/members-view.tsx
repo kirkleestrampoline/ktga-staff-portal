@@ -1,4 +1,5 @@
 "use client";
+import './members.css';
 import { useEffect,useMemo,useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { deleteMember,manageMember,readMemberDirectory,type MemberCommand } from '@/lib/members/management';

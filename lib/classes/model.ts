@@ -8,8 +8,8 @@ export type Assignment={class_id:string|null;staffing_slot_id:string|null;shift_
 export type Exclusion={class_id:string;staffing_slot_id:string|null;shift_date:string};
 export type CalendarData={editing_version?:number;creation_version?:number;lifecycle_version?:number;coaches?:{id:string;full_name:string}[];qualifications?:{id:string;name:string}[];profiles:ClassProfile[];sessions:Session[];categories:Category[];programmes:Programme[];venues:{id:string;name:string;active:boolean}[];slots:Slot[];shifts:Assignment[];exclusions:Exclusion[];activity:{class_profile_id:string;action:string;created_at:string}[]};
 export type Event={key:string;date:string;profile:ClassProfile;session:Session;colour:string;coverage:'unknown'|'covered'|'understaffed'|'cancelled';assigned:number;required:number;excludedSlots:number};
-export type Filters={category:string;programme:string;venue:string;status:string;visibility:string;coverage:string};
-export const emptyFilters:Filters={category:'',programme:'',venue:'',status:'',visibility:'',coverage:''};
+export type Filters={category:string;programme:string;venue:string;status:string;visibility:string;coverage:string;className?:string};
+export const emptyFilters:Filters={category:'',programme:'',venue:'',status:'',visibility:'',coverage:'',className:''};
 // Date-only arithmetic uses UTC, independent of browser DST and timezone.
 export function dateKey(date:Date){return date.toISOString().slice(0,10)}
 export function addDays(day:string,n:number){const d=new Date(`${day}T12:00:00Z`);d.setUTCDate(d.getUTCDate()+n);return dateKey(d)}
@@ -33,7 +33,7 @@ export function expandCalendar(data:CalendarData,from:string,to:string,filters:F
    if(filters.status?status!==filters.status:status==='archived')continue;
    const programme=data.programmes.find(p=>p.id===profile.programme_id);
    const categoryId=profile.category_id||programme?.category_id;
-   if(filters.category&&categoryId!==filters.category||filters.programme&&profile.programme_id!==filters.programme||filters.venue&&session.venue_id!==filters.venue||filters.visibility&&profile.visibility!==filters.visibility)continue;
+   if(filters.className&&!profile.name.toLowerCase().includes(filters.className.trim().toLowerCase())||filters.category&&categoryId!==filters.category||filters.programme&&profile.programme_id!==filters.programme||filters.venue&&session.venue_id!==filters.venue||filters.visibility&&profile.visibility!==filters.visibility)continue;
    const slots=data.slots.filter(s=>s.class_id===session.id&&s.active);
    const exclusions=data.exclusions.filter(e=>e.class_id===session.id&&e.shift_date===date);
    if(exclusions.some(e=>e.staffing_slot_id===null))continue;
