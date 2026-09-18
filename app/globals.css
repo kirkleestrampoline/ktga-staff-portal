@@ -3294,6 +3294,7 @@ td .btn{min-height:36px;padding:7px 11px;font-size:11.5px}
 .memberConsole .memberDetailSection{padding:14px;border-radius:12px;border:1px solid var(--line);background:var(--surface);box-shadow:none}
 .memberConsole .memberDetailSection[hidden]{display:none}
 .memberConsole .memberDetailSection dl{gap:8px;font-size:13px;margin:8px 0}.memberConsole .memberDetailSection dt{color:var(--muted)}.memberConsole .memberDetailSection dd{color:var(--ink)}
+.recentAttendance .membersCounts{grid-template-columns:repeat(3,minmax(0,1fr))}.recentAttendanceList{list-style:none;padding:0;margin:14px 0 0;display:grid;gap:8px}.recentAttendanceList li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px;border:1px solid var(--line);border-radius:10px}.recentAttendanceList li>div{display:grid;gap:3px;min-width:0}.recentAttendanceList strong{color:var(--ink)}.recentAttendanceList li>div span{font-size:11px;color:var(--muted)}
 .memberConsole .membersTabs{width:auto;margin:0}.memberConsole .membersTabs button{flex:0 1 auto}
 .memberConsole .membersCounts{max-width:none;margin:0}.memberConsole .memberActions{gap:6px}.memberConsole .memberActions .btn{min-height:38px;padding:8px 12px;font-size:12px}
 .memberConsole .memberDangerZone{padding:14px;margin-top:8px}.memberConsole .memberDangerZone h3{color:var(--danger)}

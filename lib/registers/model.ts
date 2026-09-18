@@ -1,0 +1,11 @@
+export const attendanceStates=['unmarked','present','late','absent','apology'] as const;
+export type AttendanceState=typeof attendanceStates[number];
+export type RegisterSummary={class_id:string;class_profile_id:string;occurrence_id:string|null;occurrence_date:string;class_name:string;start_time:string;finish_time:string;venue_id:string;venue_name:string;category_id:string|null;category_name:string|null;programme_id:string|null;programme_name:string|null;expected_count:number;marked_count:number;completed:boolean};
+export type AttendanceRow={id:string;athlete_id:string;athlete_name:string;family_id:string;enrolment_id:string;is_trial:boolean;status:AttendanceState;arrival_time:string|null;note:string|null;updated_at:string;updated_by_name:string|null};
+export type RegisterDetail={occurrence:{id:string;class_id:string;class_profile_id:string;occurrence_date:string;class_name:string;start_time:string;finish_time:string;venue_name:string;expected_count:number;marked_count:number;completed:boolean};athletes:AttendanceRow[]};
+export type AttendanceRecent={summary:{expected:number;present:number;late:number;absent:number;apology:number;attendance_rate:number|null};records:{occurrence_date:string;class_name:string;start_time:string;venue_name:string;status:AttendanceState;arrival_time:string|null;note:string}[]};
+export type RegisterFilters={venue:string;category:string;programme:string;completion:string};
+export const emptyRegisterFilters:RegisterFilters={venue:'',category:'',programme:'',completion:''};
+export const attendanceLabel=(value:AttendanceState)=>value==='apology'?'Apology':value.replace(/^./,letter=>letter.toUpperCase());
+export function filterRegisters(rows:RegisterSummary[],filters:RegisterFilters){return rows.filter(row=>(!filters.venue||row.venue_id===filters.venue)&&(!filters.category||row.category_id===filters.category)&&(!filters.programme||row.programme_id===filters.programme)&&(!filters.completion||(filters.completion==='complete')===row.completed)).sort((a,b)=>a.start_time.localeCompare(b.start_time)||a.class_name.localeCompare(b.class_name)||a.class_id.localeCompare(b.class_id))}
+export function attendanceCounts(rows:AttendanceRow[]){const expected=rows.length,marked=rows.filter(row=>row.status!=='unmarked').length;return {expected,marked,completed:expected>0&&expected===marked}}

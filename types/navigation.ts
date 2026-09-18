@@ -15,7 +15,7 @@ export type DashboardTab=
   | "profile";
 
 export const dashboardTabs:DashboardTab[]=["members","classes","dashboard","availability","schedule","leave","staff","workforce","expenses","timesheets","invoices","reports","settings","profile"];
-export const coachDashboardTabs:DashboardTab[]=["schedule","leave","expenses","timesheets","invoices","profile"];
+export const coachDashboardTabs:DashboardTab[]=["classes","schedule","leave","expenses","timesheets","invoices","profile"];
 
 export function defaultDashboardTab(role:string):DashboardTab{
   return role==="admin"||role==="club_owner"||role==="org_admin"?"dashboard":"schedule";

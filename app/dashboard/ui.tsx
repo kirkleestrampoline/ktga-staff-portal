@@ -2300,7 +2300,7 @@ export default function Dashboard({initialProfile,initialTab,initialMonth,launch
           {tab==="leave"&&LeaveView()}
           {tab==="expenses"&&ExpensesView()}
           {tab==="members"&&isAdmin&&<MembersView/>}
-          {tab==="classes"&&isAdmin&&<ClassesView initialProfileId={classesRequestedId} onOpened={()=>setClassesRequestedId(null)}/>}
+          {tab==="classes"&&<ClassesView initialProfileId={classesRequestedId} onOpened={()=>setClassesRequestedId(null)} canEdit={isAdmin} registersOnly={!isAdmin}/>}
           {tab==="timesheets"&&TimesheetView()}
           {tab==="invoices"&&InvoicesView()}
           {tab==="staff"&&isAdmin&&StaffView()}

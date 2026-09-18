@@ -32,7 +32,7 @@ export function navigationForRole(role:string):NavigationItem[]{
   const visible=definitions.filter(item=>admin||item.coachLabel!==undefined);
   const link=(item:typeof definitions[number]):NavigationLink=>({id:item.id,label:admin?item.label:item.coachLabel!,icon:item.icon});
   const staff:NavigationGroup={id:"staff-module",label:"Staff",icon:"users",children:visible.filter(item=>item.staff).map(link)};
-  return [...visible.filter(item=>item.id==="dashboard").map(link),staff,...(admin?futureModules:[]),...visible.filter(item=>!item.staff&&item.id!=="dashboard").map(link)];
+  return [...visible.filter(item=>item.id==="dashboard").map(link),staff,...(admin?futureModules:futureModules.filter(item=>item.id==='module-classes')),...visible.filter(item=>!item.staff&&item.id!=="dashboard").map(link)];
 }
 export function isNavigationGroup(item:NavigationItem):item is NavigationGroup{return "children" in item}
 export function navigationItemActive(item:NavigationItem,tab:DashboardTab):boolean{
